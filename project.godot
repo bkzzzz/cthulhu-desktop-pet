@@ -1,0 +1,48 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="cthulu"
+config/description="A desktop pet placement game"
+run/main_scene="res://scenes/Main.tscn"
+config/auto_accept_quit=false
+config/quit_on_go_back=false
+config/features=PackedStringArray("4.5", "Forward Plus")
+config/icon="res://assets/ui/starterUi/启动icon.png"
+boot_splash/show_image=true
+boot_splash/image="res://assets/ui/starterUi/加载图标.png"
+boot_splash/fullsize=false
+boot_splash/use_filter=false
+boot_splash/bg_color=Color(0, 0, 0, 0)
+boot_splash/minimum_display_time=700
+
+[display]
+
+window/size/viewport_width=820
+window/size/viewport_height=420
+window/size/resizable=false
+window/size/borderless=true
+window/size/transparent=true
+window/size/window_width_override=820
+window/size/window_height_override=420
+window/subwindows/embed_subwindows=false
+window/stretch/aspect="ignore"
+window/per_pixel_transparency/allowed=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+textures/canvas_textures/default_texture_filter=0
+viewport/transparent_background=true
+environment/defaults/default_clear_color=Color(0, 0, 0, 0)
+2d/snap/snap_2d_transforms_to_pixel=true
+2d/snap/snap_2d_vertices_to_pixel=true
