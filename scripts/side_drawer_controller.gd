@@ -6,7 +6,6 @@ signal quit_requested
 signal drawer_opened
 signal pet_count_upgrade_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
-signal pet_leader_candidate_requested(pet_id: String, candidate_index: int)
 signal faith_add_requested(amount: int)
 signal offering_drop_requested(offering: Dictionary)
 
@@ -121,8 +120,6 @@ var _drawer_symbols: Array[TextureRect] = []
 var _upgrade_detail_panel: PanelContainer
 var _upgrade_detail_name_edit: LineEdit
 var _upgrade_detail_level_label: Label
-var _upgrade_detail_candidate_button: OptionButton
-var _upgrade_detail_leader_swatch: ColorRect
 var _upgrade_detail_desc_label: Label
 var _upgrade_detail_stats_label: RichTextLabel
 var _hovered_upgrade_pet_id := ""
@@ -133,7 +130,6 @@ var _upgrade_detail_panel_hovered := false
 var _upgrade_detail_pet_id := ""
 var _upgrade_detail_source_button: Control
 var _updating_upgrade_detail_name := false
-var _updating_upgrade_detail_candidate := false
 var _adder_glow: Sprite2D
 var _adder_button: TextureButton
 var _upgrade_scroller: ScrollContainer
@@ -546,7 +542,7 @@ func _create_upgrade_detail_panel() -> void:
 	_upgrade_detail_panel.name = "UpgradeDetailPanel"
 	_upgrade_detail_panel.visible = false
 	_upgrade_detail_panel.position = Vector2(DRAWER_BOOKMARK_WIDTH + 24.0, 96.0)
-	_upgrade_detail_panel.size = Vector2(396.0, 282.0)
+	_upgrade_detail_panel.size = Vector2(396.0, 242.0)
 	_upgrade_detail_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_upgrade_detail_panel.z_index = 20
 	_upgrade_detail_panel.add_theme_stylebox_override("panel", _make_upgrade_detail_style())
@@ -596,33 +592,6 @@ func _create_upgrade_detail_panel() -> void:
 	_upgrade_detail_level_label.add_theme_constant_override("outline_size", 3)
 	header.add_child(_upgrade_detail_level_label)
 
-	var candidate_row := HBoxContainer.new()
-	candidate_row.add_theme_constant_override("separation", 8)
-	content.add_child(candidate_row)
-
-	var candidate_label := Label.new()
-	candidate_label.text = "领袖候选"
-	candidate_label.custom_minimum_size = Vector2(74.0, 32.0)
-	candidate_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	candidate_label.add_theme_font_size_override("font_size", 14)
-	candidate_label.add_theme_color_override("font_color", Color(0.8, 0.78, 0.62, 1.0))
-	candidate_row.add_child(candidate_label)
-
-	_upgrade_detail_leader_swatch = ColorRect.new()
-	_upgrade_detail_leader_swatch.custom_minimum_size = Vector2(24.0, 24.0)
-	_upgrade_detail_leader_swatch.color = Color(0.72, 0.72, 0.68, 1.0)
-	candidate_row.add_child(_upgrade_detail_leader_swatch)
-
-	_upgrade_detail_candidate_button = OptionButton.new()
-	_upgrade_detail_candidate_button.custom_minimum_size = Vector2(238.0, 32.0)
-	_upgrade_detail_candidate_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_upgrade_detail_candidate_button.add_theme_font_size_override("font_size", 14)
-	_upgrade_detail_candidate_button.add_theme_color_override("font_color", Color(0.92, 0.86, 0.64, 1.0))
-	_upgrade_detail_candidate_button.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	_upgrade_detail_candidate_button.add_theme_constant_override("outline_size", 2)
-	_upgrade_detail_candidate_button.item_selected.connect(_on_upgrade_detail_candidate_selected)
-	candidate_row.add_child(_upgrade_detail_candidate_button)
-
 	_upgrade_detail_desc_label = Label.new()
 	_upgrade_detail_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_upgrade_detail_desc_label.custom_minimum_size = Vector2(358.0, 38.0)
@@ -634,7 +603,7 @@ func _create_upgrade_detail_panel() -> void:
 	_upgrade_detail_stats_label.bbcode_enabled = true
 	_upgrade_detail_stats_label.fit_content = true
 	_upgrade_detail_stats_label.scroll_active = false
-	_upgrade_detail_stats_label.custom_minimum_size = Vector2(362.0, 132.0)
+	_upgrade_detail_stats_label.custom_minimum_size = Vector2(362.0, 116.0)
 	_upgrade_detail_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_upgrade_detail_stats_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_upgrade_detail_stats_label.add_theme_font_size_override("normal_font_size", 15)
@@ -1576,7 +1545,7 @@ func _on_upgrade_row_hovered(pet_id: String, button: Control, hovered: bool) -> 
 
 func _update_upgrade_detail_hover(delta: float) -> void:
 	if _upgrade_detail_panel != null and _upgrade_detail_panel.visible:
-		var still_near_detail := _upgrade_detail_panel_hovered or _is_mouse_in_upgrade_detail_safe_zone() or _is_upgrade_candidate_popup_visible()
+		var still_near_detail := _upgrade_detail_panel_hovered or _is_mouse_in_upgrade_detail_safe_zone()
 		if still_near_detail:
 			_upgrade_detail_hide_timer = UPGRADE_DETAIL_HIDE_GRACE
 		else:
@@ -1610,19 +1579,6 @@ func _on_upgrade_detail_name_changed(new_text: String) -> void:
 	pet_rename_requested.emit(_upgrade_detail_pet_id, new_text.strip_edges())
 
 
-func _on_upgrade_detail_candidate_selected(index: int) -> void:
-	if _updating_upgrade_detail_candidate or _upgrade_detail_pet_id.is_empty():
-		return
-	pet_leader_candidate_requested.emit(_upgrade_detail_pet_id, index)
-
-
-func _is_upgrade_candidate_popup_visible() -> bool:
-	if _upgrade_detail_candidate_button == null:
-		return false
-	var popup := _upgrade_detail_candidate_button.get_popup()
-	return popup != null and popup.visible
-
-
 func _is_mouse_in_upgrade_detail_safe_zone() -> bool:
 	if _upgrade_detail_panel == null or not _upgrade_detail_panel.visible:
 		return false
@@ -1653,25 +1609,6 @@ func _get_pet_display_name(pet_id: String, pet_data: Dictionary) -> String:
 	return String(pet_data.get("name", pet_id))
 
 
-func _refresh_upgrade_detail_candidate_button(candidates: Array, selected_index: int) -> void:
-	if _upgrade_detail_candidate_button == null:
-		return
-
-	_updating_upgrade_detail_candidate = true
-	_upgrade_detail_candidate_button.clear()
-	for index in candidates.size():
-		var candidate: Dictionary = candidates[index]
-		var candidate_name := String(candidate.get("name", "候选人 %d" % (index + 1)))
-		var trait_name := String(candidate.get("trait", "未知"))
-		_upgrade_detail_candidate_button.add_item("%s · %s" % [candidate_name, trait_name], index)
-
-	var has_candidates := candidates.size() > 0
-	_upgrade_detail_candidate_button.disabled = not has_candidates
-	if has_candidates:
-		_upgrade_detail_candidate_button.select(clampi(selected_index, 0, candidates.size() - 1))
-	_updating_upgrade_detail_candidate = false
-
-
 func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 	if _upgrade_detail_panel == null:
 		return
@@ -1679,9 +1616,9 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 	var pet_data := PetCatalog.get_definition(pet_id)
 	var entry: Dictionary = {}
 	for entry_value in _upgrade_entries:
-		var candidate: Dictionary = entry_value
-		if String(candidate.get("id", "")) == pet_id:
-			entry = candidate
+		var entry_candidate: Dictionary = entry_value
+		if String(entry_candidate.get("id", "")) == pet_id:
+			entry = entry_candidate
 			break
 
 	var display_name := String(entry.get("name", _get_pet_display_name(pet_id, pet_data)))
@@ -1696,11 +1633,6 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 	var discount := float(entry.get("upgrade_discount", 0.0))
 	var affordable: bool = _upgrade_affordables.get(pet_id, false) == true
 	var leader_age := int(entry.get("leader_age", 24))
-	var leader_trait := String(entry.get("leader_trait", "沉稳"))
-	var leader_description := String(entry.get("leader_description", "这位领袖正在观察族群的动向。"))
-	var leader_color: Color = entry.get("leader_color", Color(0.72, 0.72, 0.68, 1.0))
-	var leader_candidates: Array = entry.get("leader_candidates", [])
-	var leader_index := int(entry.get("leader_index", 0))
 
 	if _upgrade_detail_name_edit != null:
 		_updating_upgrade_detail_name = true
@@ -1708,14 +1640,9 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 		_updating_upgrade_detail_name = false
 	if _upgrade_detail_level_label != null:
 		_upgrade_detail_level_label.text = "数量 %d" % count
-	if _upgrade_detail_leader_swatch != null:
-		_upgrade_detail_leader_swatch.color = leader_color
-	_refresh_upgrade_detail_candidate_button(leader_candidates, leader_index)
 	_upgrade_detail_desc_label.text = String(entry.get("description", pet_data.get("description", "")))
-	_upgrade_detail_stats_label.text = "领袖年龄 %d 岁\n[color=#c8d878]%s[/color]：%s\n好感度 %d [color=#c8d878]（升级减免 %.0f%%）[/color]\n增加 +%s / 秒\n增加后 +%s / 秒\n消耗 %s\n%s" % [
+	_upgrade_detail_stats_label.text = "领袖年龄 %d 岁\n好感度 %d [color=#c8d878]（升级减免 %.0f%%）[/color]\n增加 +%s / 秒\n增加后 +%s / 秒\n消耗 %s\n%s" % [
 		leader_age,
-		leader_trait,
-		leader_description,
 		favor,
 		discount * 100.0,
 		_format_number(next_bonus),
@@ -1746,7 +1673,6 @@ func _hide_upgrade_detail_panel(pet_id := "") -> void:
 	_upgrade_detail_hover_time = 0.0
 	_upgrade_detail_panel_hovered = false
 	_updating_upgrade_detail_name = false
-	_updating_upgrade_detail_candidate = false
 	_upgrade_detail_hide_timer = 0.0
 
 

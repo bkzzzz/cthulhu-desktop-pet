@@ -41,32 +41,6 @@ const PET_HUNGER_NOTICE_MAX_SECONDS := 34.0
 const OFFERING_FAVOR_GAIN := 2
 const FAVOR_COST_REDUCTION_PER_POINT := 0.004
 const FAVOR_COST_REDUCTION_MAX := 0.4
-const LEADER_VARIANTS := [
-	{
-		"id": "steady_gray",
-		"trait": "沉稳",
-		"color_name": "灰色",
-		"name_suffix": "灰潮",
-		"tint": Color(0.68, 0.68, 0.64, 1.0),
-		"description": "行动慢一拍，但很少误判献祭的时机。"
-	},
-	{
-		"id": "chaos_green",
-		"trait": "混沌",
-		"color_name": "绿色",
-		"name_suffix": "碧梦",
-		"tint": Color(0.58, 0.98, 0.62, 1.0),
-		"description": "喜欢把仪式搅成新的形状，偶尔灵光一闪。"
-	},
-	{
-		"id": "brutal_redblack",
-		"trait": "暴戾",
-		"color_name": "红黑",
-		"name_suffix": "黑红齿",
-		"tint": Color(0.62, 0.22, 0.2, 1.0),
-		"description": "脾气锋利，守着族群时像一枚低声发热的印记。"
-	}
-]
 const EMOTION_MIN_INTERVAL_SECONDS := 2.8
 const EMOTION_HOLD_SECONDS := 3.2
 const GLOBAL_FAITH_MULTIPLIER := 1.0
@@ -221,8 +195,6 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	_ensure_pet_state(pet_id)
 	if actor.has_method("set_display_name"):
 		actor.call("set_display_name", _get_pet_display_name(pet_id))
-	if actor.has_method("set_leader_tint"):
-		actor.call("set_leader_tint", _get_pet_leader_color(pet_id))
 	actor.hover_changed.connect(_on_pet_hover_changed)
 	actor.petted.connect(_on_pet_petted)
 	actor.recall_requested.connect(_on_pet_recall_requested)
@@ -328,7 +300,6 @@ func _create_side_drawer() -> void:
 	_side_drawer.drawer_opened.connect(_on_drawer_opened)
 	_side_drawer.pet_count_upgrade_requested.connect(_on_pet_count_upgrade_requested)
 	_side_drawer.pet_rename_requested.connect(_on_inventory_pet_rename_requested)
-	_side_drawer.pet_leader_candidate_requested.connect(_on_pet_leader_candidate_requested)
 	_side_drawer.faith_add_requested.connect(_on_faith_add_requested)
 	_side_drawer.offering_drop_requested.connect(_on_offering_drop_requested)
 	_side_drawer.setup()
@@ -828,48 +799,23 @@ func _ensure_pet_state(pet_id: String) -> void:
 			"trust": 0,
 			"favor": 0,
 			"count": 1,
+			"leader_age": _make_leader_age(pet_id),
 			"hungry": false,
 			"last_fed_at": _get_now_seconds(),
 			"next_hunger_notice_at": _get_now_seconds() + PET_HUNGER_AFTER_SECONDS,
 			"next_trust_pet_at": _get_now_seconds() + _rng.randf_range(TRUST_PET_COOLDOWN_MIN_SECONDS, TRUST_PET_COOLDOWN_MAX_SECONDS)
 		}
-
-	_ensure_pet_leader_state(pet_id)
-
-
-func _ensure_pet_leader_state(pet_id: String) -> void:
-	if not _pet_states.has(pet_id):
 		return
 
 	var state: Dictionary = _pet_states[pet_id]
-	if not state.has("leader_candidates"):
-		state["leader_candidates"] = _make_leader_candidates(pet_id)
-	var candidates: Array = state.get("leader_candidates", [])
-	if not state.has("leader_index"):
-		state["leader_index"] = 0
-	if not candidates.is_empty():
-		state["leader_index"] = clampi(int(state.get("leader_index", 0)), 0, candidates.size() - 1)
+	if not state.has("leader_age"):
+		state["leader_age"] = _make_leader_age(pet_id)
 	_pet_states[pet_id] = state
 
 
-func _make_leader_candidates(pet_id: String) -> Array[Dictionary]:
-	var pet_data := PetCatalog.get_definition(pet_id)
-	var base_name := String(pet_data.get("name", pet_id))
+func _make_leader_age(pet_id: String) -> int:
 	var pet_index := maxi(0, PetCatalog.ACTIVE_DESKTOP_PETS.find(pet_id))
-	var candidates: Array[Dictionary] = []
-	for index in LEADER_VARIANTS.size():
-		var variant: Dictionary = LEADER_VARIANTS[index]
-		var age := 19 + (pet_index * 7) + (index * 11) + _rng.randi_range(0, 5)
-		candidates.append({
-			"id": String(variant.get("id", "leader_%d" % index)),
-			"name": "%s·%s" % [base_name, String(variant.get("name_suffix", "候选"))],
-			"trait": "%s（%s）" % [String(variant.get("trait", "未知")), String(variant.get("color_name", "异色"))],
-			"age": age,
-			"tint": variant.get("tint", Color.WHITE),
-			"description": String(variant.get("description", "这位候选人还没有留下可读的记录。"))
-		})
-
-	return candidates
+	return 24 + (pet_index * 9) + _rng.randi_range(0, 7)
 
 
 func _get_pet_state(pet_id: String) -> Dictionary:
@@ -887,9 +833,6 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 		var pet_data := PetCatalog.get_definition(pet_id)
 		var favor := _get_pet_favor(pet_id)
 		var discount := _get_pet_upgrade_discount(pet_id)
-		var leader := _get_pet_leader(pet_id)
-		var leader_candidates: Array = state.get("leader_candidates", [])
-		var leader_index := int(state.get("leader_index", 0))
 		var current_fps := _get_pet_faith_per_second(pet_id, count) * _get_total_faith_multiplier()
 		var next_fps := _get_pet_faith_per_second(pet_id, count + 1) * _get_total_faith_multiplier()
 		entries.append({
@@ -904,12 +847,7 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			"base_fps": float(pet_data.get("base_fps", 0.05)),
 			"cost_growth": float(pet_data.get("upgrade_cost_growth", 1.18)),
 			"power_growth": float(pet_data.get("power_growth", 1.035)),
-			"leader_age": int(leader.get("age", 24)),
-			"leader_trait": String(leader.get("trait", "沉稳")),
-			"leader_description": String(leader.get("description", "")),
-			"leader_color": leader.get("tint", Color.WHITE),
-			"leader_candidates": leader_candidates.duplicate(true),
-			"leader_index": leader_index,
+			"leader_age": _get_pet_leader_age(pet_id),
 			"current_fps": current_fps,
 			"next_fps": next_fps,
 			"next_growth_bonus": maxf(0.0, next_fps - current_fps),
@@ -940,20 +878,12 @@ func _get_pet_upgrade_discount(pet_id: String) -> float:
 	return clampf(float(_get_pet_favor(pet_id)) * FAVOR_COST_REDUCTION_PER_POINT, 0.0, FAVOR_COST_REDUCTION_MAX)
 
 
-func _get_pet_leader(pet_id: String) -> Dictionary:
+func _get_pet_leader_age(pet_id: String) -> int:
 	var state := _get_pet_state(pet_id)
-	var candidates: Array = state.get("leader_candidates", [])
-	if candidates.is_empty():
-		return {}
-
-	var index := clampi(int(state.get("leader_index", 0)), 0, candidates.size() - 1)
-	var leader: Dictionary = candidates[index]
-	return leader.duplicate(true)
-
-
-func _get_pet_leader_color(pet_id: String) -> Color:
-	var leader := _get_pet_leader(pet_id)
-	return leader.get("tint", Color.WHITE)
+	if not state.has("leader_age"):
+		state["leader_age"] = _make_leader_age(pet_id)
+		_pet_states[pet_id] = state
+	return maxi(1, int(state.get("leader_age", 24)))
 
 
 func _is_pet_hungry(pet_id: String) -> bool:
@@ -993,16 +923,11 @@ func _get_pet_display_name(pet_id: String) -> String:
 	if not custom_name.is_empty():
 		return custom_name
 
-	var leader := _get_pet_leader(pet_id)
-	var leader_name := String(leader.get("name", "")).strip_edges()
-	if not leader_name.is_empty():
-		return leader_name
-
 	var pet_data := PetCatalog.get_definition(pet_id)
 	return String(pet_data.get("name", pet_id))
 
 
-func _apply_pet_leader_visuals(pet_id: String) -> void:
+func _apply_pet_display_name(pet_id: String) -> void:
 	for pet in _pets:
 		if not is_instance_valid(pet):
 			continue
@@ -1010,8 +935,6 @@ func _apply_pet_leader_visuals(pet_id: String) -> void:
 			continue
 		if pet.has_method("set_display_name"):
 			pet.call("set_display_name", _get_pet_display_name(pet_id))
-		if pet.has_method("set_leader_tint"):
-			pet.call("set_leader_tint", _get_pet_leader_color(pet_id))
 
 
 func _set_pet_custom_name(pet_id: String, custom_name: String) -> void:
@@ -1026,7 +949,7 @@ func _set_pet_custom_name(pet_id: String, custom_name: String) -> void:
 		state["name"] = custom_name
 	_pet_states[pet_id] = state
 
-	_apply_pet_leader_visuals(pet_id)
+	_apply_pet_display_name(pet_id)
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
 
@@ -1220,26 +1143,6 @@ func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
 
 func _on_inventory_pet_rename_requested(pet_id: String, custom_name: String) -> void:
 	_set_pet_custom_name(pet_id, custom_name)
-
-
-func _on_pet_leader_candidate_requested(pet_id: String, candidate_index: int) -> void:
-	if pet_id.is_empty():
-		return
-
-	var state := _get_pet_state(pet_id)
-	var candidates: Array = state.get("leader_candidates", [])
-	if candidates.is_empty():
-		return
-
-	var next_index := clampi(candidate_index, 0, candidates.size() - 1)
-	state["leader_index"] = next_index
-	var leader: Dictionary = candidates[next_index]
-	state["name"] = String(leader.get("name", _get_pet_display_name(pet_id)))
-	_pet_states[pet_id] = state
-	_selected_pet_id = pet_id
-	_apply_pet_leader_visuals(pet_id)
-	_pet_upgrade_stats_dirty = true
-	_refresh_pet_stats(true)
 
 
 func _on_offering_drop_requested(offering: Dictionary) -> void:

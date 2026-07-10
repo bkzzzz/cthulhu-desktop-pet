@@ -65,11 +65,6 @@ func set_display_name(new_display_name: String) -> void:
 	_refresh_hover_hint_text()
 
 
-func set_leader_tint(tint: Color) -> void:
-	if _sprite != null:
-		_sprite.modulate = tint
-
-
 func set_window_bounds(window_size: Vector2i, min_x: float, max_x: float) -> void:
 	_window_size = window_size
 	_set_safe_bounds(min_x, max_x)
