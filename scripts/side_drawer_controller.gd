@@ -3,15 +3,16 @@ extends Node
 signal inventory_requested
 signal shop_requested
 signal quit_requested
-signal drawer_opened
 signal pet_count_upgrade_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
 signal faith_add_requested(amount: int)
 signal offering_drop_requested(offering: Dictionary)
 
+# Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const WindowsClickthroughController = preload("res://scripts/windows_clickthrough_controller.gd")
 
+# Window and drawer layout
 const DESKTOP_MARGIN_X := 24
 const DRAWER_BOOKMARK_WIDTH := 226
 const DRAWER_PANEL_WIDTH := 548
@@ -24,6 +25,7 @@ const MENU_WINDOW_SIZE := Vector2i(610, 220)
 const MENU_TO_DRAWER_GAP := 24
 const POSITION_RETRY_FRAMES := 90
 
+# UI assets
 const QUIT_BUTTON_TEXTURE := "res://assets/ui/elements/Quit.png"
 const MENU_ICON_TEXTURE := "res://assets/ui/newElements/菜单栏呼出.png"
 const ALTAR_TEXTURE := "res://assets/ui/newElements/祭坛.png"
@@ -37,6 +39,8 @@ const INTERACTION_CURSOR_TEXTURE := "res://assets/ui/newElements/鼠标交互.pn
 const UPGRADE_TEXTURE := "res://assets/ui/elements/upgrade.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
 const UI_FONT := "res://assets/ui/font/NormalFont.ttf"
+
+# Core UI sizing
 const MENU_ICON_SIZE := Vector2(218.0, 140.0)
 const ALTAR_SIZE := Vector2(320.0, 160.0)
 const CULT_WINDOW_SIZE := Vector2i(460, 500)
@@ -61,6 +65,8 @@ const OFFERING_ICON_SIZE := Vector2(78.0, 78.0)
 const OFFERING_FAITH_MIN := 2
 const OFFERING_FAITH_MAX := 8
 const OFFERING_GAIN_SECONDS := 20.0
+
+# Offering and particle data
 const OFFERING_ITEMS := [
 	{"name": "红果", "texture": "res://assets/ui/foods/红果.png"},
 	{"name": "华夫饼", "texture": "res://assets/ui/foods/华夫饼.png"},
@@ -98,6 +104,7 @@ const BOOKMARK_SAFE_INSET_X := 8.0
 const BOOKMARK_LABEL_POSITION := Vector2(84.0, 0.0)
 const BOOKMARK_LABEL_SIZE := Vector2(124.0, 82.0)
 
+# Window controls and drawer state
 var _menu_window: Window
 var _menu_button: TextureButton
 var _menu_hint: Label
@@ -140,6 +147,7 @@ var _drawer_screen_position := Vector2i.ZERO
 var _drawer_screen_size := Vector2i(DRAWER_WIDTH, 720)
 var _position_retry_frames := 0
 
+# Faith, upgrades, and offerings state
 var _faith_value_label: Label
 var _faith_title_label: Label
 var _faith_growth_value_label: Label
@@ -172,6 +180,7 @@ var _offering_entries: Array[Dictionary] = []
 var _rng := RandomNumberGenerator.new()
 
 
+# Lifecycle
 func setup() -> void:
 	_rng.randomize()
 	_offering_entries.clear()
@@ -199,6 +208,7 @@ func _process(delta: float) -> void:
 	_update_altar_notice(delta)
 
 
+# Public refresh API
 func refresh_faith(faith_count: float, growth_rate: float) -> void:
 	_faith_count = faith_count
 	_faith_growth_rate = growth_rate
@@ -270,6 +280,7 @@ func refresh_pet_upgrade_counts(entries: Array) -> void:
 	_refresh_cult_window()
 
 
+# Menu and drawer windows
 func _create_toggle_button() -> void:
 	_menu_window = Window.new()
 	_menu_window.name = "MenuHandleWindow"
@@ -537,6 +548,7 @@ func _reset_drawer_symbol(symbol: TextureRect, scatter_y: bool) -> void:
 	symbol.set_meta("phase", _rng.randf_range(0.0, TAU))
 
 
+# Upgrade panel UI
 func _create_upgrade_detail_panel() -> void:
 	_upgrade_detail_panel = PanelContainer.new()
 	_upgrade_detail_panel.name = "UpgradeDetailPanel"
@@ -702,6 +714,7 @@ func _make_faith_adder_button() -> TextureButton:
 	return button
 
 
+# Upgrade list rows
 func _make_upgrade_scroller() -> ScrollContainer:
 	var scroller := ScrollContainer.new()
 	_upgrade_scroller = scroller
@@ -960,6 +973,7 @@ func _play_altar_notice_jitter() -> void:
 	_altar_notice_tween.parallel().tween_property(_altar_notice, "rotation", 0.0, 0.08)
 
 
+# Cult and offering window
 func _create_cult_window() -> void:
 	_cult_window = Window.new()
 	_cult_window.name = "CultCompositionWindow"
@@ -1341,6 +1355,7 @@ func _on_cult_name_changed(new_text: String) -> void:
 		_fit_font_to_text(_cult_window_name_edit, _cult_window_name_edit.text, 16, 10, 16)
 
 
+# Formatting and style helpers
 func _fit_font_to_text(control: Control, text: String, max_size: int, min_size: int, comfortable_chars: int) -> void:
 	if control == null:
 		return
@@ -1527,6 +1542,7 @@ func _set_upgrade_row_affordable(button: TextureButton, affordable: bool) -> voi
 	button.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.46, 0.46, 0.46, 0.78)
 
 
+# Upgrade hover detail
 func _on_upgrade_row_hovered(pet_id: String, button: Control, hovered: bool) -> void:
 	_upgrade_bonus_hovered[pet_id] = hovered
 	_refresh_upgrade_bonus_label(pet_id)
@@ -1732,6 +1748,7 @@ func _animate_control_press(control: Control) -> void:
 	tween.tween_property(control, "scale", Vector2.ONE, 0.08)
 
 
+# Cursor, effects, and hit masks
 func _on_interactive_control_hovered(control: Control, hovered: bool) -> void:
 	_animate_control_hover(control, hovered)
 	if hovered:
@@ -2001,6 +2018,7 @@ func _set_menu_window_mouse_passthrough(enabled: bool, force := false) -> void:
 	)
 
 
+# Window placement and drawer motion
 func _exit_tree() -> void:
 	if _menu_clickthrough_controller != null:
 		_menu_clickthrough_controller.call("shutdown")
@@ -2095,7 +2113,6 @@ func _toggle_drawer() -> void:
 		if not _drawer_window.visible or _drawer_window.position.x < _drawer_screen_position.x or _drawer_window.position.x >= _drawer_closed_x:
 			_drawer_window.position = Vector2i(_drawer_closed_x, _drawer_screen_position.y)
 		_drawer_window.visible = true
-		drawer_opened.emit()
 
 
 func _get_menu_handle_x(screen_rect: Rect2i) -> int:
@@ -2147,6 +2164,7 @@ func _on_altar_pressed() -> void:
 	_open_cult_window()
 
 
+# Button signal handlers
 func _on_pet_upgrade_pressed(pet_id: String, button: Control) -> void:
 	var affordable: bool = _upgrade_affordables.get(pet_id, false) == true
 	pet_count_upgrade_requested.emit(pet_id)

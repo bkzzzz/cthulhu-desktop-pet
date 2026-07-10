@@ -1,5 +1,6 @@
 extends Node2D
 
+# Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
@@ -8,6 +9,7 @@ const ShopWindowScript = preload("res://scripts/shop_window.gd")
 const SideDrawerController = preload("res://scripts/side_drawer_controller.gd")
 const WindowsClickthroughController = preload("res://scripts/windows_clickthrough_controller.gd")
 
+# Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
 const PET_WINDOW_HEIGHT := 420
 const PET_STAGE_MARGIN_X := 72.0
@@ -15,6 +17,7 @@ const PET_STAGE_RIGHT_MARGIN := 96.0
 const PET_STAGE_START_SPACING := 132.0
 const POSITION_RETRY_FRAMES := 90
 
+# Pet interaction and offering tuning
 const PETTING_TEXTURE := "res://assets/ui/emotions/petting.png"
 const PETTING_HOVER_TEXTURE := "res://assets/ui/emotions/pettingHovering.png"
 const PETTING_CURSOR_SIZE := Vector2i(56, 56)
@@ -41,6 +44,8 @@ const PET_HUNGER_NOTICE_MAX_SECONDS := 34.0
 const OFFERING_FAVOR_GAIN := 2
 const FAVOR_COST_REDUCTION_PER_POINT := 0.004
 const FAVOR_COST_REDUCTION_MAX := 0.4
+
+# Simulation and refresh cadence
 const EMOTION_MIN_INTERVAL_SECONDS := 2.8
 const EMOTION_HOLD_SECONDS := 3.2
 const GLOBAL_FAITH_MULTIPLIER := 1.0
@@ -53,6 +58,7 @@ const BELIEVER_FORCE_SPAWN_SECONDS := 60.0
 const UI_REFRESH_INTERVAL := 0.25
 const PET_MOUSE_HIT_HOLD_SECONDS := 0.08
 
+# Runtime actors and input state
 var _pets: Array[Node2D] = []
 var _believers: Array[Node2D] = []
 var _hovered_pet: Node2D
@@ -78,6 +84,7 @@ var _position_retry_frames := 0
 var _pet_window_size := PET_WINDOW_BASE_SIZE
 var _rng := RandomNumberGenerator.new()
 
+# Economy and UI state
 var _selected_pet_id := ""
 var _pet_states: Dictionary = {}
 var _faith_points := 0.0
@@ -93,6 +100,7 @@ var _shop_owned_counts := {}
 var _side_drawer: Node
 
 
+# Lifecycle
 func _ready() -> void:
 	_rng.randomize()
 	_configure_pet_window()
@@ -141,6 +149,7 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
+# Window setup
 func _configure_pet_window() -> void:
 	var window := get_window()
 	var usable_rect := _get_current_screen_usable_rect()
@@ -167,6 +176,7 @@ func _configure_pet_window() -> void:
 	_set_window_mouse_passthrough(window, true, true)
 
 
+# Desktop actors
 func _create_desktop_pets() -> void:
 	var min_x := _get_pet_stage_min_x()
 	var max_x := _get_pet_stage_max_x()
@@ -224,6 +234,7 @@ func _get_pet_stage_max_x() -> float:
 	return maxf(_get_pet_stage_min_x() + 1.0, float(_pet_window_size.x) - PET_STAGE_RIGHT_MARGIN)
 
 
+# Believers
 func _update_believers() -> void:
 	_cleanup_believers()
 	var threat_positions := _get_believer_threat_positions()
@@ -286,6 +297,7 @@ func _get_believer_threat_positions() -> Array[Vector2]:
 	return positions
 
 
+# UI windows
 func _prepare_petting_cursors() -> void:
 	_petting_hover_cursor_texture = _make_cursor_texture(PETTING_HOVER_TEXTURE, PETTING_CURSOR_SIZE)
 	_petting_click_cursor_texture = _make_cursor_texture(PETTING_TEXTURE, PETTING_CURSOR_SIZE)
@@ -297,7 +309,6 @@ func _create_side_drawer() -> void:
 	_side_drawer.inventory_requested.connect(_on_inventory_requested)
 	_side_drawer.shop_requested.connect(_on_shop_requested)
 	_side_drawer.quit_requested.connect(_on_quit_requested)
-	_side_drawer.drawer_opened.connect(_on_drawer_opened)
 	_side_drawer.pet_count_upgrade_requested.connect(_on_pet_count_upgrade_requested)
 	_side_drawer.pet_rename_requested.connect(_on_inventory_pet_rename_requested)
 	_side_drawer.faith_add_requested.connect(_on_faith_add_requested)
@@ -321,6 +332,7 @@ func _create_shop_window() -> void:
 	_sync_shop_state()
 
 
+# Window clickthrough and hit testing
 func _place_pet_window() -> void:
 	var usable_rect := _get_current_screen_usable_rect()
 	var window := get_window()
@@ -334,7 +346,6 @@ func _place_pet_window() -> void:
 	)
 	_update_actor_window_bounds()
 	_set_window_mouse_passthrough(window, _pet_window_mouse_passthrough, true)
-	_raise_pet_window()
 
 
 func _get_target_pet_window_size(usable_rect: Rect2i) -> Vector2i:
@@ -436,6 +447,7 @@ func _exit_tree() -> void:
 		_pet_clickthrough_controller.call("shutdown")
 
 
+# Petting, cursors, and emotion effects
 func _update_petting_cursor() -> void:
 	if not _carried_offering.is_empty():
 		_clear_petting_cursor()
@@ -743,6 +755,7 @@ func _get_emotion_texture_path(emotion_name: String) -> String:
 			return ""
 
 
+# Economy and progression
 func _refresh_pet_stats(force := false) -> void:
 	if _side_drawer == null:
 		return
@@ -989,6 +1002,7 @@ func _update_pet_hunger() -> void:
 			state["next_hunger_notice_at"] = now + _rng.randf_range(PET_HUNGER_NOTICE_MIN_SECONDS, PET_HUNGER_NOTICE_MAX_SECONDS)
 
 
+# Shared helpers
 func _get_actor_pet_id(actor: Node2D) -> String:
 	if actor != null and "pet_id" in actor:
 		return String(actor.pet_id)
@@ -998,10 +1012,6 @@ func _get_actor_pet_id(actor: Node2D) -> String:
 
 func _get_now_seconds() -> float:
 	return float(Time.get_ticks_msec()) / 1000.0
-
-
-func _raise_pet_window() -> void:
-	pass
 
 
 func _get_current_screen_usable_rect() -> Rect2i:
@@ -1015,6 +1025,7 @@ func _get_current_screen() -> int:
 	return screen
 
 
+# Event handlers
 func _on_pet_hover_changed(actor: Node2D, hovered: bool) -> void:
 	if hovered:
 		_hovered_pet = actor
@@ -1145,6 +1156,7 @@ func _on_inventory_pet_rename_requested(pet_id: String, custom_name: String) -> 
 	_set_pet_custom_name(pet_id, custom_name)
 
 
+# Offerings
 func _on_offering_drop_requested(offering: Dictionary) -> void:
 	if offering.is_empty():
 		return
@@ -1393,6 +1405,7 @@ func _get_safe_control_position(raw_position: Vector2, size: Vector2, margin: fl
 	return raw_position
 
 
+# Upgrade and global commands
 func _on_pet_count_upgrade_requested(pet_id: String) -> void:
 	if pet_id.is_empty():
 		return
@@ -1413,10 +1426,6 @@ func _on_pet_count_upgrade_requested(pet_id: String) -> void:
 func _on_faith_add_requested(amount: int) -> void:
 	_faith_points += float(maxi(1, amount))
 	_refresh_pet_stats(true)
-
-
-func _on_drawer_opened() -> void:
-	call_deferred("_raise_pet_window")
 
 
 func _on_quit_requested() -> void:
