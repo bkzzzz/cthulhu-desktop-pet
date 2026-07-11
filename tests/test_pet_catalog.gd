@@ -7,6 +7,8 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5"]
 	var desktop_scales := {}
+	var minimum_scale := INF
+	var maximum_scale := 0.0
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
 		failures.append("all five pets must be active")
 	if PetCatalog.INVENTORY_STARTER_PETS != expected_pets:
@@ -16,6 +18,8 @@ static func run() -> Array[String]:
 		var definition := PetCatalog.get_definition(pet_id)
 		var desktop_scale := float(definition.get("desktop_scale", 0.0))
 		desktop_scales[desktop_scale] = true
+		minimum_scale = minf(minimum_scale, desktop_scale)
+		maximum_scale = maxf(maximum_scale, desktop_scale)
 		if desktop_scale <= 0.0 or desktop_scale > 1.25:
 			failures.append("%s desktop scale must be within (0, 1.25]" % pet_id)
 		for key in ["icon", "idle"]:
@@ -31,6 +35,10 @@ static func run() -> Array[String]:
 			failures.append("%s must produce faith" % pet_id)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
+	if minimum_scale > 0.7:
+		failures.append("the smallest desktop pet must be visibly small")
+	if maximum_scale - minimum_scale < 0.6:
+		failures.append("desktop pet sizes must have a clear visual range")
 	var pet2_frames := PetCatalog.build_frames("pet2")
 	_check_frame_count(failures, pet2_frames, "close_eye", 16)
 	_check_frame_count(failures, pet2_frames, "open_eye", 16)
