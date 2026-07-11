@@ -6,6 +6,7 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 static func run() -> Array[String]:
 	var failures: Array[String] = []
 	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5"]
+	var desktop_scales := {}
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
 		failures.append("all five pets must be active")
 	if PetCatalog.INVENTORY_STARTER_PETS != expected_pets:
@@ -13,6 +14,10 @@ static func run() -> Array[String]:
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
+		var desktop_scale := float(definition.get("desktop_scale", 0.0))
+		desktop_scales[desktop_scale] = true
+		if desktop_scale <= 0.0 or desktop_scale > 1.25:
+			failures.append("%s desktop scale must be within (0, 1.25]" % pet_id)
 		for key in ["icon", "idle"]:
 			var path := String(definition.get(key, ""))
 			if path.is_empty() or not FileAccess.file_exists(path):
@@ -24,6 +29,8 @@ static func run() -> Array[String]:
 			failures.append("%s walk fallback must contain 12 frames" % pet_id)
 		if float(definition.get("base_fps", 0.0)) <= 0.0:
 			failures.append("%s must produce faith" % pet_id)
+	if desktop_scales.size() == 1:
+		failures.append("desktop pets must use varied sizes")
 	var pet2_frames := PetCatalog.build_frames("pet2")
 	_check_frame_count(failures, pet2_frames, "close_eye", 16)
 	_check_frame_count(failures, pet2_frames, "open_eye", 16)
