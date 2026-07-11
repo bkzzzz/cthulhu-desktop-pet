@@ -14,10 +14,13 @@ const PET_OFFERING_WALK_SPEED := 190.0
 const PET_SPEED_VARIANCE := 9.0
 const PET_VISUAL_SIZE := Vector2(230.0, 310.0)
 const HOVER_HINT_DELAY_SECONDS := 0.45
-const GRAB_HOLD_SECONDS := 0.38
+const GRAB_HOLD_SECONDS := 0.22
+const GRAB_DRAG_DISTANCE := 5.0
 const GRAB_CLICK_TOLERANCE := 12.0
 const FALL_GRAVITY := 1250.0
 const WALL_CRAWL_SPEED := 48.0
+const FLOAT_BOB_AMPLITUDE := 14.0
+const AIR_ROAM_SPEED := 52.0
 
 enum Behavior {
 	IDLE,
@@ -31,6 +34,9 @@ enum Behavior {
 	WALL_CRAWL_UP,
 	WALL_PAUSE,
 	WALL_CRAWL_DOWN,
+	AIR_ROAM_OUT,
+	AIR_ROAM_PAUSE,
+	AIR_ROAM_RETURN,
 	GRABBED,
 	FALLING
 }
@@ -56,6 +62,8 @@ var _behavior_style := "wanderer"
 var _idle_time_min := 0.9
 var _idle_time_max := 4.6
 var _special_chance := 0.0
+var _wall_chance := 0.0
+var _air_roam_chance := 0.0
 var _special_time_min := 1.0
 var _special_time_max := 3.0
 var _pet_scale := DEFAULT_PET_SCALE
@@ -64,6 +72,12 @@ var _frame_foot_y := 102.0
 var _ground_offset_y := 0.0
 var _faces_right := false
 var _float_phase := 0.0
+var _air_path_start := Vector2.ZERO
+var _air_path_target := Vector2.ZERO
+var _air_path_progress := 0.0
+var _air_path_duration := 1.0
+var _sleep_anchor_position := Vector2.ZERO
+var _sleep_returns_to_ground := false
 var _idle_turn_time := 0.0
 var _fall_velocity := 0.0
 var _behavior := Behavior.IDLE
@@ -97,6 +111,8 @@ func setup(new_pet_id: String, window_size: Vector2i, min_x: float, max_x: float
 	_idle_time_min = float(pet_data.get("idle_time_min", 0.9))
 	_idle_time_max = maxf(_idle_time_min, float(pet_data.get("idle_time_max", 4.6)))
 	_special_chance = clampf(float(pet_data.get("special_chance", 0.0)), 0.0, 1.0)
+	_wall_chance = clampf(float(pet_data.get("wall_chance", 0.0)), 0.0, 1.0)
+	_air_roam_chance = clampf(float(pet_data.get("air_roam_chance", 0.0)), 0.0, 1.0)
 	_special_time_min = float(pet_data.get("special_time_min", 1.0))
 	_special_time_max = maxf(_special_time_min, float(pet_data.get("special_time_max", 3.0)))
 	var configured_speed := float(pet_data.get("walk_speed", PET_WALK_SPEED))
@@ -171,6 +187,23 @@ func react_to_petting(emotion: String) -> void:
 			if emotion == "suprised" and _behavior not in [Behavior.WALL_CRAWL_UP, Behavior.WALL_PAUSE, Behavior.WALL_CRAWL_DOWN]:
 				_cancel_special_behavior()
 				_start_wall_trip()
+
+
+func _input(event: InputEvent) -> void:
+	if not _pointer_held:
+		return
+	if event is InputEventMouseMotion:
+		var pointer_position := _get_pointer_position()
+		if _behavior != Behavior.GRABBED and pointer_position.distance_to(_press_position) >= GRAB_DRAG_DISTANCE:
+			_begin_grab()
+		if _behavior == Behavior.GRABBED:
+			_update_grabbed_position()
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton:
+		var mouse_event := event as InputEventMouseButton
+		if mouse_event.button_index == MOUSE_BUTTON_LEFT and not mouse_event.pressed:
+			_finish_pointer_hold()
+			get_viewport().set_input_as_handled()
 
 
 func _process(delta: float) -> void:
@@ -300,13 +333,15 @@ func _update_pet(delta: float) -> void:
 			if _special_time <= 0.0:
 				_start_emerging()
 		Behavior.SLEEPING:
-			_apply_floating_position(1.8)
+			_apply_sleep_pose()
 			_special_time -= delta
 			if _special_time <= 0.0:
 				_behavior = Behavior.SLEEP_OPENING
 				_sprite.play("open_eye")
-		Behavior.BURROW_DOWN, Behavior.BURROW_UP, Behavior.SLEEP_CLOSING, Behavior.SLEEP_OPENING:
-			_apply_grounded_position(pet_id == "pet2")
+		Behavior.BURROW_DOWN, Behavior.BURROW_UP:
+			_apply_grounded_position(false)
+		Behavior.SLEEP_CLOSING, Behavior.SLEEP_OPENING:
+			_apply_sleep_pose()
 		Behavior.WALL_CRAWL_UP:
 			_update_wall_crawl(delta, -1.0)
 		Behavior.WALL_PAUSE:
@@ -315,6 +350,13 @@ func _update_pet(delta: float) -> void:
 				_behavior = Behavior.WALL_CRAWL_DOWN
 		Behavior.WALL_CRAWL_DOWN:
 			_update_wall_crawl(delta, 1.0)
+		Behavior.AIR_ROAM_OUT, Behavior.AIR_ROAM_RETURN:
+			_update_air_roam(delta)
+		Behavior.AIR_ROAM_PAUSE:
+			_apply_air_pause_motion()
+			_special_time -= delta
+			if _special_time <= 0.0:
+				_start_air_return()
 
 
 func _update_walking(delta: float) -> void:
@@ -338,7 +380,10 @@ func _update_walking(delta: float) -> void:
 	_face_direction(distance)
 	if _sprite.animation != "walk":
 		_sprite.play("walk")
-	_apply_grounded_position(_behavior_style == "sleepy_floater")
+	if _behavior_style == "sleepy_floater":
+		_apply_floating_position(FLOAT_BOB_AMPLITUDE)
+	else:
+		_apply_grounded_position(false)
 
 
 func _update_idle(delta: float) -> void:
@@ -363,7 +408,11 @@ func _choose_next_action() -> void:
 	if _behavior_style == "sleepy_floater" and special_roll < _special_chance:
 		_start_sleeping()
 		return
-	if _behavior_style == "wall_climber" and special_roll < _special_chance:
+	if _behavior_style == "sleepy_floater" and special_roll < _special_chance + _air_roam_chance:
+		_start_air_roam()
+		return
+	var wall_threshold := _special_chance + _air_roam_chance + _wall_chance
+	if special_roll < wall_threshold:
 		_start_wall_trip()
 		return
 	_choose_walk_target()
@@ -436,8 +485,63 @@ func _start_emerging() -> void:
 
 
 func _start_sleeping() -> void:
+	_sleep_anchor_position = position
+	_sleep_returns_to_ground = position.y < _get_rest_y() - 40.0
 	_behavior = Behavior.SLEEP_CLOSING
 	_sprite.play("close_eye")
+
+
+func _start_air_roam() -> void:
+	var upper_y := maxf(90.0, float(_window_size.y) * 0.14)
+	var lower_y := maxf(upper_y + 40.0, _get_rest_y() - (float(_window_size.y) * 0.22))
+	var destination := Vector2(
+		_rng.randf_range(_min_x, _max_x),
+		_rng.randf_range(upper_y, lower_y)
+	)
+	_begin_air_path(destination, Behavior.AIR_ROAM_OUT)
+
+
+func _start_air_return() -> void:
+	var destination := Vector2(clampf(position.x, _min_x, _max_x), _get_rest_y())
+	_begin_air_path(destination, Behavior.AIR_ROAM_RETURN)
+
+
+func _begin_air_path(destination: Vector2, next_behavior: int) -> void:
+	_air_path_start = position
+	_air_path_target = destination
+	_air_path_progress = 0.0
+	_air_path_duration = maxf(0.8, _air_path_start.distance_to(destination) / AIR_ROAM_SPEED)
+	_behavior = next_behavior
+	_face_direction(destination.x - position.x)
+	_sprite.play("walk")
+
+
+func _update_air_roam(delta: float) -> void:
+	_air_path_progress = minf(1.0, _air_path_progress + (delta / _air_path_duration))
+	var eased_progress := smoothstep(0.0, 1.0, _air_path_progress)
+	var path_direction := _air_path_target - _air_path_start
+	var perpendicular := Vector2(-path_direction.y, path_direction.x).normalized()
+	var wave_envelope := sin(_air_path_progress * PI)
+	var curved_offset := perpendicular * sin(_air_path_progress * PI * 3.0) * 18.0 * wave_envelope
+	var bob_offset := Vector2(0.0, sin(_float_phase * 1.35) * 5.0 * wave_envelope)
+	position = _air_path_start.lerp(_air_path_target, eased_progress) + curved_offset + bob_offset
+	if _air_path_progress < 1.0:
+		return
+
+	position = _air_path_target
+	if _behavior == Behavior.AIR_ROAM_OUT:
+		_behavior = Behavior.AIR_ROAM_PAUSE
+		_special_time = _rng.randf_range(2.5, 6.0)
+		_sprite.play("idle")
+	else:
+		_start_idle()
+
+
+func _apply_air_pause_motion() -> void:
+	position = _air_path_target + Vector2(
+		sin(_float_phase * 0.58) * 7.0,
+		sin(_float_phase * 1.12) * 11.0
+	)
 
 
 func _start_wall_trip() -> void:
@@ -488,7 +592,10 @@ func _on_animation_finished() -> void:
 			_special_time = _rng.randf_range(_special_time_min, _special_time_max)
 			_sprite.play("sleep")
 		Behavior.SLEEP_OPENING:
-			_start_idle()
+			if _sleep_returns_to_ground:
+				_start_air_return()
+			else:
+				_start_idle()
 
 
 func _cancel_special_behavior() -> void:
@@ -508,11 +615,17 @@ func _face_direction(direction: float) -> void:
 
 
 func _apply_grounded_position(with_float: bool) -> void:
-	_apply_floating_position(7.0 if with_float else 0.0)
+	_apply_floating_position(FLOAT_BOB_AMPLITUDE if with_float else 0.0)
 
 
 func _apply_floating_position(amplitude: float) -> void:
-	position.y = _get_rest_y() + (sin(_float_phase) * amplitude)
+	var primary_wave := sin(_float_phase) * 0.78
+	var secondary_wave := sin((_float_phase * 0.47) + 1.2) * 0.22
+	position.y = _get_rest_y() + ((primary_wave + secondary_wave) * amplitude)
+
+
+func _apply_sleep_pose() -> void:
+	position = _sleep_anchor_position + Vector2(0.0, sin(_float_phase * 0.55) * 1.8)
 
 
 func _update_pointer_interaction(delta: float) -> void:
@@ -522,14 +635,15 @@ func _update_pointer_interaction(delta: float) -> void:
 		_finish_pointer_hold()
 		return
 	_pointer_hold_time += delta
-	if _behavior != Behavior.GRABBED and _pointer_hold_time >= GRAB_HOLD_SECONDS:
+	var pointer_position := _get_pointer_position()
+	var moved_to_drag := pointer_position.distance_to(_press_position) >= GRAB_DRAG_DISTANCE
+	if _behavior != Behavior.GRABBED and (_pointer_hold_time >= GRAB_HOLD_SECONDS or moved_to_drag):
 		_begin_grab()
 
 
 func _begin_grab() -> void:
 	_cancel_special_behavior()
 	_behavior = Behavior.GRABBED
-	_grab_offset = position - get_viewport().get_mouse_position()
 	z_index = 500
 	_sprite.play("idle")
 	if _hover_hint != null:
@@ -538,7 +652,7 @@ func _begin_grab() -> void:
 
 
 func _update_grabbed_position() -> void:
-	var mouse_position := get_viewport().get_mouse_position()
+	var mouse_position := _get_pointer_position()
 	var target := mouse_position + _grab_offset
 	target.x = clampf(target.x, _get_drag_min_x(), _get_drag_max_x())
 	target.y = clampf(target.y, 32.0, float(_window_size.y) - 12.0)
@@ -554,7 +668,7 @@ func _finish_pointer_hold() -> void:
 		_fall_velocity = 0.0
 		z_index = 0
 		grabbed_changed.emit(self, false)
-	elif get_viewport().get_mouse_position().distance_to(_press_position) <= GRAB_CLICK_TOLERANCE:
+	elif _get_pointer_position().distance_to(_press_position) <= GRAB_CLICK_TOLERANCE:
 		petted.emit(self)
 	_pointer_hold_time = 0.0
 
@@ -571,6 +685,14 @@ func _update_falling(delta: float) -> void:
 		_start_idle()
 
 
+func _get_pointer_position() -> Vector2:
+	var window := get_window()
+	if window == null:
+		return get_viewport().get_mouse_position()
+	var global_mouse := DisplayServer.mouse_get_position()
+	return Vector2(global_mouse - window.position)
+
+
 func _set_safe_bounds(min_x: float, max_x: float) -> void:
 	var half_width := (PET_VISUAL_SIZE.x * 0.5) + 8.0
 	_min_x = maxf(min_x, half_width)
@@ -582,11 +704,11 @@ func _set_safe_bounds(min_x: float, max_x: float) -> void:
 
 
 func _get_drag_min_x() -> float:
-	return 48.0 if pet_id == "pet5" else _min_x
+	return 48.0
 
 
 func _get_drag_max_x() -> float:
-	return float(_window_size.x) - 48.0 if pet_id == "pet5" else _max_x
+	return float(_window_size.x) - 48.0
 
 
 func _get_wall_x() -> float:
@@ -635,7 +757,7 @@ func _on_gui_input(event: InputEvent) -> void:
 	if not event is InputEventMouseButton:
 		return
 	var mouse_event := event as InputEventMouseButton
-	var window_position := get_viewport().get_mouse_position()
+	var window_position := _get_pointer_position()
 	if mouse_event.button_index == MOUSE_BUTTON_LEFT:
 		if mouse_event.pressed:
 			if not is_point_over_opaque_pixel(window_position):
@@ -643,6 +765,7 @@ func _on_gui_input(event: InputEvent) -> void:
 			_pointer_held = true
 			_pointer_hold_time = 0.0
 			_press_position = window_position
+			_grab_offset = position - window_position
 			_interaction_area.accept_event()
 		elif _pointer_held:
 			_finish_pointer_hold()

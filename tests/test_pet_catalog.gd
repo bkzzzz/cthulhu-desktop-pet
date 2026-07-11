@@ -27,6 +27,13 @@ static func run() -> Array[String]:
 		maximum_scale = maxf(maximum_scale, desktop_scale)
 		if desktop_scale <= 0.0 or desktop_scale > 1.25:
 			failures.append("%s desktop scale must be within (0, 1.25]" % pet_id)
+		var total_special_chance := (
+			float(definition.get("special_chance", 0.0))
+			+ float(definition.get("air_roam_chance", 0.0))
+			+ float(definition.get("wall_chance", 0.0))
+		)
+		if total_special_chance > 1.0:
+			failures.append("%s special action chances must not exceed 1" % pet_id)
 		for key in ["icon", "idle"]:
 			var path := String(definition.get(key, ""))
 			if path.is_empty() or not FileAccess.file_exists(path):
@@ -46,6 +53,11 @@ static func run() -> Array[String]:
 		failures.append("the smallest desktop pet must be visibly small")
 	if maximum_scale - minimum_scale < 0.6:
 		failures.append("desktop pet sizes must have a clear visual range")
+	for climbing_pet_id in ["pet1", "pet3", "pet4", "pet5"]:
+		if float(PetCatalog.get_definition(climbing_pet_id).get("wall_chance", 0.0)) <= 0.0:
+			failures.append("%s must occasionally climb a screen edge" % climbing_pet_id)
+	if float(PetCatalog.get_definition("pet2").get("air_roam_chance", 0.0)) <= 0.0:
+		failures.append("pet2 must occasionally roam above the taskbar")
 	var pet2_frames := PetCatalog.build_frames("pet2")
 	_check_frame_count(failures, pet2_frames, "close_eye", 16)
 	_check_frame_count(failures, pet2_frames, "open_eye", 16)

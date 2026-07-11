@@ -13,6 +13,7 @@ const WindowsClickthroughController = preload("res://scripts/windows_clickthroug
 
 # Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
+const PET_TASKBAR_OVERLAP_PIXELS := 14
 const PET_STAGE_MARGIN_X := 72.0
 const PET_STAGE_RIGHT_MARGIN := 96.0
 const PET_STAGE_START_SPACING := 132.0
@@ -105,6 +106,7 @@ var _side_drawer: Node
 
 # Lifecycle
 func _ready() -> void:
+	Input.use_accumulated_input = false
 	_rng.randomize()
 	_configure_pet_window()
 	_create_desktop_pets()
@@ -343,7 +345,7 @@ func _place_pet_window() -> void:
 	_pet_window_size = _get_target_pet_window_size(usable_rect)
 	window.size = _pet_window_size
 	var target_x: int = usable_rect.position.x
-	var target_y: int = usable_rect.position.y + usable_rect.size.y - _pet_window_size.y
+	var target_y: int = usable_rect.position.y
 	window.position = Vector2i(
 		target_x,
 		target_y
@@ -355,7 +357,7 @@ func _place_pet_window() -> void:
 func _get_target_pet_window_size(usable_rect: Rect2i) -> Vector2i:
 	return Vector2i(
 		maxi(PET_WINDOW_BASE_SIZE.x, usable_rect.size.x),
-		maxi(PET_WINDOW_BASE_SIZE.y, usable_rect.size.y)
+		maxi(PET_WINDOW_BASE_SIZE.y, usable_rect.size.y + PET_TASKBAR_OVERLAP_PIXELS)
 	)
 
 
