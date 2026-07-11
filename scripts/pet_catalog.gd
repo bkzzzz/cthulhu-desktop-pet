@@ -28,13 +28,17 @@ const DEFINITIONS := {
 		"desktop_scale": 1.25,
 		"frame_center_y": 64.0,
 		"frame_foot_y": 112,
+		"ground_offset_y": -48.0,
+		"faces_right": true,
 		"upgrade_cost_base": 80,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.35,
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet2/pet2.png",
 		"idle": "res://assets/NewCharacters/pet2/pet2Idle.png",
-		"walk": ""
+		"walk": "",
+		"closing_eye": "res://assets/NewCharacters/pet2/pet2ClosingEye.png",
+		"sleep": "res://assets/NewCharacters/pet2/pet2Sleep.png"
 	},
 	"pet3": {
 		"id": "pet3",
@@ -50,7 +54,8 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet3/pet3.png",
 		"idle": "res://assets/NewCharacters/pet3/pet3Idle.png",
-		"walk": "res://assets/NewCharacters/pet3/pet3Walk.png"
+		"walk": "res://assets/NewCharacters/pet3/pet3Walk.png",
+		"burrow": "res://assets/NewCharacters/pet3/pet3BurrowUnder.png"
 	},
 	"pet4": {
 		"id": "pet4",
@@ -129,6 +134,11 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 	var frame_foot_y := int(pet_data.get("frame_foot_y", 102))
 	_add_sheet_animation(frames, "idle", String(pet_data.get("idle", "")), 4.8, frame_foot_y)
 	_add_sheet_animation(frames, "walk", String(pet_data.get("walk", "")), 9.0, frame_foot_y)
+	_add_sheet_animation(frames, "close_eye", String(pet_data.get("closing_eye", "")), 10.0, frame_foot_y, 4, 4, false)
+	_add_sheet_animation(frames, "sleep", String(pet_data.get("sleep", "")), 3.5, frame_foot_y, 4, 2, true, true)
+	_add_sheet_animation(frames, "burrow", String(pet_data.get("burrow", "")), 9.0, frame_foot_y, 4, 3, false)
+	_add_reversed_animation(frames, "close_eye", "open_eye")
+	_add_reversed_animation(frames, "burrow", "emerge")
 
 	if not frames.has_animation("idle") or frames.get_frame_count("idle") == 0:
 		frames.add_animation("idle")
@@ -178,7 +188,17 @@ static func make_icon_texture(texture_path: String, padding := 8) -> Texture2D:
 	return ImageTexture.create_from_image(cropped)
 
 
-static func _add_sheet_animation(frames: SpriteFrames, animation_name: String, sheet_path: String, speed: float, frame_foot_y: int) -> void:
+static func _add_sheet_animation(
+	frames: SpriteFrames,
+	animation_name: String,
+	sheet_path: String,
+	speed: float,
+	frame_foot_y: int,
+	columns := SHEET_COLUMNS,
+	rows := SHEET_ROWS,
+	loop := true,
+	skip_empty_frames := false
+) -> void:
 	if sheet_path.is_empty():
 		return
 
@@ -194,25 +214,41 @@ static func _add_sheet_animation(frames: SpriteFrames, animation_name: String, s
 
 	source_image.convert(Image.FORMAT_RGBA8)
 	var frame_size := Vector2i(
-		int(source_image.get_width() / float(SHEET_COLUMNS)),
-		int(source_image.get_height() / float(SHEET_ROWS))
+		int(source_image.get_width() / float(columns)),
+		int(source_image.get_height() / float(rows))
 	)
 	var key_color := source_image.get_pixel(0, 0)
 
 	if not frames.has_animation(animation_name):
 		frames.add_animation(animation_name)
 
-	frames.set_animation_loop(animation_name, true)
+	frames.set_animation_loop(animation_name, loop)
 	frames.set_animation_speed(animation_name, speed)
 
-	for row in SHEET_ROWS:
-		for column in SHEET_COLUMNS:
+	for row in rows:
+		for column in columns:
 			var frame_image := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
 			var source_rect := Rect2i(Vector2i(column * frame_size.x, row * frame_size.y), frame_size)
 			frame_image.blit_rect(source_image, source_rect, Vector2i.ZERO)
 			_apply_chroma_key(frame_image, key_color)
+			if skip_empty_frames and _get_visible_bounds(frame_image).size == Vector2i.ZERO:
+				continue
 			frame_image = _align_frame_to_floor(frame_image, frame_foot_y)
 			frames.add_frame(animation_name, ImageTexture.create_from_image(frame_image))
+
+
+static func _add_reversed_animation(frames: SpriteFrames, source_name: String, target_name: String) -> void:
+	if not frames.has_animation(source_name):
+		return
+	var frame_count := frames.get_frame_count(source_name)
+	if frame_count == 0:
+		return
+
+	frames.add_animation(target_name)
+	frames.set_animation_loop(target_name, false)
+	frames.set_animation_speed(target_name, frames.get_animation_speed(source_name))
+	for index in range(frame_count - 1, -1, -1):
+		frames.add_frame(target_name, frames.get_frame_texture(source_name, index))
 
 
 static func _apply_chroma_key(image: Image, key_color: Color) -> void:

@@ -24,4 +24,17 @@ static func run() -> Array[String]:
 			failures.append("%s walk fallback must contain 12 frames" % pet_id)
 		if float(definition.get("base_fps", 0.0)) <= 0.0:
 			failures.append("%s must produce faith" % pet_id)
+	var pet2_frames := PetCatalog.build_frames("pet2")
+	_check_frame_count(failures, pet2_frames, "close_eye", 16)
+	_check_frame_count(failures, pet2_frames, "open_eye", 16)
+	_check_frame_count(failures, pet2_frames, "sleep", 7)
+	var pet3_frames := PetCatalog.build_frames("pet3")
+	_check_frame_count(failures, pet3_frames, "burrow", 12)
+	_check_frame_count(failures, pet3_frames, "emerge", 12)
 	return failures
+
+
+static func _check_frame_count(failures: Array[String], frames: SpriteFrames, animation_name: String, expected: int) -> void:
+	var actual := frames.get_frame_count(animation_name)
+	if actual != expected:
+		failures.append("%s must contain %d frames, got %d" % [animation_name, expected, actual])

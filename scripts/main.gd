@@ -13,7 +13,6 @@ const WindowsClickthroughController = preload("res://scripts/windows_clickthroug
 
 # Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
-const PET_WINDOW_HEIGHT := 420
 const PET_STAGE_MARGIN_X := 72.0
 const PET_STAGE_RIGHT_MARGIN := 96.0
 const PET_STAGE_START_SPACING := 132.0
@@ -354,7 +353,10 @@ func _place_pet_window() -> void:
 
 
 func _get_target_pet_window_size(usable_rect: Rect2i) -> Vector2i:
-	return Vector2i(maxi(PET_WINDOW_BASE_SIZE.x, usable_rect.size.x), PET_WINDOW_HEIGHT)
+	return Vector2i(
+		maxi(PET_WINDOW_BASE_SIZE.x, usable_rect.size.x),
+		maxi(PET_WINDOW_BASE_SIZE.y, usable_rect.size.y)
+	)
 
 
 func _update_actor_window_bounds() -> void:
@@ -371,7 +373,7 @@ func _update_actor_window_bounds() -> void:
 
 func _update_pet_window_mouse_passthrough(delta := 0.0) -> void:
 	var window := get_window()
-	if not _carried_offering.is_empty():
+	if not _carried_offering.is_empty() or _has_captured_pet_pointer():
 		_pet_mouse_hit_hold_time = PET_MOUSE_HIT_HOLD_SECONDS
 		_set_window_mouse_passthrough(window, false)
 		return
@@ -393,6 +395,14 @@ func _update_pet_window_mouse_passthrough(delta := 0.0) -> void:
 	_set_window_mouse_passthrough(window, false)
 	if _hovered_pet != hit_pet:
 		_hovered_pet = hit_pet
+
+
+func _has_captured_pet_pointer() -> bool:
+	for pet in _pets:
+		if is_instance_valid(pet) and pet.has_method("is_pointer_captured"):
+			if bool(pet.call("is_pointer_captured")):
+				return true
+	return false
 
 
 func _get_pet_at_position(window_position: Vector2) -> Node2D:
@@ -457,6 +467,9 @@ func _update_petting_cursor() -> void:
 	if not _carried_offering.is_empty():
 		_clear_petting_cursor()
 		_refresh_offering_cursor()
+		return
+	if _has_captured_pet_pointer():
+		_clear_petting_cursor()
 		return
 
 	if _petting_active:
