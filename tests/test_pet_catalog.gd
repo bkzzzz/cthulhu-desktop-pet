@@ -53,9 +53,12 @@ static func run() -> Array[String]:
 		failures.append("the smallest desktop pet must be visibly small")
 	if maximum_scale - minimum_scale < 0.6:
 		failures.append("desktop pet sizes must have a clear visual range")
-	for climbing_pet_id in ["pet1", "pet3", "pet4", "pet5"]:
+	for climbing_pet_id in ["pet4", "pet5"]:
 		if float(PetCatalog.get_definition(climbing_pet_id).get("wall_chance", 0.0)) <= 0.0:
 			failures.append("%s must occasionally climb a screen edge" % climbing_pet_id)
+	for ground_pet_id in ["pet1", "pet3"]:
+		if float(PetCatalog.get_definition(ground_pet_id).get("wall_chance", 0.0)) > 0.0:
+			failures.append("%s must remain a ground-only pet" % ground_pet_id)
 	if float(PetCatalog.get_definition("pet2").get("air_roam_chance", 0.0)) <= 0.0:
 		failures.append("pet2 must occasionally roam above the taskbar")
 	var pet2_frames := PetCatalog.build_frames("pet2")
