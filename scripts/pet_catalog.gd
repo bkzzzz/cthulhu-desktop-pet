@@ -1,57 +1,45 @@
 extends RefCounted
 
-const ACTIVE_DESKTOP_PETS := ["octupus1_1", "octupus2_1", "octupus3_1"]
-const INVENTORY_STARTER_PETS := ["octupus1_1", "octupus2_1", "octupus3_1"]
+const ACTIVE_DESKTOP_PETS := ["pet1", "pet2"]
+const INVENTORY_STARTER_PETS := ["pet1", "pet2"]
 
 const DEFINITIONS := {
-	"octupus1_1": {
-		"id": "octupus1_1",
-		"name": "Octupus 1-1",
-		"species": "Octupus",
-		"description": "潮湿幼体，适合最早投入信徒供养。",
-		"desktop_scale": 1.26,
+	"pet1": {
+		"id": "pet1",
+		"name": "肉芽眷族",
+		"species": "异形眷族",
+		"description": "伏地蠕行的肉芽眷族，擅长稳定积累信仰。",
+		"desktop_scale": 0.66,
+		"frame_center_y": 128.0,
+		"frame_foot_y": 220,
 		"upgrade_cost_base": 10,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.05,
 		"power_growth": 1.035,
-		"icon": "res://assets/characters/Octupus/octupus1_1.png",
-		"idle": "res://assets/characters/OctupusAnimation/octupusIdle1_1.png",
-		"walk": "res://assets/characters/OctupusAnimation/octupusWalk1_1.png"
+		"icon": "res://assets/NewCharacters/pet1/pet1.png",
+		"idle": "res://assets/NewCharacters/pet1/pet1Idle.png",
+		"walk": "res://assets/NewCharacters/pet1/pet1Walk.png"
 	},
-	"octupus2_1": {
-		"id": "octupus2_1",
-		"name": "Octupus 2-1",
-		"species": "Octupus",
-		"description": "更活跃的幼体，升级后能承载更多信仰。",
-		"desktop_scale": 1.26,
+	"pet2": {
+		"id": "pet2",
+		"name": "深渊浮灵",
+		"species": "深渊眷族",
+		"description": "漂浮的深渊眷族，以触须汇聚更强的信仰。",
+		"desktop_scale": 0.62,
+		"frame_center_y": 128.0,
+		"frame_foot_y": 232,
 		"upgrade_cost_base": 80,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.35,
 		"power_growth": 1.035,
-		"icon": "res://assets/characters/Octupus/octupus2_1.png",
-		"idle": "res://assets/characters/OctupusAnimation/octupusIdle2_1.png",
-		"walk": "res://assets/characters/OctupusAnimation/octupusWalk2_1.png"
-	},
-	"octupus3_1": {
-		"id": "octupus3_1",
-		"name": "Octupus 3-1",
-		"species": "Octupus",
-		"description": "眼状幼体，适合中期投入信徒升级。",
-		"desktop_scale": 1.26,
-		"upgrade_cost_base": 600,
-		"upgrade_cost_growth": 1.17,
-		"base_fps": 2.5,
-		"power_growth": 1.04,
-		"icon": "res://assets/characters/Octupus/octupus3_1.png",
-		"idle": "res://assets/characters/OctupusAnimation/octupusIdle3_1.png",
-		"walk": "res://assets/characters/OctupusAnimation/OctupusWalk3_1.png"
+		"icon": "res://assets/NewCharacters/pet2/pet2.png",
+		"idle": "res://assets/NewCharacters/pet2/pet2Idle.png",
+		"walk": ""
 	}
 }
 
 const SHEET_COLUMNS := 4
 const SHEET_ROWS := 3
-const SHEET_FRAME_CENTER_Y := 64.0
-const SHEET_FRAME_FOOT_Y := 102
 const CHROMA_KEY_TOLERANCE := 0.075
 
 static var _frame_cache := {}
@@ -90,8 +78,9 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 		frames.remove_animation("default")
 
 	var pet_data := get_definition(pet_id)
-	_add_sheet_animation(frames, "idle", String(pet_data.get("idle", "")), 4.8)
-	_add_sheet_animation(frames, "walk", String(pet_data.get("walk", "")), 9.0)
+	var frame_foot_y := int(pet_data.get("frame_foot_y", 102))
+	_add_sheet_animation(frames, "idle", String(pet_data.get("idle", "")), 4.8, frame_foot_y)
+	_add_sheet_animation(frames, "walk", String(pet_data.get("walk", "")), 9.0, frame_foot_y)
 
 	if not frames.has_animation("idle") or frames.get_frame_count("idle") == 0:
 		frames.add_animation("idle")
@@ -141,7 +130,7 @@ static func make_icon_texture(texture_path: String, padding := 8) -> Texture2D:
 	return ImageTexture.create_from_image(cropped)
 
 
-static func _add_sheet_animation(frames: SpriteFrames, animation_name: String, sheet_path: String, speed: float) -> void:
+static func _add_sheet_animation(frames: SpriteFrames, animation_name: String, sheet_path: String, speed: float, frame_foot_y: int) -> void:
 	if sheet_path.is_empty():
 		return
 
@@ -174,7 +163,7 @@ static func _add_sheet_animation(frames: SpriteFrames, animation_name: String, s
 			var source_rect := Rect2i(Vector2i(column * frame_size.x, row * frame_size.y), frame_size)
 			frame_image.blit_rect(source_image, source_rect, Vector2i.ZERO)
 			_apply_chroma_key(frame_image, key_color)
-			frame_image = _align_frame_to_floor(frame_image)
+			frame_image = _align_frame_to_floor(frame_image, frame_foot_y)
 			frames.add_frame(animation_name, ImageTexture.create_from_image(frame_image))
 
 
@@ -187,13 +176,13 @@ static func _apply_chroma_key(image: Image, key_color: Color) -> void:
 				image.set_pixel(x, y, color)
 
 
-static func _align_frame_to_floor(image: Image) -> Image:
+static func _align_frame_to_floor(image: Image, frame_foot_y: int) -> Image:
 	var bounds := _get_visible_bounds(image)
 	if bounds.size == Vector2i.ZERO:
 		return image
 
 	var visible_bottom := bounds.position.y + bounds.size.y - 1
-	var offset_y := SHEET_FRAME_FOOT_Y - visible_bottom
+	var offset_y := frame_foot_y - visible_bottom
 	if offset_y == 0:
 		return image
 

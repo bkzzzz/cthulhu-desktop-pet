@@ -12,8 +12,6 @@ const PET_WALK_SPEED := 34.0
 const PET_OFFERING_WALK_SPEED := 190.0
 const PET_SPEED_VARIANCE := 9.0
 const PET_VISUAL_SIZE := Vector2(230.0, 310.0)
-const SHEET_FRAME_CENTER_Y := 64.0
-const SHEET_FRAME_FOOT_Y := 102
 const HOVER_HINT_DELAY_SECONDS := 0.45
 
 var pet_id := ""
@@ -30,6 +28,8 @@ var _forced_target_pending := false
 var _base_walk_speed := PET_WALK_SPEED
 var _walk_speed := PET_WALK_SPEED
 var _pet_scale := DEFAULT_PET_SCALE
+var _frame_center_y := 64.0
+var _frame_foot_y := 102.0
 var _rng := RandomNumberGenerator.new()
 var _sprite: AnimatedSprite2D
 var _interaction_area: Control
@@ -45,6 +45,8 @@ func setup(new_pet_id: String, window_size: Vector2i, min_x: float, max_x: float
 	display_name = String(pet_data.get("name", pet_id))
 	_window_size = window_size
 	_pet_scale = float(pet_data.get("desktop_scale", DEFAULT_PET_SCALE))
+	_frame_center_y = float(pet_data.get("frame_center_y", 64.0))
+	_frame_foot_y = float(pet_data.get("frame_foot_y", 102.0))
 	_set_safe_bounds(min_x, max_x)
 	_rng.randomize()
 	_base_walk_speed = PET_WALK_SPEED + _rng.randf_range(-PET_SPEED_VARIANCE, PET_SPEED_VARIANCE)
@@ -297,7 +299,7 @@ func _update_hover_hint(delta: float) -> void:
 
 func _get_rest_y() -> float:
 	var foot_line_y := float(_window_size.y - 1)
-	return foot_line_y - ((float(SHEET_FRAME_FOOT_Y) - SHEET_FRAME_CENTER_Y) * _pet_scale)
+	return foot_line_y - ((_frame_foot_y - _frame_center_y) * _pet_scale)
 
 
 func _on_mouse_entered() -> void:

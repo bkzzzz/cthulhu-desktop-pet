@@ -2,10 +2,10 @@ extends Node2D
 
 signal exited(actor: Node2D)
 
-const IDLE_TEXTURE := "res://assets/characters/believersAnimation/believerIdle1.png"
-const WALK_TEXTURE := "res://assets/characters/believersAnimation/believerWalk1.png"
-const RUN_TEXTURE := "res://assets/characters/believersAnimation/believerRun1.png"
-const NOTICE_TEXTURE := "res://assets/characters/believers/感叹号.png"
+const IDLE_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerIdle1.png"
+const WALK_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerWalk1.png"
+const RUN_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerRun1.png"
+const NOTICE_TEXTURE := "res://assets/TestCharacters/believers/感叹号.png"
 
 const SHEET_COLUMNS := 4
 const SHEET_ROWS := 3

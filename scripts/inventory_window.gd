@@ -196,24 +196,24 @@ func _create_close_button() -> void:
 
 func _create_page_controls() -> void:
 	var left_arrow := _make_arrow_button(-1)
-	left_arrow.position = Vector2(410, 760)
-	left_arrow.rotation_degrees = 180.0
+	left_arrow.position = Vector2(400, 754)
+	left_arrow.scale = Vector2(-1.0, 1.0)
 	_root.add_child(left_arrow)
 
 	var right_arrow := _make_arrow_button(1)
-	right_arrow.position = Vector2(676, 760)
+	right_arrow.position = Vector2(692, 754)
 	_root.add_child(right_arrow)
 
 	_page_label = Label.new()
 	_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_page_label.position = Vector2(486, 766)
-	_page_label.size = Vector2(190, 42)
+	_page_label.position = Vector2(480, 754)
+	_page_label.size = Vector2(200, 68)
 	_page_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_page_label.add_theme_font_size_override("font_size", 24)
-	_page_label.add_theme_color_override("font_color", Color(0.18, 0.11, 0.13, 1.0))
-	_page_label.add_theme_color_override("font_outline_color", Color(0.92, 0.78, 0.52, 0.72))
-	_page_label.add_theme_constant_override("outline_size", 2)
+	_page_label.add_theme_font_size_override("font_size", 32)
+	_page_label.add_theme_color_override("font_color", Color(0.94, 0.78, 0.48, 1.0))
+	_page_label.add_theme_color_override("font_outline_color", Color(0.08, 0.035, 0.045, 1.0))
+	_page_label.add_theme_constant_override("outline_size", 4)
 	_root.add_child(_page_label)
 
 
@@ -334,7 +334,7 @@ func _make_arrow_button(direction: int) -> TextureButton:
 	button.texture_pressed = button.texture_normal
 	button.ignore_texture_size = true
 	button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	button.size = Vector2(52, 52)
+	button.size = Vector2(68, 68)
 	button.pivot_offset = button.size * 0.5
 	button.tooltip_text = "上一页" if direction < 0 else "下一页"
 	button.mouse_entered.connect(_animate_control_hover.bind(button, true))
@@ -406,7 +406,9 @@ func _animate_control_hover(control: Control, hovered: bool) -> void:
 	if control == null:
 		return
 
-	var target := Vector2.ONE * (1.05 if hovered else 1.0)
+	var direction := -1.0 if control.scale.x < 0.0 else 1.0
+	var factor := 1.05 if hovered else 1.0
+	var target := Vector2(direction * factor, factor)
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
@@ -417,12 +419,13 @@ func _animate_control_press(control: Control) -> void:
 	if control == null:
 		return
 
+	var direction := -1.0 if control.scale.x < 0.0 else 1.0
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(control, "scale", Vector2.ONE * 0.94, 0.05)
-	tween.tween_property(control, "scale", Vector2.ONE * 1.03, 0.08)
-	tween.tween_property(control, "scale", Vector2.ONE, 0.08)
+	tween.tween_property(control, "scale", Vector2(direction * 0.94, 0.94), 0.05)
+	tween.tween_property(control, "scale", Vector2(direction * 1.03, 1.03), 0.08)
+	tween.tween_property(control, "scale", Vector2(direction, 1.0), 0.08)
 
 
 func _on_arrow_pressed(direction: int, button: Control) -> void:

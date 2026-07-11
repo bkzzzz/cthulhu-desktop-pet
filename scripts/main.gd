@@ -2,6 +2,8 @@ extends Node2D
 
 # Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const PetProgression = preload("res://scripts/domain/pet_progression.gd")
+const FollowerProgression = preload("res://scripts/domain/follower_progression.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
@@ -96,6 +98,8 @@ var _next_believer_spawn_at := 0.0
 var _last_believer_spawn_at := 0.0
 var _inventory_window: Window
 var _shop_window: Window
+var _follower_count := 0.0
+var _last_reported_follower_count := -1
 var _shop_owned_counts := {}
 var _side_drawer: Node
 
@@ -126,6 +130,7 @@ func _process(delta: float) -> void:
 		_place_pet_window()
 
 	_update_faith(delta)
+	_update_followers(delta)
 	_update_pet_hunger()
 	_update_believers()
 	_update_pet_window_mouse_passthrough(delta)
@@ -767,6 +772,7 @@ func _refresh_pet_stats(force := false) -> void:
 
 	if force:
 		_refresh_faith_display()
+		_refresh_follower_display()
 		_last_reported_faith_count = faith_count
 		_last_reported_growth_rate = growth_rate
 
@@ -775,6 +781,8 @@ func _refresh_pet_stats(force := false) -> void:
 		_pet_upgrade_stats_dirty = false
 		_last_reported_faith_count = faith_count
 		_last_reported_growth_rate = growth_rate
+		if growth_changed:
+			_refresh_follower_display()
 
 
 func _refresh_faith_display() -> void:
@@ -782,6 +790,15 @@ func _refresh_faith_display() -> void:
 		_side_drawer.refresh_faith(_faith_points, _get_faith_growth_rate())
 	if _shop_window != null and _shop_window.has_method("set_faith_points"):
 		_shop_window.call("set_faith_points", int(floor(_faith_points)))
+
+
+func _refresh_follower_display() -> void:
+	if _side_drawer != null and _side_drawer.has_method("refresh_followers"):
+		_side_drawer.call(
+			"refresh_followers",
+			int(floor(_follower_count)),
+			_get_follower_growth_rate()
+		)
 
 
 func _sync_shop_state() -> void:
@@ -874,21 +891,24 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 func _get_upgrade_cost(pet_id: String) -> int:
 	var pet_data := PetCatalog.get_definition(pet_id)
 	var state := _get_pet_state(pet_id)
-	var count := maxi(1, int(state.get("count", 1)))
-	var base_cost := float(pet_data.get("upgrade_cost_base", 10))
-	var growth := float(pet_data.get("upgrade_cost_growth", 1.3))
-	var raw_cost := base_cost * pow(growth, float(count))
-	var discount := _get_pet_upgrade_discount(pet_id)
-	return maxi(1, int(round(raw_cost * (1.0 - discount))))
+	return PetProgression.upgrade_cost(
+		pet_data,
+		state,
+		FAVOR_COST_REDUCTION_PER_POINT,
+		FAVOR_COST_REDUCTION_MAX
+	)
 
 
 func _get_pet_favor(pet_id: String) -> int:
-	var state := _get_pet_state(pet_id)
-	return maxi(0, int(state.get("favor", state.get("trust", 0))))
+	return PetProgression.favor(_get_pet_state(pet_id))
 
 
 func _get_pet_upgrade_discount(pet_id: String) -> float:
-	return clampf(float(_get_pet_favor(pet_id)) * FAVOR_COST_REDUCTION_PER_POINT, 0.0, FAVOR_COST_REDUCTION_MAX)
+	return PetProgression.upgrade_discount(
+		_get_pet_state(pet_id),
+		FAVOR_COST_REDUCTION_PER_POINT,
+		FAVOR_COST_REDUCTION_MAX
+	)
 
 
 func _get_pet_leader_age(pet_id: String) -> int:
@@ -916,14 +936,12 @@ func _get_faith_growth_rate() -> float:
 	return total_fps * _get_total_faith_multiplier()
 
 
-func _get_pet_faith_per_second(pet_id: String, level: int) -> float:
-	if level <= 0:
-		return 0.0
+func _get_follower_growth_rate() -> float:
+	return FollowerProgression.followers_per_second(_get_faith_growth_rate())
 
-	var pet_data := PetCatalog.get_definition(pet_id)
-	var base_fps := float(pet_data.get("base_fps", 0.05))
-	var power_growth := float(pet_data.get("power_growth", 1.035))
-	return base_fps * float(level) * pow(power_growth, float(level))
+
+func _get_pet_faith_per_second(pet_id: String, level: int) -> float:
+	return PetProgression.faith_per_second(PetCatalog.get_definition(pet_id), level)
 
 
 func _get_total_faith_multiplier() -> float:
@@ -974,6 +992,18 @@ func _update_faith(delta: float) -> void:
 	if _stats_refresh_timer >= UI_REFRESH_INTERVAL:
 		_stats_refresh_timer = 0.0
 		_refresh_pet_stats()
+
+
+func _update_followers(delta: float) -> void:
+	_follower_count = FollowerProgression.advance(
+		_follower_count,
+		_get_faith_growth_rate(),
+		delta
+	)
+	var follower_count := int(floor(_follower_count))
+	if follower_count != _last_reported_follower_count:
+		_last_reported_follower_count = follower_count
+		_refresh_follower_display()
 
 
 func _update_pet_hunger() -> void:

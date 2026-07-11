@@ -10,5 +10,15 @@ This folder is split by runtime responsibility:
 - `inventory_window.gd`: pet storage window, rename/deploy UI, and pet detail panel.
 - `shop_window.gd`: shop window, paged goods grid, hover info, and purchase requests.
 - `windows_clickthrough_controller.gd`: Windows-specific mouse passthrough helper wrapper.
+- `domain/pet_progression.gd`: pure faith, favor, discount, and upgrade-cost rules.
+- `domain/follower_progression.gd`: pure passive follower growth derived from the current faith growth rate.
 
-Keep gameplay state in `main.gd` until a system becomes independently testable. Keep visual-only behavior near the window or actor that owns it.
+Followers grow automatically from faith production and require no separate player management.
+
+The active desktop roster is defined by the two characters under `assets/NewCharacters/`. Character-specific scale and frame-floor values keep different source sheet sizes aligned to the desktop floor.
+
+Run the headless unit tests from the project directory with:
+
+`..\godot.windows.editor.x86_64.exe --headless --path . --script res://tests/run_tests.gd`
+
+Keep runtime state and orchestration in `main.gd`. Move deterministic gameplay rules into `domain/`, and keep visual-only behavior near the window or actor that owns it.

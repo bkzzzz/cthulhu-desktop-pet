@@ -227,21 +227,21 @@ func _make_slot_label(font_size: int, color: Color, outline_size: int) -> Label:
 
 func _create_page_controls() -> void:
 	var left_arrow := _make_arrow_button(-1)
-	left_arrow.position = Vector2(390.0, 884.0)
-	left_arrow.rotation_degrees = 180.0
+	left_arrow.position = Vector2(342.0, 904.0)
+	left_arrow.scale = Vector2(-1.0, 1.0)
 	_root.add_child(left_arrow)
 
 	var right_arrow := _make_arrow_button(1)
-	right_arrow.position = Vector2(648.0, 884.0)
+	right_arrow.position = Vector2(682.0, 904.0)
 	_root.add_child(right_arrow)
 
 	_page_label = Label.new()
 	_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_page_label.position = Vector2(466.0, 895.0)
-	_page_label.size = Vector2(184.0, 56.0)
+	_page_label.position = Vector2(438.0, 904.0)
+	_page_label.size = Vector2(240.0, 92.0)
 	_page_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_page_label.add_theme_font_size_override("font_size", 30)
+	_page_label.add_theme_font_size_override("font_size", 36)
 	_page_label.add_theme_color_override("font_color", Color(0.96, 0.86, 0.58, 1.0))
 	_page_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
 	_page_label.add_theme_constant_override("outline_size", 5)
@@ -341,7 +341,7 @@ func _make_arrow_button(direction: int) -> TextureButton:
 	button.texture_pressed = button.texture_normal
 	button.ignore_texture_size = true
 	button.stretch_mode = TextureButton.STRETCH_SCALE
-	button.size = Vector2(82.0, 82.0)
+	button.size = Vector2(92.0, 92.0)
 	button.pivot_offset = button.size * 0.5
 	button.mouse_entered.connect(_animate_control_hover.bind(button, true))
 	button.mouse_exited.connect(_animate_control_hover.bind(button, false))
@@ -476,7 +476,9 @@ func _animate_control_hover(control: Control, hovered: bool) -> void:
 	if control == null:
 		return
 
-	var target := Vector2.ONE * (1.05 if hovered else 1.0)
+	var direction := -1.0 if control.scale.x < 0.0 else 1.0
+	var factor := 1.05 if hovered else 1.0
+	var target := Vector2(direction * factor, factor)
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
@@ -487,12 +489,13 @@ func _animate_control_press(control: Control) -> void:
 	if control == null:
 		return
 
+	var direction := -1.0 if control.scale.x < 0.0 else 1.0
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(control, "scale", Vector2.ONE * 0.94, 0.05)
-	tween.tween_property(control, "scale", Vector2.ONE * 1.03, 0.08)
-	tween.tween_property(control, "scale", Vector2.ONE, 0.08)
+	tween.tween_property(control, "scale", Vector2(direction * 0.94, 0.94), 0.05)
+	tween.tween_property(control, "scale", Vector2(direction * 1.03, 1.03), 0.08)
+	tween.tween_property(control, "scale", Vector2(direction, 1.0), 0.08)
 
 
 func _on_root_gui_input(event: InputEvent) -> void:

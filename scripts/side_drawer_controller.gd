@@ -26,7 +26,7 @@ const MENU_TO_DRAWER_GAP := 24
 const POSITION_RETRY_FRAMES := 90
 
 # UI assets
-const QUIT_BUTTON_TEXTURE := "res://assets/ui/elements/Quit.png"
+const QUIT_BUTTON_TEXTURE := "res://assets/ui/testElements/Quit.png"
 const MENU_ICON_TEXTURE := "res://assets/ui/newElements/菜单栏呼出.png"
 const ALTAR_TEXTURE := "res://assets/ui/newElements/祭坛.png"
 const DRAWER_BACKGROUND_TEXTURE := "res://assets/ui/newElements/菜单栏2.png"
@@ -36,7 +36,7 @@ const GLOW_TEXTURE := "res://assets/ui/newElements/glow.png"
 const UPGRADE_EFFECT_TEXTURE := "res://assets/ui/newElements/upgradeEffect.png"
 const ALTAR_NOTICE_TEXTURE := "res://assets/ui/newElements/感叹号.png"
 const INTERACTION_CURSOR_TEXTURE := "res://assets/ui/newElements/鼠标交互.png"
-const UPGRADE_TEXTURE := "res://assets/ui/elements/upgrade.png"
+const UPGRADE_TEXTURE := "res://assets/ui/testElements/upgrade.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
 const UI_FONT := "res://assets/ui/font/NormalFont.ttf"
 
@@ -87,7 +87,7 @@ const SYMBOL_EFFECT_TEXTURES := [
 	"res://assets/ui/newElements/符号特效5.png"
 ]
 const SYMBOL_BURST_COUNT := 14
-const SYMBOL_EFFECT_SIZE := Vector2(8.0, 12.0)
+const SYMBOL_EFFECT_SIZE := Vector2(6.0, 9.0)
 const SYMBOL_SOURCE_SPREAD := Vector2(168.0, 196.0)
 const DRAWER_SYMBOL_COUNT := 22
 const DRAWER_SYMBOL_SIZE := Vector2(28.0, 40.0)
@@ -155,6 +155,7 @@ var _cult_name := "无名教派"
 var _faith_count := 0.0
 var _follower_count := 0
 var _faith_growth_rate := 0.0
+var _follower_growth_rate := 0.0
 var _upgrade_entries := []
 var _upgrade_buttons := {}
 var _upgrade_name_labels := {}
@@ -222,7 +223,7 @@ func refresh_faith(faith_count: float, growth_rate: float) -> void:
 				_fit_font_to_text(_faith_value_label, _faith_value_label.text, FAITH_COUNTER_VALUE_FONT_MAX, FAITH_COUNTER_VALUE_FONT_MIN, 7)
 
 	if _faith_growth_value_label != null:
-		var next_growth_text := "+%.2f / 秒" % _faith_growth_rate
+		var next_growth_text := "+%s / 秒" % _format_number(_faith_growth_rate, true)
 		if _faith_growth_value_label.text != next_growth_text:
 			var needs_refit := _faith_growth_value_label.text.length() != next_growth_text.length()
 			_faith_growth_value_label.text = next_growth_text
@@ -231,7 +232,6 @@ func refresh_faith(faith_count: float, growth_rate: float) -> void:
 
 func refresh_pet_upgrade_counts(entries: Array) -> void:
 	var next_entries := []
-	var next_follower_count := 0
 	for entry_value in entries:
 		var entry: Dictionary = entry_value
 		next_entries.append(entry.duplicate(true))
@@ -239,13 +239,12 @@ func refresh_pet_upgrade_counts(entries: Array) -> void:
 		var count_label := _upgrade_count_labels.get(pet_id) as Label
 		var name_label := _upgrade_name_labels.get(pet_id) as Label
 		var count := int(entry.get("count", 1))
-		next_follower_count += count
 		if name_label != null:
-			name_label.text = String(entry.get("name", _get_pet_display_name(pet_id, PetCatalog.get_definition(pet_id))))
+			name_label.text = "领袖 · %s" % String(entry.get("name", _get_pet_display_name(pet_id, PetCatalog.get_definition(pet_id))))
 			_fit_font_to_text(name_label, name_label.text, 19, 12, 12)
 		if count_label != null:
-			count_label.text = "数量%d" % count
-			_fit_font_to_text(count_label, count_label.text, 36, 22, 5)
+			count_label.text = "种群数量\n%d" % count
+			_fit_font_to_text(count_label, count_label.text, 25, 18, 6)
 			if _upgrade_last_counts.has(pet_id) and count > int(_upgrade_last_counts.get(pet_id, count)):
 				_pulse_count_label(count_label)
 		_upgrade_last_counts[pet_id] = count
@@ -260,8 +259,8 @@ func refresh_pet_upgrade_counts(entries: Array) -> void:
 		if cost_label != null:
 			var cost := float(entry.get("cost", 0))
 			cost_label.text = "消耗 %s" % _format_number(cost)
-			_fit_font_to_text(cost_label, cost_label.text, 15, 11, 6)
-			cost_label.add_theme_color_override("font_color", Color(0.78, 0.94, 0.76, 1.0) if affordable else Color(0.62, 0.64, 0.62, 1.0))
+			_fit_font_to_text(cost_label, cost_label.text, 19, 14, 6)
+			cost_label.add_theme_color_override("font_color", Color(0.78, 0.96, 0.76, 1.0) if affordable else Color(0.84, 0.76, 0.66, 1.0))
 
 		var bonus_label := _upgrade_bonus_labels.get(pet_id) as Label
 		if bonus_label != null:
@@ -272,12 +271,17 @@ func refresh_pet_upgrade_counts(entries: Array) -> void:
 			_refresh_upgrade_bonus_label(pet_id)
 
 	_upgrade_entries = next_entries
-	_follower_count = next_follower_count
 	if _upgrade_detail_panel != null and _upgrade_detail_panel.visible and not _upgrade_detail_pet_id.is_empty():
 		var editing_name := _upgrade_detail_name_edit != null and _upgrade_detail_name_edit.has_focus()
 		if not editing_name and _upgrade_detail_source_button != null and is_instance_valid(_upgrade_detail_source_button):
 			_show_upgrade_detail_panel(_upgrade_detail_pet_id, _upgrade_detail_source_button)
 	_refresh_cult_window()
+
+
+func refresh_followers(follower_count: int, growth_rate: float) -> void:
+	_follower_count = maxi(0, follower_count)
+	_follower_growth_rate = maxf(0.0, growth_rate)
+	_refresh_cult_summary()
 
 
 # Menu and drawer windows
@@ -579,7 +583,7 @@ func _create_upgrade_detail_panel() -> void:
 	content.add_child(header)
 
 	_upgrade_detail_name_edit = LineEdit.new()
-	_upgrade_detail_name_edit.placeholder_text = "宠物名字"
+	_upgrade_detail_name_edit.placeholder_text = "领袖名字"
 	_upgrade_detail_name_edit.custom_minimum_size = Vector2(232.0, 34.0)
 	_upgrade_detail_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_upgrade_detail_name_edit.add_theme_stylebox_override("normal", _make_upgrade_detail_name_style(false))
@@ -594,11 +598,11 @@ func _create_upgrade_detail_panel() -> void:
 	header.add_child(_upgrade_detail_name_edit)
 
 	_upgrade_detail_level_label = Label.new()
-	_upgrade_detail_level_label.text = "数量 1"
+	_upgrade_detail_level_label.text = "种群数量 1"
 	_upgrade_detail_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_upgrade_detail_level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_upgrade_detail_level_label.custom_minimum_size = Vector2(84.0, 34.0)
-	_upgrade_detail_level_label.add_theme_font_size_override("font_size", 20)
+	_upgrade_detail_level_label.custom_minimum_size = Vector2(120.0, 34.0)
+	_upgrade_detail_level_label.add_theme_font_size_override("font_size", 16)
 	_upgrade_detail_level_label.add_theme_color_override("font_color", Color(0.82, 0.96, 0.66, 1.0))
 	_upgrade_detail_level_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	_upgrade_detail_level_label.add_theme_constant_override("outline_size", 3)
@@ -682,10 +686,10 @@ func _make_faith_adder_stage() -> Control:
 
 	_faith_growth_value_label = Label.new()
 	_faith_growth_value_label.name = "FaithGrowthValue"
-	_faith_growth_value_label.text = "+%.2f / 秒" % _faith_growth_rate
+	_faith_growth_value_label.text = "+%s / 秒" % _format_number(_faith_growth_rate, true)
 	_faith_growth_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_growth_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_faith_growth_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 220.0) * 0.5, 354.0)
+	_faith_growth_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 220.0) * 0.5, 365.0)
 	_faith_growth_value_label.size = Vector2(220.0, 24.0)
 	_faith_growth_value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_faith_growth_value_label.add_theme_font_size_override("font_size", 22)
@@ -771,7 +775,7 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	var pet_data := PetCatalog.get_definition(pet_id)
 	var button := TextureButton.new()
 	button.name = "%sUpgrade" % pet_id
-	_configure_upgrade_row_button(button, "增加 %s 数量" % String(pet_data.get("name", pet_id)), true)
+	_configure_upgrade_row_button(button, "增加 %s 的种群数量" % String(pet_data.get("name", pet_id)), true)
 	_set_upgrade_row_affordable(button, false)
 	button.mouse_entered.connect(_on_interactive_control_hovered.bind(button, true))
 	button.mouse_exited.connect(_on_interactive_control_hovered.bind(button, false))
@@ -783,7 +787,7 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	button.add_child(_make_upgrade_profile_box(pet_data))
 
 	var name_label := Label.new()
-	name_label.text = _get_pet_display_name(pet_id, pet_data)
+	name_label.text = "领袖 · %s" % _get_pet_display_name(pet_id, pet_data)
 	name_label.position = Vector2(106, 15)
 	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 246.0, 28)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -800,8 +804,8 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	cost_label.position = Vector2(108, 50)
 	cost_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 24)
 	cost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cost_label.add_theme_font_size_override("font_size", 16)
-	cost_label.add_theme_color_override("font_color", Color(0.62, 0.64, 0.62, 1.0))
+	cost_label.add_theme_font_size_override("font_size", 19)
+	cost_label.add_theme_color_override("font_color", Color(0.84, 0.76, 0.66, 1.0))
 	button.add_child(cost_label)
 	_upgrade_cost_labels[pet_id] = cost_label
 
@@ -818,14 +822,14 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	_upgrade_bonus_labels[pet_id] = bonus_label
 
 	var count_label := Label.new()
-	count_label.text = "数量1"
+	count_label.text = "种群数量\n1"
 	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	count_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
 	count_label.size = Vector2(118, 60)
 	count_label.pivot_offset = count_label.size * 0.5
 	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	count_label.add_theme_font_size_override("font_size", 36)
+	count_label.add_theme_font_size_override("font_size", 25)
 	count_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
 	count_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	count_label.add_theme_constant_override("outline_size", 4)
@@ -857,16 +861,16 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	question.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	question.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	question.add_theme_font_size_override("font_size", 36)
-	question.add_theme_color_override("font_color", Color(0.54, 0.58, 0.56, 1.0))
+	question.add_theme_color_override("font_color", Color(0.76, 0.8, 0.77, 1.0))
 	slot.add_child(question)
 
 	var name_label := Label.new()
-	name_label.text = "未知眷属 %02d" % display_index
+	name_label.text = "未知领袖 %02d" % display_index
 	name_label.position = Vector2(106, 22)
 	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 242.0, 30)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	name_label.add_theme_font_size_override("font_size", 18)
-	name_label.add_theme_color_override("font_color", Color(0.56, 0.6, 0.58, 1.0))
+	name_label.add_theme_color_override("font_color", Color(0.78, 0.82, 0.79, 1.0))
 	button.add_child(name_label)
 
 	var desc_label := Label.new()
@@ -875,18 +879,18 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	desc_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 24)
 	desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	desc_label.add_theme_font_size_override("font_size", 14)
-	desc_label.add_theme_color_override("font_color", Color(0.42, 0.46, 0.44, 1.0))
+	desc_label.add_theme_color_override("font_color", Color(0.68, 0.72, 0.69, 1.0))
 	button.add_child(desc_label)
 
 	var count_label := Label.new()
-	count_label.text = "--"
+	count_label.text = "种群数量\n--"
 	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	count_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
 	count_label.size = Vector2(118, 60)
 	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	count_label.add_theme_font_size_override("font_size", 34)
-	count_label.add_theme_color_override("font_color", Color(0.48, 0.52, 0.5, 1.0))
+	count_label.add_theme_font_size_override("font_size", 22)
+	count_label.add_theme_color_override("font_color", Color(0.74, 0.78, 0.75, 1.0))
 	button.add_child(count_label)
 
 	return button
@@ -1113,7 +1117,7 @@ func _make_cult_composition_row(entry: Dictionary) -> TextureButton:
 	var affordable: bool = entry.get("affordable", false) == true
 	var row := TextureButton.new()
 	row.name = "%sCultRow" % pet_id
-	_configure_upgrade_row_button(row, "增加 %s 数量" % String(pet_data.get("name", pet_id)), false)
+	_configure_upgrade_row_button(row, "增加 %s 的种群数量" % String(pet_data.get("name", pet_id)), false)
 	_set_upgrade_row_affordable(row, affordable)
 	row.mouse_entered.connect(_animate_control_hover.bind(row, true))
 	row.mouse_exited.connect(_animate_control_hover.bind(row, false))
@@ -1122,7 +1126,7 @@ func _make_cult_composition_row(entry: Dictionary) -> TextureButton:
 	row.add_child(_make_upgrade_profile_box(pet_data))
 
 	var name_label := Label.new()
-	name_label.text = String(entry.get("name", pet_data.get("name", pet_id)))
+	name_label.text = "领袖 · %s" % String(entry.get("name", pet_data.get("name", pet_id)))
 	name_label.position = Vector2(106, 22)
 	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 242.0, 30)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1135,18 +1139,18 @@ func _make_cult_composition_row(entry: Dictionary) -> TextureButton:
 
 	var count := int(entry.get("count", 1))
 	var level_label := Label.new()
-	level_label.text = "数量%d" % count
+	level_label.text = "种群数量\n%d" % count
 	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
 	level_label.size = Vector2(118, 60)
 	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	level_label.add_theme_font_size_override("font_size", 34)
+	level_label.add_theme_font_size_override("font_size", 20)
 	level_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
 	level_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	level_label.add_theme_constant_override("outline_size", 4)
 	row.add_child(level_label)
-	_fit_font_to_text(level_label, level_label.text, 34, 22, 5)
+	_fit_font_to_text(level_label, level_label.text, 20, 14, 6)
 
 	var cost := float(entry.get("cost", 0))
 	var cost_label := Label.new()
@@ -1342,7 +1346,7 @@ func _refresh_cult_summary() -> void:
 		_fit_font_to_text(_cult_faith_label, _cult_faith_label.text, 16, 11, 12)
 
 	if _cult_growth_label != null:
-		_cult_growth_label.text = "信仰增长 +%.2f / 秒" % _faith_growth_rate
+		_cult_growth_label.text = "教众增长 +%.2f / 秒" % _follower_growth_rate
 		_fit_font_to_text(_cult_growth_label, _cult_growth_label.text, 16, 11, 12)
 
 
@@ -1396,8 +1400,6 @@ func _format_number(value: float, keep_fraction := false, whole_units := false) 
 		var threshold := float(unit.get("threshold", 1.0))
 		if abs_value >= threshold:
 			var scaled := value / threshold
-			if whole_units:
-				return "%.0f%s" % [scaled, String(unit.get("suffix", ""))]
 			if absf(scaled) >= 100.0:
 				return "%.0f%s" % [scaled, String(unit.get("suffix", ""))]
 			if absf(scaled) >= 10.0:
@@ -1539,7 +1541,7 @@ func _configure_upgrade_row_button(button: TextureButton, _tooltip_text: String,
 
 func _set_upgrade_row_affordable(button: TextureButton, affordable: bool) -> void:
 	button.disabled = not affordable
-	button.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.46, 0.46, 0.46, 0.78)
+	button.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.74, 0.74, 0.74, 0.92)
 
 
 # Upgrade hover detail
@@ -1643,7 +1645,6 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 		count = int(entry.get("count", 1))
 
 	var next_bonus := float(_upgrade_next_growth_bonuses.get(pet_id, 0.0))
-	var next_fps := float(entry.get("next_fps", next_bonus))
 	var cost := float(entry.get("cost", 0.0))
 	var favor := int(entry.get("favor", 0))
 	var discount := float(entry.get("upgrade_discount", 0.0))
@@ -1655,14 +1656,13 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 		_upgrade_detail_name_edit.text = display_name
 		_updating_upgrade_detail_name = false
 	if _upgrade_detail_level_label != null:
-		_upgrade_detail_level_label.text = "数量 %d" % count
+		_upgrade_detail_level_label.text = "种群数量 %d" % count
 	_upgrade_detail_desc_label.text = String(entry.get("description", pet_data.get("description", "")))
-	_upgrade_detail_stats_label.text = "领袖年龄 %d 岁\n好感度 %d [color=#c8d878]（升级减免 %.0f%%）[/color]\n增加 +%s / 秒\n增加后 +%s / 秒\n消耗 %s\n%s" % [
+	_upgrade_detail_stats_label.text = "领袖年龄 %d 岁\n好感度 %d [color=#c8d878]（升级减免 %.0f%%）[/color]\n本次升级增长 +%s / 秒\n消耗 %s\n%s" % [
 		leader_age,
 		favor,
 		discount * 100.0,
 		_format_number(next_bonus),
-		_format_number(next_fps),
 		_format_number(cost),
 		"[color=#c7d86b]可升级[/color]" if affordable else "[color=#e88a66]信仰不足[/color]"
 	]
@@ -1829,7 +1829,8 @@ func _play_adder_symbol_effect(button: Control) -> void:
 	var source_top_left := source_center - (source_size * 0.5)
 
 	for _index in SYMBOL_BURST_COUNT:
-		var symbol := _make_symbol_effect_rect(SYMBOL_EFFECT_SIZE, _rng.randf_range(0.28, 0.54))
+		var start_alpha := _rng.randf_range(0.34, 0.58)
+		var symbol := _make_symbol_effect_rect(SYMBOL_EFFECT_SIZE, start_alpha)
 		if symbol == null:
 			continue
 
@@ -1838,34 +1839,69 @@ func _play_adder_symbol_effect(button: Control) -> void:
 			_rng.randf_range(0.0, source_size.y)
 		)
 		var start_offset := Vector2(_rng.randf_range(-3.0, 3.0), _rng.randf_range(-3.0, 3.0))
-		var scatter_offset := Vector2(
-			_rng.randf_range(-28.0, 28.0),
-			_rng.randf_range(12.0, 34.0)
-		)
-		var fall_position := Vector2(
-			source_position.x + scatter_offset.x + _rng.randf_range(-16.0, 16.0),
-			ADDER_STAGE_HEIGHT + _rng.randf_range(28.0, 86.0)
-		)
-		symbol.position = source_position + start_offset - (SYMBOL_EFFECT_SIZE * 0.5)
-		symbol.rotation = _rng.randf_range(-0.45, 0.45)
-		var start_scale := _rng.randf_range(0.7, 1.08)
+		var start_position := source_position + start_offset - (SYMBOL_EFFECT_SIZE * 0.5)
+		symbol.position = start_position
+		var start_rotation := _rng.randf_range(-0.35, 0.35)
+		symbol.rotation = start_rotation
+		var start_scale := _rng.randf_range(0.66, 0.96)
 		symbol.scale = Vector2.ONE * start_scale
 		parent.add_child(symbol)
 
+		var life_time := _rng.randf_range(0.62, 0.84)
+		var velocity := Vector2(
+			_rng.randf_range(-58.0, 58.0),
+			_rng.randf_range(-38.0, 24.0)
+		)
+		var gravity := _rng.randf_range(760.0, 980.0)
+		var spin := _rng.randf_range(-2.4, 2.4)
+		var fade_start := _rng.randf_range(0.38, 0.5)
+
 		var tween := create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_interval(_rng.randf_range(0.0, 0.12))
-		var scatter_duration := _rng.randf_range(0.12, 0.2)
-		var fall_duration := _rng.randf_range(0.52, 0.72)
-		tween.tween_property(symbol, "position", source_position + scatter_offset - (SYMBOL_EFFECT_SIZE * 0.5), scatter_duration)
-		tween.parallel().tween_property(symbol, "rotation", symbol.rotation + _rng.randf_range(-0.7, 0.7), scatter_duration)
-		tween.set_ease(Tween.EASE_IN)
-		tween.tween_property(symbol, "position", fall_position - (SYMBOL_EFFECT_SIZE * 0.5), fall_duration)
-		tween.parallel().tween_property(symbol, "rotation", symbol.rotation + _rng.randf_range(-1.8, 1.8), fall_duration)
-		tween.parallel().tween_property(symbol, "scale", Vector2.ONE * start_scale * _rng.randf_range(0.92, 1.04), fall_duration)
-		tween.parallel().tween_property(symbol, "modulate", Color(1.0, 1.0, 1.0, 0.0), fall_duration)
+		tween.set_trans(Tween.TRANS_LINEAR)
+		tween.tween_method(
+			Callable(self, "_update_adder_symbol_particle").bind(
+				symbol,
+				start_position,
+				velocity,
+				gravity,
+				start_rotation,
+				spin,
+				start_scale,
+				start_alpha,
+				fade_start,
+				life_time
+			),
+			0.0,
+			life_time,
+			life_time
+		)
 		tween.tween_callback(Callable(symbol, "queue_free"))
+
+
+func _update_adder_symbol_particle(
+	age: float,
+	symbol: TextureRect,
+	start_position: Vector2,
+	velocity: Vector2,
+	gravity: float,
+	start_rotation: float,
+	spin: float,
+	start_scale: float,
+	start_alpha: float,
+	fade_start: float,
+	life_time: float
+) -> void:
+	if symbol == null or not is_instance_valid(symbol):
+		return
+
+	symbol.position = start_position + (velocity * age) + Vector2(0.0, 0.5 * gravity * age * age)
+	symbol.rotation = start_rotation + (spin * age)
+	symbol.scale = Vector2.ONE * start_scale
+
+	var fade_progress := 0.0
+	if age > fade_start:
+		fade_progress = clampf((age - fade_start) / maxf(0.001, life_time - fade_start), 0.0, 1.0)
+	symbol.modulate = Color(1.0, 1.0, 1.0, start_alpha * (1.0 - fade_progress))
 
 
 func _make_symbol_effect_rect(size: Vector2, alpha: float) -> TextureRect:
