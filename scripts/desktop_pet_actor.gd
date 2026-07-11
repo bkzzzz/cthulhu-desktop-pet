@@ -52,12 +52,19 @@ var _wall_edge := 0
 var _wall_target_y := 0.0
 var _base_walk_speed := PET_WALK_SPEED
 var _walk_speed := PET_WALK_SPEED
+var _behavior_style := "wanderer"
+var _idle_time_min := 0.9
+var _idle_time_max := 4.6
+var _special_chance := 0.0
+var _special_time_min := 1.0
+var _special_time_max := 3.0
 var _pet_scale := DEFAULT_PET_SCALE
 var _frame_center_y := 64.0
 var _frame_foot_y := 102.0
 var _ground_offset_y := 0.0
 var _faces_right := false
 var _float_phase := 0.0
+var _idle_turn_time := 0.0
 var _fall_velocity := 0.0
 var _behavior := Behavior.IDLE
 var _rng := RandomNumberGenerator.new()
@@ -84,9 +91,17 @@ func setup(new_pet_id: String, window_size: Vector2i, min_x: float, max_x: float
 	_ground_offset_y = float(pet_data.get("ground_offset_y", 0.0))
 	_faces_right = bool(pet_data.get("faces_right", false))
 	_set_safe_bounds(min_x, max_x)
-	_rng.randomize()
+	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ pet_id.hash()
 	_float_phase = _rng.randf_range(0.0, TAU)
-	_base_walk_speed = PET_WALK_SPEED + _rng.randf_range(-PET_SPEED_VARIANCE, PET_SPEED_VARIANCE)
+	_behavior_style = String(pet_data.get("behavior", "wanderer"))
+	_idle_time_min = float(pet_data.get("idle_time_min", 0.9))
+	_idle_time_max = maxf(_idle_time_min, float(pet_data.get("idle_time_max", 4.6)))
+	_special_chance = clampf(float(pet_data.get("special_chance", 0.0)), 0.0, 1.0)
+	_special_time_min = float(pet_data.get("special_time_min", 1.0))
+	_special_time_max = maxf(_special_time_min, float(pet_data.get("special_time_max", 3.0)))
+	var configured_speed := float(pet_data.get("walk_speed", PET_WALK_SPEED))
+	var speed_variance := float(pet_data.get("walk_speed_variance", PET_SPEED_VARIANCE))
+	_base_walk_speed = configured_speed + _rng.randf_range(-speed_variance, speed_variance)
 	_walk_speed = _base_walk_speed
 
 	_create_sprite()
@@ -131,6 +146,31 @@ func walk_to_offering_x(target_x: float) -> void:
 
 func is_pointer_captured() -> bool:
 	return _pointer_held or _behavior == Behavior.GRABBED
+
+
+func react_to_petting(emotion: String) -> void:
+	if _pointer_held or _behavior == Behavior.GRABBED or _behavior == Behavior.FALLING:
+		return
+	if _forced_target_pending:
+		return
+
+	match _behavior_style:
+		"sleepy_floater":
+			if emotion == "sleepy" and _behavior not in [Behavior.SLEEP_CLOSING, Behavior.SLEEPING, Behavior.SLEEP_OPENING]:
+				_cancel_special_behavior()
+				_start_sleeping()
+		"burrower":
+			if emotion == "confused" and _behavior not in [Behavior.BURROW_DOWN, Behavior.UNDERGROUND, Behavior.BURROW_UP]:
+				_cancel_special_behavior()
+				_start_burrowing()
+		"skitterer":
+			if emotion == "suprised":
+				_cancel_special_behavior()
+				_choose_walk_target()
+		"wall_climber":
+			if emotion == "suprised" and _behavior not in [Behavior.WALL_CRAWL_UP, Behavior.WALL_PAUSE, Behavior.WALL_CRAWL_DOWN]:
+				_cancel_special_behavior()
+				_start_wall_trip()
 
 
 func _process(delta: float) -> void:
@@ -260,7 +300,7 @@ func _update_pet(delta: float) -> void:
 			if _special_time <= 0.0:
 				_start_emerging()
 		Behavior.SLEEPING:
-			_apply_grounded_position(true)
+			_apply_floating_position(1.8)
 			_special_time -= delta
 			if _special_time <= 0.0:
 				_behavior = Behavior.SLEEP_OPENING
@@ -298,13 +338,18 @@ func _update_walking(delta: float) -> void:
 	_face_direction(distance)
 	if _sprite.animation != "walk":
 		_sprite.play("walk")
-	_apply_grounded_position(pet_id == "pet2")
+	_apply_grounded_position(_behavior_style == "sleepy_floater")
 
 
 func _update_idle(delta: float) -> void:
-	_apply_grounded_position(pet_id == "pet2")
-	if pet_id == "pet2":
+	_apply_grounded_position(_behavior_style == "sleepy_floater")
+	if _behavior_style == "sleepy_floater":
 		position.x = clampf(_idle_anchor_x + sin(_float_phase * 0.63) * 3.5, _min_x, _max_x)
+	elif _behavior_style == "watcher":
+		_idle_turn_time -= delta
+		if _idle_turn_time <= 0.0:
+			_face_direction(-1.0 if _rng.randf() < 0.5 else 1.0)
+			_idle_turn_time = _rng.randf_range(1.4, 3.4)
 	_idle_time -= delta
 	if _idle_time <= 0.0:
 		_choose_next_action()
@@ -312,19 +357,38 @@ func _update_idle(delta: float) -> void:
 
 func _choose_next_action() -> void:
 	var special_roll := _rng.randf()
-	if pet_id == "pet3" and special_roll < 0.24:
+	if _behavior_style == "burrower" and special_roll < _special_chance:
 		_start_burrowing()
 		return
-	if pet_id == "pet2" and special_roll < 0.22:
+	if _behavior_style == "sleepy_floater" and special_roll < _special_chance:
 		_start_sleeping()
 		return
-	if pet_id == "pet5" and special_roll < 0.22:
+	if _behavior_style == "wall_climber" and special_roll < _special_chance:
 		_start_wall_trip()
 		return
 	_choose_walk_target()
 
 
 func _choose_walk_target() -> void:
+	match _behavior_style:
+		"skitterer":
+			var scurry := _rng.randf_range(45.0, 190.0) * (-1.0 if _rng.randf() < 0.5 else 1.0)
+			_target_x = clampf(position.x + scurry, _min_x, _max_x)
+		"sleepy_floater":
+			var drift := _rng.randf_range(50.0, 165.0) * (-1.0 if _rng.randf() < 0.5 else 1.0)
+			_target_x = clampf(position.x + drift, _min_x, _max_x)
+		"burrower":
+			var scramble := _rng.randf_range(30.0, 105.0) * (-1.0 if _rng.randf() < 0.5 else 1.0)
+			_target_x = clampf(position.x + scramble, _min_x, _max_x)
+		"watcher":
+			_target_x = _rng.randf_range(_min_x, _max_x)
+		_:
+			_choose_general_walk_target()
+
+	_begin_walk_to_selected_target()
+
+
+func _choose_general_walk_target() -> void:
 	var roll := _rng.randf()
 	if roll < 0.22:
 		var hop := _rng.randf_range(38.0, 125.0) * (-1.0 if _rng.randf() < 0.5 else 1.0)
@@ -335,6 +399,8 @@ func _choose_walk_target() -> void:
 	else:
 		_target_x = _rng.randf_range(_min_x, _max_x)
 
+
+func _begin_walk_to_selected_target() -> void:
 	if absf(_target_x - position.x) < 10.0:
 		_start_idle()
 		return
@@ -348,9 +414,8 @@ func _start_idle() -> void:
 	_behavior = Behavior.IDLE
 	_idle_anchor_x = clampf(position.x, _min_x, _max_x)
 	position.x = _idle_anchor_x
-	_idle_time = _rng.randf_range(0.9, 4.6)
-	if _rng.randf() < 0.18:
-		_idle_time += _rng.randf_range(1.0, 2.6)
+	_idle_time = _rng.randf_range(_idle_time_min, _idle_time_max)
+	_idle_turn_time = _rng.randf_range(1.4, 3.4)
 	_sprite.rotation = 0.0
 	_sprite.visible = true
 	_sprite.play("idle")
@@ -402,7 +467,7 @@ func _update_wall_crawl(delta: float, direction: float) -> void:
 		return
 	if direction < 0.0:
 		_behavior = Behavior.WALL_PAUSE
-		_special_time = _rng.randf_range(1.0, 3.2)
+		_special_time = _rng.randf_range(_special_time_min, _special_time_max)
 		_sprite.play("idle")
 	else:
 		_sprite.rotation = 0.0
@@ -413,14 +478,14 @@ func _on_animation_finished() -> void:
 	match _behavior:
 		Behavior.BURROW_DOWN:
 			_behavior = Behavior.UNDERGROUND
-			_special_time = _rng.randf_range(1.6, 4.2)
+			_special_time = _rng.randf_range(_special_time_min, _special_time_max)
 			_sprite.visible = false
 			_set_interaction_enabled(false)
 		Behavior.BURROW_UP:
 			_start_idle()
 		Behavior.SLEEP_CLOSING:
 			_behavior = Behavior.SLEEPING
-			_special_time = _rng.randf_range(3.0, 7.5)
+			_special_time = _rng.randf_range(_special_time_min, _special_time_max)
 			_sprite.play("sleep")
 		Behavior.SLEEP_OPENING:
 			_start_idle()
@@ -443,8 +508,11 @@ func _face_direction(direction: float) -> void:
 
 
 func _apply_grounded_position(with_float: bool) -> void:
-	var bob := sin(_float_phase) * 7.0 if with_float else 0.0
-	position.y = _get_rest_y() + bob
+	_apply_floating_position(7.0 if with_float else 0.0)
+
+
+func _apply_floating_position(amplitude: float) -> void:
+	position.y = _get_rest_y() + (sin(_float_phase) * amplitude)
 
 
 func _update_pointer_interaction(delta: float) -> void:

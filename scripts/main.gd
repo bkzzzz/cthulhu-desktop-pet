@@ -496,8 +496,10 @@ func _pet_the_pet(actor: Node2D) -> void:
 	var now := _get_now_seconds()
 	var state := _get_pet_state(pet_id)
 	var next_trust_pet_at := float(state.get("next_trust_pet_at", 0.0))
-	var emotion := String(PETTING_EMOTIONS[_rng.randi_range(0, PETTING_EMOTIONS.size() - 1)])
+	var emotion := _choose_petting_emotion(pet_id)
 	var spawned := _spawn_emotion(actor, emotion, Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
+	if actor.has_method("react_to_petting"):
+		actor.call("react_to_petting", emotion)
 
 	if spawned and emotion == "happy" and now >= next_trust_pet_at and _rng.randf() <= TRUST_GAIN_ON_HAPPY_CHANCE:
 		state["trust"] = int(state.get("trust", 0)) + TRUST_GAIN_ON_HAPPY
@@ -505,6 +507,18 @@ func _pet_the_pet(actor: Node2D) -> void:
 		state["next_trust_pet_at"] = now + _rng.randf_range(TRUST_PET_COOLDOWN_MIN_SECONDS, TRUST_PET_COOLDOWN_MAX_SECONDS)
 		_refresh_pet_stats(true)
 		_spawn_emotion(actor, "like", Vector2(38.0, -10.0), 0.21, 0.16)
+
+
+func _choose_petting_emotion(pet_id: String) -> String:
+	var personality_emotions := {
+		"pet1": ["happy", "suprised", "suprised", "confused"],
+		"pet2": ["sleepy", "sleepy", "sleepy", "happy", "confused"],
+		"pet3": ["confused", "confused", "suprised", "happy"],
+		"pet4": ["happy", "happy", "confused", "sleepy"],
+		"pet5": ["suprised", "suprised", "happy", "confused"]
+	}
+	var choices: Array = personality_emotions.get(pet_id, PETTING_EMOTIONS)
+	return String(choices[_rng.randi_range(0, choices.size() - 1)])
 
 
 func _play_petting_animation(_actor: Node2D) -> void:

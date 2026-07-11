@@ -7,6 +7,7 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5"]
 	var desktop_scales := {}
+	var behavior_styles := {}
 	var minimum_scale := INF
 	var maximum_scale := 0.0
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
@@ -16,6 +17,10 @@ static func run() -> Array[String]:
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
+		var behavior_style := String(definition.get("behavior", ""))
+		behavior_styles[behavior_style] = true
+		if behavior_style.is_empty():
+			failures.append("%s must define a behavior style" % pet_id)
 		var desktop_scale := float(definition.get("desktop_scale", 0.0))
 		desktop_scales[desktop_scale] = true
 		minimum_scale = minf(minimum_scale, desktop_scale)
@@ -35,6 +40,8 @@ static func run() -> Array[String]:
 			failures.append("%s must produce faith" % pet_id)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
+	if behavior_styles.size() != expected_pets.size():
+		failures.append("each desktop pet must use a distinct behavior style")
 	if minimum_scale > 0.7:
 		failures.append("the smallest desktop pet must be visibly small")
 	if maximum_scale - minimum_scale < 0.6:
