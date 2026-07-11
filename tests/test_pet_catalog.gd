@@ -5,8 +5,11 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
-	if PetCatalog.ACTIVE_DESKTOP_PETS != ["pet1", "pet2"]:
-		failures.append("only the two new pets must be active")
+	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5"]
+	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
+		failures.append("all five pets must be active")
+	if PetCatalog.INVENTORY_STARTER_PETS != expected_pets:
+		failures.append("all five pets must be available to inventory")
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
@@ -19,4 +22,6 @@ static func run() -> Array[String]:
 			failures.append("%s idle must contain 12 frames" % pet_id)
 		if frames.get_frame_count("walk") != 12:
 			failures.append("%s walk fallback must contain 12 frames" % pet_id)
+		if float(definition.get("base_fps", 0.0)) <= 0.0:
+			failures.append("%s must produce faith" % pet_id)
 	return failures

@@ -1,7 +1,7 @@
 extends RefCounted
 
-const ACTIVE_DESKTOP_PETS := ["pet1", "pet2"]
-const INVENTORY_STARTER_PETS := ["pet1", "pet2"]
+const ACTIVE_DESKTOP_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5"]
+const INVENTORY_STARTER_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5"]
 
 const DEFINITIONS := {
 	"pet1": {
@@ -35,6 +35,54 @@ const DEFINITIONS := {
 		"icon": "res://assets/NewCharacters/pet2/pet2.png",
 		"idle": "res://assets/NewCharacters/pet2/pet2Idle.png",
 		"walk": ""
+	},
+	"pet3": {
+		"id": "pet3",
+		"name": "掘地幼兽",
+		"species": "穴居眷族",
+		"description": "喜欢钻入阴影的穴居幼兽，会从地底收集散落的信仰。",
+		"desktop_scale": 1.25,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 108,
+		"upgrade_cost_base": 420,
+		"upgrade_cost_growth": 1.18,
+		"base_fps": 1.5,
+		"power_growth": 1.035,
+		"icon": "res://assets/NewCharacters/pet3/pet3.png",
+		"idle": "res://assets/NewCharacters/pet3/pet3Idle.png",
+		"walk": "res://assets/NewCharacters/pet3/pet3Walk.png"
+	},
+	"pet4": {
+		"id": "pet4",
+		"name": "星海蠕兽",
+		"species": "星海眷族",
+		"description": "从群星间漂来的柔软眷族，步伐迟缓却能放大低语。",
+		"desktop_scale": 1.25,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 108,
+		"upgrade_cost_base": 2200,
+		"upgrade_cost_growth": 1.18,
+		"base_fps": 6.0,
+		"power_growth": 1.035,
+		"icon": "res://assets/NewCharacters/pet4/pet4.png",
+		"idle": "res://assets/NewCharacters/pet4/pet4Idle.png",
+		"walk": "res://assets/NewCharacters/pet4/pet4Walk.png"
+	},
+	"pet5": {
+		"id": "pet5",
+		"name": "月影巨口",
+		"species": "噬梦眷族",
+		"description": "吞食噩梦与月光的古怪生灵，饱餐后会散播浓烈的信仰。",
+		"desktop_scale": 1.25,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 108,
+		"upgrade_cost_base": 12000,
+		"upgrade_cost_growth": 1.18,
+		"base_fps": 25.0,
+		"power_growth": 1.035,
+		"icon": "res://assets/NewCharacters/pet5/pet5.png",
+		"idle": "res://assets/NewCharacters/pet5/pet5Idle.png",
+		"walk": "res://assets/NewCharacters/pet5/pet5Walk.png"
 	}
 }
 
