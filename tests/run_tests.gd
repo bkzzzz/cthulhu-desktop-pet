@@ -4,6 +4,7 @@ const TEST_SUITES := [
 	preload("res://tests/test_pet_progression.gd"),
 	preload("res://tests/test_pet_catalog.gd"),
 	preload("res://tests/test_desktop_pet_behavior.gd"),
+	preload("res://tests/test_desktop_input_safety.gd"),
 	preload("res://tests/test_follower_progression.gd"),
 	preload("res://tests/test_ui_number_format.gd")
 ]

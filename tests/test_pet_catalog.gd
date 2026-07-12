@@ -59,6 +59,12 @@ static func run() -> Array[String]:
 	for ground_pet_id in ["pet1", "pet3"]:
 		if float(PetCatalog.get_definition(ground_pet_id).get("wall_chance", 0.0)) > 0.0:
 			failures.append("%s must remain a ground-only pet" % ground_pet_id)
+	for raised_pet_id in ["pet1", "pet4", "pet5"]:
+		var offset := float(PetCatalog.get_definition(raised_pet_id).get("ground_offset_y", 0.0))
+		if offset < -6.0 or offset >= 0.0:
+			failures.append("%s must sit just above the taskbar edge" % raised_pet_id)
+	if not is_zero_approx(float(PetCatalog.get_definition("pet3").get("ground_offset_y", -1.0))):
+		failures.append("pet3 must sit directly on the ground line")
 	if float(PetCatalog.get_definition("pet2").get("air_roam_chance", 0.0)) <= 0.0:
 		failures.append("pet2 must occasionally roam above the taskbar")
 	var pet2_frames := PetCatalog.build_frames("pet2")

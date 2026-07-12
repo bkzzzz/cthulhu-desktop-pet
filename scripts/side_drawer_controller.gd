@@ -10,7 +10,6 @@ signal offering_drop_requested(offering: Dictionary)
 
 # Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
-const WindowsClickthroughController = preload("res://scripts/windows_clickthrough_controller.gd")
 
 # Window and drawer layout
 const DESKTOP_MARGIN_X := 24
@@ -21,8 +20,9 @@ const DRAWER_CONTENT_MARGIN_X := 34
 const DRAWER_CONTENT_WIDTH := DRAWER_PANEL_WIDTH - (DRAWER_CONTENT_MARGIN_X * 2)
 const DRAWER_SLIDE_SPEED := 1800.0
 const DRAWER_CONTENT_TOP_MARGIN := 24
-const MENU_WINDOW_SIZE := Vector2i(610, 220)
-const MENU_TO_DRAWER_GAP := 24
+const MENU_WINDOW_SIZE := Vector2i(650, 220)
+const MENU_TO_DRAWER_GAP := 2
+const RATE_SUFFIX := "/s"
 const POSITION_RETRY_FRAMES := 90
 
 # UI assets
@@ -35,7 +35,6 @@ const ADDER_TEXTURE := "res://assets/ui/newElements/adder.png"
 const GLOW_TEXTURE := "res://assets/ui/newElements/glow.png"
 const UPGRADE_EFFECT_TEXTURE := "res://assets/ui/newElements/upgradeEffect.png"
 const ALTAR_NOTICE_TEXTURE := "res://assets/ui/newElements/感叹号.png"
-const INTERACTION_CURSOR_TEXTURE := "res://assets/ui/newElements/鼠标交互.png"
 const UPGRADE_TEXTURE := "res://assets/ui/testElements/upgrade.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
 const UI_FONT := "res://assets/ui/font/NormalFont.ttf"
@@ -95,8 +94,6 @@ const DRAWER_SYMBOL_SPEED_MIN := 18.0
 const DRAWER_SYMBOL_SPEED_MAX := 42.0
 const UPGRADE_EFFECT_SIZE := Vector2(150.0, 142.0)
 const ALTAR_NOTICE_SIZE := Vector2(54.0, 54.0)
-const INTERACTION_CURSOR_SIZE := Vector2i(72, 92)
-const INTERACTION_CURSOR_HOTSPOT := Vector2(10.0, 16.0)
 const UPGRADE_DETAIL_HOVER_DELAY := 0.45
 const UPGRADE_DETAIL_HIDE_GRACE := 0.22
 const BOOKMARK_SIZE := Vector2(258.0, 82.0)
@@ -170,11 +167,8 @@ var _upgrade_affordables := {}
 var _ui_theme: Theme
 var _ui_font: Font
 var _upgrade_row_texture: Texture2D
-var _interaction_cursor_texture: Texture2D
-var _interaction_cursor_depth := 0
 var _menu_hit_images := {}
 var _menu_window_mouse_passthrough := false
-var _menu_clickthrough_controller: RefCounted
 var _offering_grid: Control
 var _offering_status_label: Label
 var _offering_entries: Array[Dictionary] = []
@@ -203,7 +197,6 @@ func _process(delta: float) -> void:
 	_update_menu_window_mouse_passthrough()
 	_update_upgrade_detail_hover(delta)
 	_update_drawer_background_symbols(delta)
-	_refresh_interaction_cursor()
 	if _adder_glow != null:
 		_adder_glow.rotation += GLOW_ROTATION_SPEED * delta
 	_update_altar_notice(delta)
@@ -223,7 +216,7 @@ func refresh_faith(faith_count: float, growth_rate: float) -> void:
 				_fit_font_to_text(_faith_value_label, _faith_value_label.text, FAITH_COUNTER_VALUE_FONT_MAX, FAITH_COUNTER_VALUE_FONT_MIN, 7)
 
 	if _faith_growth_value_label != null:
-		var next_growth_text := "+%s / 秒" % _format_number(_faith_growth_rate, true)
+		var next_growth_text := "+%s%s" % [_format_number(_faith_growth_rate, true), RATE_SUFFIX]
 		if _faith_growth_value_label.text != next_growth_text:
 			var needs_refit := _faith_growth_value_label.text.length() != next_growth_text.length()
 			_faith_growth_value_label.text = next_growth_text
@@ -292,13 +285,12 @@ func _create_toggle_button() -> void:
 	_menu_window.size = MENU_WINDOW_SIZE
 	_menu_window.borderless = true
 	_menu_window.always_on_top = false
+	_menu_window.unfocusable = true
 	_menu_window.unresizable = true
 	_menu_window.transparent = true
 	_menu_window.transparent_bg = true
 	_menu_window.visible = false
 	add_child(_menu_window)
-	_menu_clickthrough_controller = WindowsClickthroughController.new()
-	_menu_clickthrough_controller.setup(_menu_window, "menu_window")
 	_set_menu_window_mouse_passthrough(true)
 
 	var menu_root := Control.new()
@@ -308,6 +300,7 @@ func _create_toggle_button() -> void:
 	_menu_window.add_child(menu_root)
 
 	_altar_button = TextureButton.new()
+	_altar_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_altar_button.name = "CultAltar"
 	_altar_button.texture_normal = load(ALTAR_TEXTURE) as Texture2D
 	_altar_button.texture_hover = _altar_button.texture_normal
@@ -352,6 +345,7 @@ func _create_toggle_button() -> void:
 	_refresh_altar_notice()
 
 	_menu_button = TextureButton.new()
+	_menu_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_menu_button.name = "MenuBanner"
 	_menu_button.texture_normal = load(MENU_ICON_TEXTURE) as Texture2D
 	_menu_button.texture_hover = _menu_button.texture_normal
@@ -660,6 +654,7 @@ func _make_faith_adder_stage() -> Control:
 	_faith_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 280.0) * 0.5, 286.0)
 	_faith_value_label.size = Vector2(280.0, 58.0)
 	_faith_value_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	_faith_value_label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_faith_value_label.add_theme_font_size_override("font_size", FAITH_COUNTER_VALUE_FONT_MAX)
 	_faith_value_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
 	_faith_value_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
@@ -686,7 +681,7 @@ func _make_faith_adder_stage() -> Control:
 
 	_faith_growth_value_label = Label.new()
 	_faith_growth_value_label.name = "FaithGrowthValue"
-	_faith_growth_value_label.text = "+%s / 秒" % _format_number(_faith_growth_rate, true)
+	_faith_growth_value_label.text = "+%s%s" % [_format_number(_faith_growth_rate, true), RATE_SUFFIX]
 	_faith_growth_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_growth_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_faith_growth_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 220.0) * 0.5, 365.0)
@@ -702,6 +697,7 @@ func _make_faith_adder_stage() -> Control:
 
 func _make_faith_adder_button() -> TextureButton:
 	var button := TextureButton.new()
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_adder_button = button
 	button.name = "FaithAdder"
 	button.texture_normal = load(ADDER_TEXTURE) as Texture2D
@@ -1346,7 +1342,7 @@ func _refresh_cult_summary() -> void:
 		_fit_font_to_text(_cult_faith_label, _cult_faith_label.text, 16, 11, 12)
 
 	if _cult_growth_label != null:
-		_cult_growth_label.text = "教众增长 +%.2f / 秒" % _follower_growth_rate
+		_cult_growth_label.text = "教众增长 +%.2f%s" % [_follower_growth_rate, RATE_SUFFIX]
 		_fit_font_to_text(_cult_growth_label, _cult_growth_label.text, 16, 11, 12)
 
 
@@ -1495,6 +1491,7 @@ func _make_panel_style() -> StyleBoxFlat:
 
 func _make_bookmark_button(label_text: String, callback: Callable) -> TextureButton:
 	var button := TextureButton.new()
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.name = "%sBookmark" % label_text
 	button.texture_normal = load(BOOKMARK_TEXTURE) as Texture2D
 	button.texture_hover = button.texture_normal
@@ -1527,6 +1524,7 @@ func _make_bookmark_button(label_text: String, callback: Callable) -> TextureBut
 
 
 func _configure_upgrade_row_button(button: TextureButton, _tooltip_text: String, shrink_center: bool) -> void:
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.texture_normal = _get_upgrade_row_texture()
 	button.texture_hover = button.texture_normal
 	button.texture_pressed = button.texture_normal
@@ -1658,11 +1656,12 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 	if _upgrade_detail_level_label != null:
 		_upgrade_detail_level_label.text = "种群数量 %d" % count
 	_upgrade_detail_desc_label.text = String(entry.get("description", pet_data.get("description", "")))
-	_upgrade_detail_stats_label.text = "领袖年龄 %d 岁\n好感度 %d [color=#c8d878]（升级减免 %.0f%%）[/color]\n本次升级增长 +%s / 秒\n消耗 %s\n%s" % [
+	_upgrade_detail_stats_label.text = "领袖年龄 %d 岁\n好感度 %d [color=#c8d878]（升级减免 %.0f%%）[/color]\n本次升级增长 +%s%s\n消耗 %s\n%s" % [
 		leader_age,
 		favor,
 		discount * 100.0,
 		_format_number(next_bonus),
+		RATE_SUFFIX,
 		_format_number(cost),
 		"[color=#c7d86b]可升级[/color]" if affordable else "[color=#e88a66]信仰不足[/color]"
 	]
@@ -1702,6 +1701,7 @@ func _get_upgrade_row_texture() -> Texture2D:
 
 func _make_texture_button(button_name: String, texture_path: String, callback: Callable) -> TextureButton:
 	var button := TextureButton.new()
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.name = button_name
 	button.texture_normal = load(texture_path) as Texture2D
 	button.texture_hover = button.texture_normal
@@ -1715,6 +1715,7 @@ func _make_texture_button(button_name: String, texture_path: String, callback: C
 
 func _make_text_button(button_text: String, callback: Callable) -> Button:
 	var button := Button.new()
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.text = button_text
 	button.custom_minimum_size = Vector2(92, 28)
 	button.pivot_offset = button.custom_minimum_size * 0.5
@@ -1751,54 +1752,6 @@ func _animate_control_press(control: Control) -> void:
 # Cursor, effects, and hit masks
 func _on_interactive_control_hovered(control: Control, hovered: bool) -> void:
 	_animate_control_hover(control, hovered)
-	if hovered:
-		_push_interaction_cursor()
-	else:
-		_pop_interaction_cursor()
-
-
-func _push_interaction_cursor() -> void:
-	_interaction_cursor_depth += 1
-	var cursor_texture := _get_interaction_cursor_texture()
-	if cursor_texture != null:
-		Input.set_custom_mouse_cursor(cursor_texture, Input.CURSOR_ARROW, INTERACTION_CURSOR_HOTSPOT)
-
-
-func _pop_interaction_cursor() -> void:
-	_interaction_cursor_depth = maxi(0, _interaction_cursor_depth - 1)
-	if _interaction_cursor_depth == 0:
-		Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
-
-
-func _refresh_interaction_cursor() -> void:
-	if _interaction_cursor_depth <= 0:
-		return
-
-	var cursor_texture := _get_interaction_cursor_texture()
-	if cursor_texture != null:
-		Input.set_custom_mouse_cursor(cursor_texture, Input.CURSOR_ARROW, INTERACTION_CURSOR_HOTSPOT)
-
-
-func _get_interaction_cursor_texture() -> Texture2D:
-	if _interaction_cursor_texture != null:
-		return _interaction_cursor_texture
-
-	var texture := load(INTERACTION_CURSOR_TEXTURE) as Texture2D
-	if texture == null:
-		return null
-
-	var image := texture.get_image()
-	if image == null or image.is_empty():
-		_interaction_cursor_texture = texture
-		return _interaction_cursor_texture
-
-	image.convert(Image.FORMAT_RGBA8)
-	var used_rect := image.get_used_rect()
-	if used_rect.size.x > 0 and used_rect.size.y > 0:
-		image = image.get_region(used_rect)
-	image.resize(INTERACTION_CURSOR_SIZE.x, INTERACTION_CURSOR_SIZE.y, Image.INTERPOLATE_LANCZOS)
-	_interaction_cursor_texture = ImageTexture.create_from_image(image)
-	return _interaction_cursor_texture
 
 
 func _pulse_count_label(label: Label) -> void:
@@ -2039,14 +1992,11 @@ func _set_menu_window_mouse_passthrough(enabled: bool, force := false) -> void:
 	if _menu_window == null or (not force and _menu_window_mouse_passthrough == enabled):
 		return
 
-	_menu_window_mouse_passthrough = enabled
-	if _menu_clickthrough_controller != null and _menu_clickthrough_controller.call("set_clickthrough", enabled, force):
-		return
-
 	var window_id := _menu_window.get_window_id()
 	if window_id <= 0:
 		return
 
+	_menu_window_mouse_passthrough = enabled
 	DisplayServer.window_set_flag(
 		DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH,
 		enabled,
@@ -2055,11 +2005,6 @@ func _set_menu_window_mouse_passthrough(enabled: bool, force := false) -> void:
 
 
 # Window placement and drawer motion
-func _exit_tree() -> void:
-	if _menu_clickthrough_controller != null:
-		_menu_clickthrough_controller.call("shutdown")
-
-
 func _get_window_mouse_position(window: Window) -> Vector2:
 	var global_mouse := DisplayServer.mouse_get_position()
 	var window_position := window.position
@@ -2097,6 +2042,22 @@ func _refresh_drawer_geometry(keep_current_slide := true) -> void:
 	_drawer_closed_x = screen_right
 	_drawer_screen_size = Vector2i(drawer_width, screen_rect.size.y)
 	_drawer_window.size = _drawer_screen_size
+	var window_right := float(_drawer_screen_size.x)
+	var window_bottom := float(_drawer_screen_size.y)
+	var panel_left := minf(float(DRAWER_BOOKMARK_WIDTH - 10), window_right)
+	var bookmark_left := minf(float(BOOKMARK_SAFE_INSET_X), panel_left)
+	var bookmark_top := minf(106.0, window_bottom)
+	var bookmark_bottom := minf(446.0, window_bottom)
+	_drawer_window.mouse_passthrough_polygon = PackedVector2Array([
+		Vector2(panel_left, 0.0),
+		Vector2(window_right, 0.0),
+		Vector2(window_right, window_bottom),
+		Vector2(panel_left, window_bottom),
+		Vector2(panel_left, bookmark_bottom),
+		Vector2(bookmark_left, bookmark_bottom),
+		Vector2(bookmark_left, bookmark_top),
+		Vector2(panel_left, bookmark_top)
+	])
 	if _drawer_background != null:
 		_drawer_background.position = Vector2(DRAWER_BOOKMARK_WIDTH - 10, 0)
 		_drawer_background.size = Vector2(DRAWER_PANEL_WIDTH + 10, _drawer_screen_size.y)

@@ -5,8 +5,8 @@ const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
-	if DesktopPetActor.GRAB_HOLD_SECONDS > 0.25:
-		failures.append("stationary long-press grabbing must respond quickly")
+	if DesktopPetActor.GRAB_HOLD_SECONDS != 0.0:
+		failures.append("pet grabbing must begin on the press frame")
 	if DesktopPetActor.FLOAT_BOB_AMPLITUDE < 12.0:
 		failures.append("pet2 bottom hovering must have a visible vertical range")
 	_test_sleep_transition(failures)
@@ -45,6 +45,9 @@ static func _test_air_roaming(failures: Array[String]) -> void:
 static func _test_grab_offset(failures: Array[String]) -> void:
 	var actor := DesktopPetActor.new()
 	actor.setup("pet1", Vector2i(820, 420), 72.0, 724.0, 320.0)
+	var stable_hit_image: Image = actor.get("_stable_hit_image")
+	if stable_hit_image == null or stable_hit_image.is_empty():
+		failures.append("pet interaction must use a stable animation hit mask")
 	var expected_offset := Vector2(23.0, -11.0)
 	actor.set("_grab_offset", expected_offset)
 	actor.call("_begin_grab")

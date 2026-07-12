@@ -9,13 +9,12 @@ This folder is split by runtime responsibility:
 - `pet_catalog.gd`: pet definitions, frame building, icon cropping, and transparent-key processing.
 - `inventory_window.gd`: pet storage window, rename/deploy UI, and pet detail panel.
 - `shop_window.gd`: shop window, paged goods grid, hover info, and purchase requests.
-- `windows_clickthrough_controller.gd`: Windows-specific mouse passthrough helper wrapper.
 - `domain/pet_progression.gd`: pure faith, favor, discount, and upgrade-cost rules.
 - `domain/follower_progression.gd`: pure passive follower growth derived from the current faith growth rate.
 
 Followers grow automatically from faith production and require no separate player management.
 
-The active desktop roster is defined by the two characters under `assets/NewCharacters/`. Character-specific scale and frame-floor values keep different source sheet sizes aligned to the desktop floor.
+The active desktop roster is defined by `pet_catalog.gd`. Character-specific scale and frame-floor values keep different source sheet sizes aligned to the desktop floor.
 
 Run the headless unit tests from the project directory with:
 

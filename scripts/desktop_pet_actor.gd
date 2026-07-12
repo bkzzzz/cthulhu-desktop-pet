@@ -1,6 +1,5 @@
 extends Node2D
 
-signal hover_changed(actor: Node2D, hovered: bool)
 signal petted(actor: Node2D)
 signal recall_requested(actor: Node2D)
 signal forced_target_reached(actor: Node2D)
@@ -14,9 +13,11 @@ const PET_OFFERING_WALK_SPEED := 190.0
 const PET_SPEED_VARIANCE := 9.0
 const PET_VISUAL_SIZE := Vector2(230.0, 310.0)
 const HOVER_HINT_DELAY_SECONDS := 0.45
-const GRAB_HOLD_SECONDS := 0.22
-const GRAB_DRAG_DISTANCE := 5.0
+const GRAB_HOLD_SECONDS := 0.0
 const GRAB_CLICK_TOLERANCE := 12.0
+const PETTING_CLICK_MAX_SECONDS := 0.2
+const POINTER_CAPTURE_TIMEOUT_SECONDS := 10.0
+const HIT_SLOP_PIXELS := 4
 const FALL_GRAVITY := 1250.0
 const WALL_CRAWL_SPEED := 48.0
 const FLOAT_BOB_AMPLITUDE := 14.0
@@ -90,8 +91,10 @@ var _hover_time := 0.0
 var _pointer_held := false
 var _pointer_hold_time := 0.0
 var _press_position := Vector2.ZERO
+var _press_actor_position := Vector2.ZERO
 var _grab_offset := Vector2.ZERO
 var _frame_hit_images := {}
+var _stable_hit_image: Image
 
 
 func setup(new_pet_id: String, window_size: Vector2i, min_x: float, max_x: float, start_x: float) -> void:
@@ -164,6 +167,20 @@ func is_pointer_captured() -> bool:
 	return _pointer_held or _behavior == Behavior.GRABBED
 
 
+func cancel_pointer_capture() -> void:
+	if _pointer_held or _behavior == Behavior.GRABBED:
+		_finish_pointer_hold(true)
+
+
+func set_pointer_hovered(hovered: bool) -> void:
+	if _hovering == hovered:
+		return
+	_hovering = hovered
+	_hover_time = 0.0
+	if not hovered and _hover_hint != null:
+		_hover_hint.visible = false
+
+
 func react_to_petting(emotion: String) -> void:
 	if _pointer_held or _behavior == Behavior.GRABBED or _behavior == Behavior.FALLING:
 		return
@@ -193,9 +210,6 @@ func _input(event: InputEvent) -> void:
 	if not _pointer_held:
 		return
 	if event is InputEventMouseMotion:
-		var pointer_position := _get_pointer_position()
-		if _behavior != Behavior.GRABBED and pointer_position.distance_to(_press_position) >= GRAB_DRAG_DISTANCE:
-			_begin_grab()
 		if _behavior == Behavior.GRABBED:
 			_update_grabbed_position()
 			get_viewport().set_input_as_handled()
@@ -227,7 +241,9 @@ func is_point_over_opaque_pixel(window_position: Vector2) -> bool:
 	if texture == null:
 		return false
 
-	var image := _get_frame_hit_image(texture, _sprite.animation, _sprite.frame)
+	var image := _stable_hit_image
+	if image == null:
+		image = _get_frame_hit_image(texture, _sprite.animation, _sprite.frame)
 	if image == null or image.is_empty():
 		return false
 
@@ -239,7 +255,15 @@ func is_point_over_opaque_pixel(window_position: Vector2) -> bool:
 
 	if pixel_x < 0 or pixel_y < 0 or pixel_x >= image.get_width() or pixel_y >= image.get_height():
 		return false
-	return image.get_pixel(pixel_x, pixel_y).a > 0.05
+	var min_x := maxi(0, pixel_x - HIT_SLOP_PIXELS)
+	var max_x := mini(image.get_width() - 1, pixel_x + HIT_SLOP_PIXELS)
+	var min_y := maxi(0, pixel_y - HIT_SLOP_PIXELS)
+	var max_y := mini(image.get_height() - 1, pixel_y + HIT_SLOP_PIXELS)
+	for sample_y in range(min_y, max_y + 1):
+		for sample_x in range(min_x, max_x + 1):
+			if image.get_pixel(sample_x, sample_y).a > 0.04:
+				return true
+	return false
 
 
 func get_draw_rect() -> Rect2:
@@ -263,8 +287,31 @@ func _create_sprite() -> void:
 	_sprite.centered = true
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.animation_finished.connect(_on_animation_finished)
+	_stable_hit_image = _build_stable_hit_image(_sprite.sprite_frames)
 	add_child(_sprite)
 	_sprite.play("idle")
+
+
+func _build_stable_hit_image(frames: SpriteFrames) -> Image:
+	var stable_image: Image
+	for animation_name in ["idle", "walk"]:
+		if not frames.has_animation(animation_name):
+			continue
+		for frame_index in frames.get_frame_count(animation_name):
+			var texture := frames.get_frame_texture(animation_name, frame_index)
+			if texture == null:
+				continue
+			var frame_image := texture.get_image()
+			if frame_image == null or frame_image.is_empty():
+				continue
+			frame_image.convert(Image.FORMAT_RGBA8)
+			if stable_image == null:
+				stable_image = Image.create_empty(frame_image.get_width(), frame_image.get_height(), false, Image.FORMAT_RGBA8)
+				stable_image.fill(Color.TRANSPARENT)
+			if frame_image.get_size() != stable_image.get_size():
+				continue
+			stable_image.blend_rect(frame_image, Rect2i(Vector2i.ZERO, frame_image.get_size()), Vector2i.ZERO)
+	return stable_image
 
 
 func _get_frame_hit_image(texture: Texture2D, animation_name: String, frame: int) -> Image:
@@ -285,9 +332,8 @@ func _create_interaction_area() -> void:
 	_interaction_area.name = "%sInteractionArea" % pet_id
 	_interaction_area.size = PET_VISUAL_SIZE
 	_interaction_area.mouse_filter = Control.MOUSE_FILTER_STOP
+	_interaction_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_interaction_area.z_index = 10
-	_interaction_area.mouse_entered.connect(_on_mouse_entered)
-	_interaction_area.mouse_exited.connect(_on_mouse_exited)
 	_interaction_area.gui_input.connect(_on_gui_input)
 	add_child(_interaction_area)
 	_create_hover_hint()
@@ -314,7 +360,7 @@ func _create_hover_hint() -> void:
 
 func _refresh_hover_hint_text() -> void:
 	if _hover_hint != null:
-		_hover_hint.text = "%s\n左键抚摸 · 长按抓起  右键召回" % display_name
+		_hover_hint.text = "%s\n按住拖动 · 短按抚摸  右键召回" % display_name
 
 
 func _update_pet(delta: float) -> void:
@@ -635,16 +681,16 @@ func _update_pointer_interaction(delta: float) -> void:
 		_finish_pointer_hold()
 		return
 	_pointer_hold_time += delta
-	var pointer_position := _get_pointer_position()
-	var moved_to_drag := pointer_position.distance_to(_press_position) >= GRAB_DRAG_DISTANCE
-	if _behavior != Behavior.GRABBED and (_pointer_hold_time >= GRAB_HOLD_SECONDS or moved_to_drag):
-		_begin_grab()
+	if _pointer_hold_time >= POINTER_CAPTURE_TIMEOUT_SECONDS:
+		_finish_pointer_hold(true)
 
 
 func _begin_grab() -> void:
 	_cancel_special_behavior()
 	_behavior = Behavior.GRABBED
 	z_index = 500
+	if _interaction_area != null:
+		_interaction_area.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	_sprite.play("idle")
 	if _hover_hint != null:
 		_hover_hint.visible = false
@@ -659,17 +705,24 @@ func _update_grabbed_position() -> void:
 	position = target
 
 
-func _finish_pointer_hold() -> void:
-	if not _pointer_held:
+func _finish_pointer_hold(force_cancel := false) -> void:
+	if not _pointer_held and _behavior != Behavior.GRABBED:
 		return
 	_pointer_held = false
 	if _behavior == Behavior.GRABBED:
-		_behavior = Behavior.FALLING
-		_fall_velocity = 0.0
 		z_index = 0
+		if _interaction_area != null:
+			_interaction_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		grabbed_changed.emit(self, false)
-	elif _get_pointer_position().distance_to(_press_position) <= GRAB_CLICK_TOLERANCE:
-		petted.emit(self)
+		var pointer_distance := _get_pointer_position().distance_to(_press_position)
+		var is_petting_click := not force_cancel and _pointer_hold_time <= PETTING_CLICK_MAX_SECONDS and pointer_distance <= GRAB_CLICK_TOLERANCE
+		if is_petting_click:
+			position = _press_actor_position
+			_start_idle()
+			petted.emit(self)
+		else:
+			_behavior = Behavior.FALLING
+			_fall_velocity = 0.0
 	_pointer_hold_time = 0.0
 
 
@@ -740,19 +793,6 @@ func _get_rest_y() -> float:
 	return foot_line_y - ((_frame_foot_y - _frame_center_y) * _pet_scale) + _ground_offset_y
 
 
-func _on_mouse_entered() -> void:
-	_hovering = true
-	_hover_time = 0.0
-	hover_changed.emit(self, true)
-
-
-func _on_mouse_exited() -> void:
-	_hovering = false
-	if _hover_hint != null:
-		_hover_hint.visible = false
-	hover_changed.emit(self, false)
-
-
 func _on_gui_input(event: InputEvent) -> void:
 	if not event is InputEventMouseButton:
 		return
@@ -765,7 +805,9 @@ func _on_gui_input(event: InputEvent) -> void:
 			_pointer_held = true
 			_pointer_hold_time = 0.0
 			_press_position = window_position
+			_press_actor_position = position
 			_grab_offset = position - window_position
+			_begin_grab()
 			_interaction_area.accept_event()
 		elif _pointer_held:
 			_finish_pointer_hold()

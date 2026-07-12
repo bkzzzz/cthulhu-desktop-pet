@@ -9,7 +9,6 @@ const BelieverActor = preload("res://scripts/believer_actor.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
 const ShopWindowScript = preload("res://scripts/shop_window.gd")
 const SideDrawerController = preload("res://scripts/side_drawer_controller.gd")
-const WindowsClickthroughController = preload("res://scripts/windows_clickthrough_controller.gd")
 
 # Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
@@ -20,12 +19,10 @@ const PET_STAGE_START_SPACING := 132.0
 const POSITION_RETRY_FRAMES := 90
 
 # Pet interaction and offering tuning
-const PETTING_TEXTURE := "res://assets/ui/emotions/petting.png"
-const PETTING_HOVER_TEXTURE := "res://assets/ui/emotions/pettingHovering.png"
-const PETTING_CURSOR_SIZE := Vector2i(56, 56)
 const OFFERING_CURSOR_SIZE := Vector2i(52, 52)
 const OFFERING_DROP_SCALE := 0.36
 const OFFERING_GAIN_SECONDS := 20.0
+const OFFERING_DROP_ZONE_HEIGHT := 420.0
 const OFFERING_GROUND_MARGIN := 2.0
 const SAFE_CANVAS_MARGIN := 12.0
 const EMOTION_CONFUSED_TEXTURE := "res://assets/ui/emotions/confused.png"
@@ -58,20 +55,14 @@ const BELIEVER_SPAWN_MIN_SECONDS := 8.0
 const BELIEVER_SPAWN_MAX_SECONDS := 18.0
 const BELIEVER_FORCE_SPAWN_SECONDS := 60.0
 const UI_REFRESH_INTERVAL := 0.25
-const PET_MOUSE_HIT_HOLD_SECONDS := 0.08
 
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
 var _believers: Array[Node2D] = []
 var _hovered_pet: Node2D
-var _petting_hover_cursor_texture: Texture2D
-var _petting_click_cursor_texture: Texture2D
 var _active_emotions: Dictionary = {}
 var _active_emotion_tweens: Dictionary = {}
 var _next_emotion_allowed_at: Dictionary = {}
-var _petting_active := false
-var _petting_tween: Tween
-var _petting_cursor_active := false
 var _carried_offering: Dictionary = {}
 var _current_cursor_texture: Texture2D
 var _offering_cursor_texture: Texture2D
@@ -80,8 +71,6 @@ var _offering_cursor_size := Vector2i.ZERO
 var _offering_cursor_active := false
 var _pending_offering_feeds: Dictionary = {}
 var _pet_window_mouse_passthrough := false
-var _pet_mouse_hit_hold_time := 0.0
-var _pet_clickthrough_controller: RefCounted
 var _position_retry_frames := 0
 var _pet_window_size := PET_WINDOW_BASE_SIZE
 var _rng := RandomNumberGenerator.new()
@@ -110,7 +99,6 @@ func _ready() -> void:
 	_rng.randomize()
 	_configure_pet_window()
 	_create_desktop_pets()
-	_prepare_petting_cursors()
 	_create_side_drawer()
 	_create_inventory_window()
 	_create_shop_window()
@@ -135,7 +123,15 @@ func _process(delta: float) -> void:
 	_update_pet_hunger()
 	_update_believers()
 	_update_pet_window_mouse_passthrough(delta)
-	_update_petting_cursor()
+	_update_offering_cursor_state()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_cancel_all_pet_pointer_captures()
+		if not _carried_offering.is_empty():
+			_cancel_carried_offering()
+		call_deferred("_restore_desktop_input")
 
 
 func _input(event: InputEvent) -> void:
@@ -148,7 +144,10 @@ func _input(event: InputEvent) -> void:
 			return
 
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			_drop_carried_offering(get_viewport().get_mouse_position())
+			var drop_position := _get_window_mouse_position(get_window())
+			if not _is_offering_drop_zone(drop_position):
+				return
+			_drop_carried_offering(drop_position)
 			get_viewport().set_input_as_handled()
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
 			_cancel_carried_offering()
@@ -167,6 +166,7 @@ func _configure_pet_window() -> void:
 	window.transparent = true
 	window.borderless = true
 	window.always_on_top = false
+	window.unfocusable = true
 	window.unresizable = true
 	window.visible = true
 
@@ -177,8 +177,6 @@ func _configure_pet_window() -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, true)
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true)
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
-	_pet_clickthrough_controller = WindowsClickthroughController.new()
-	_pet_clickthrough_controller.setup(window, "pet_window")
 	_set_window_mouse_passthrough(window, true, true)
 
 
@@ -211,7 +209,6 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	_ensure_pet_state(pet_id)
 	if actor.has_method("set_display_name"):
 		actor.call("set_display_name", _get_pet_display_name(pet_id))
-	actor.hover_changed.connect(_on_pet_hover_changed)
 	actor.petted.connect(_on_pet_petted)
 	actor.recall_requested.connect(_on_pet_recall_requested)
 	actor.forced_target_reached.connect(_on_pet_forced_target_reached)
@@ -304,11 +301,6 @@ func _get_believer_threat_positions() -> Array[Vector2]:
 
 
 # UI windows
-func _prepare_petting_cursors() -> void:
-	_petting_hover_cursor_texture = _make_cursor_texture(PETTING_HOVER_TEXTURE, PETTING_CURSOR_SIZE)
-	_petting_click_cursor_texture = _make_cursor_texture(PETTING_TEXTURE, PETTING_CURSOR_SIZE)
-
-
 func _create_side_drawer() -> void:
 	_side_drawer = SideDrawerController.new()
 	add_child(_side_drawer)
@@ -373,30 +365,63 @@ func _update_actor_window_bounds() -> void:
 			believer.call("set_window_size", _pet_window_size)
 
 
-func _update_pet_window_mouse_passthrough(delta := 0.0) -> void:
+func _update_pet_window_mouse_passthrough(_delta := 0.0) -> void:
 	var window := get_window()
-	if not _carried_offering.is_empty() or _has_captured_pet_pointer():
-		_pet_mouse_hit_hold_time = PET_MOUSE_HIT_HOLD_SECONDS
+	var mouse_position := _get_window_mouse_position(window)
+	if not _carried_offering.is_empty():
+		_set_hovered_pet(null)
+		_set_window_mouse_passthrough(window, not _is_offering_drop_zone(mouse_position))
+		return
+	if _has_captured_pet_pointer():
+		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			_cancel_all_pet_pointer_captures()
+			_set_window_mouse_passthrough(window, true)
+			return
 		_set_window_mouse_passthrough(window, false)
 		return
 
-	var mouse_position := _get_window_mouse_position(window)
 	var hit_pet := _get_pet_at_position(mouse_position)
 	if hit_pet == null:
-		_pet_mouse_hit_hold_time = maxf(0.0, _pet_mouse_hit_hold_time - delta)
-		if _pet_mouse_hit_hold_time > 0.0:
-			_set_window_mouse_passthrough(window, false)
-		else:
-			_set_window_mouse_passthrough(window, true)
-		if _hovered_pet != null and not _petting_active:
-			_hovered_pet = null
-			_clear_petting_cursor()
+		_set_window_mouse_passthrough(window, true)
+		_set_hovered_pet(null)
 		return
 
-	_pet_mouse_hit_hold_time = PET_MOUSE_HIT_HOLD_SECONDS
 	_set_window_mouse_passthrough(window, false)
-	if _hovered_pet != hit_pet:
-		_hovered_pet = hit_pet
+	_set_hovered_pet(hit_pet)
+
+
+func _set_hovered_pet(next_pet: Node2D) -> void:
+	if _hovered_pet == next_pet:
+		return
+	var previous_pet := _hovered_pet
+	_hovered_pet = next_pet
+	if previous_pet != null and is_instance_valid(previous_pet) and previous_pet.has_method("set_pointer_hovered"):
+		previous_pet.call("set_pointer_hovered", false)
+	if _hovered_pet != null and is_instance_valid(_hovered_pet) and _hovered_pet.has_method("set_pointer_hovered"):
+		_hovered_pet.call("set_pointer_hovered", true)
+
+
+func _cancel_all_pet_pointer_captures() -> void:
+	for pet in _pets:
+		if is_instance_valid(pet) and pet.has_method("cancel_pointer_capture"):
+			pet.call("cancel_pointer_capture")
+
+
+func _restore_desktop_input() -> void:
+	if not is_inside_tree():
+		return
+	_set_hovered_pet(null)
+	_set_window_mouse_passthrough(get_window(), true, true)
+
+
+func _is_offering_drop_zone(window_position: Vector2) -> bool:
+	var usable_bottom := float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+	return (
+		window_position.x >= 0.0
+		and window_position.x <= float(_pet_window_size.x)
+		and window_position.y >= usable_bottom - OFFERING_DROP_ZONE_HEIGHT
+		and window_position.y <= usable_bottom
+	)
 
 
 func _has_captured_pet_pointer() -> bool:
@@ -444,14 +469,11 @@ func _set_window_mouse_passthrough(window: Window, enabled: bool, force := false
 	if window == null or (not force and _pet_window_mouse_passthrough == enabled):
 		return
 
-	_pet_window_mouse_passthrough = enabled
-	if _pet_clickthrough_controller != null and _pet_clickthrough_controller.call("set_clickthrough", enabled, force):
-		return
-
 	var window_id := window.get_window_id()
 	if window_id <= 0:
 		return
 
+	_pet_window_mouse_passthrough = enabled
 	DisplayServer.window_set_flag(
 		DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH,
 		enabled,
@@ -460,28 +482,17 @@ func _set_window_mouse_passthrough(window: Window, enabled: bool, force := false
 
 
 func _exit_tree() -> void:
-	if _pet_clickthrough_controller != null:
-		_pet_clickthrough_controller.call("shutdown")
+	_clear_offering_cursor()
 
 
 # Petting, cursors, and emotion effects
-func _update_petting_cursor() -> void:
+func _update_offering_cursor_state() -> void:
 	if not _carried_offering.is_empty():
-		_clear_petting_cursor()
-		_refresh_offering_cursor()
+		if _is_offering_drop_zone(_get_window_mouse_position(get_window())):
+			_refresh_offering_cursor()
+		else:
+			_clear_offering_cursor()
 		return
-	if _has_captured_pet_pointer():
-		_clear_petting_cursor()
-		return
-
-	if _petting_active:
-		return
-
-	if _hovered_pet == null or not is_instance_valid(_hovered_pet):
-		_clear_petting_cursor()
-		return
-
-	_set_petting_cursor(_petting_hover_cursor_texture)
 
 
 func _pet_the_pet(actor: Node2D) -> void:
@@ -489,7 +500,6 @@ func _pet_the_pet(actor: Node2D) -> void:
 		return
 
 	_select_pet(actor)
-	_play_petting_animation(actor)
 
 	var pet_id := _get_actor_pet_id(actor)
 	if pet_id.is_empty():
@@ -521,53 +531,6 @@ func _choose_petting_emotion(pet_id: String) -> String:
 	}
 	var choices: Array = personality_emotions.get(pet_id, PETTING_EMOTIONS)
 	return String(choices[_rng.randi_range(0, choices.size() - 1)])
-
-
-func _play_petting_animation(_actor: Node2D) -> void:
-	if _petting_tween != null and is_instance_valid(_petting_tween):
-		_petting_tween.kill()
-
-	_petting_active = true
-	_set_petting_cursor(_petting_click_cursor_texture)
-
-	_petting_tween = create_tween()
-	_petting_tween.set_trans(Tween.TRANS_SINE)
-	_petting_tween.set_ease(Tween.EASE_IN_OUT)
-	_petting_tween.tween_interval(0.08)
-	_petting_tween.tween_callback(_set_petting_cursor.bind(_petting_hover_cursor_texture))
-	_petting_tween.tween_interval(0.06)
-	_petting_tween.tween_callback(_set_petting_cursor.bind(_petting_click_cursor_texture))
-	_petting_tween.tween_interval(0.08)
-	_petting_tween.tween_callback(_finish_petting_animation)
-
-
-func _finish_petting_animation() -> void:
-	_petting_active = false
-
-	if _hovered_pet != null and is_instance_valid(_hovered_pet):
-		_set_petting_cursor(_petting_hover_cursor_texture)
-	else:
-		_clear_petting_cursor()
-
-
-func _set_petting_cursor(texture: Texture2D) -> void:
-	if texture == null:
-		return
-	if _current_cursor_texture == texture and _petting_cursor_active:
-		return
-
-	Input.set_custom_mouse_cursor(texture, Input.CURSOR_ARROW, Vector2(6.0, 9.0))
-	_current_cursor_texture = texture
-	_petting_cursor_active = true
-
-
-func _clear_petting_cursor() -> void:
-	if not _petting_cursor_active:
-		return
-
-	Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
-	_current_cursor_texture = null
-	_petting_cursor_active = false
 
 
 func _set_offering_cursor(texture_path: String) -> void:
@@ -1085,15 +1048,6 @@ func _get_current_screen() -> int:
 
 
 # Event handlers
-func _on_pet_hover_changed(actor: Node2D, hovered: bool) -> void:
-	if hovered:
-		_hovered_pet = actor
-	elif _hovered_pet == actor:
-		_hovered_pet = null
-		if not _petting_active:
-			_clear_petting_cursor()
-
-
 func _on_pet_petted(actor: Node2D) -> void:
 	_hovered_pet = actor
 	_pet_the_pet(actor)
@@ -1113,7 +1067,6 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 	_pets.erase(actor)
 	if _hovered_pet == actor:
 		_hovered_pet = null
-		_clear_petting_cursor()
 
 	if _selected_pet_id == pet_id:
 		_selected_pet_id = _get_first_desktop_pet_id()
@@ -1221,7 +1174,6 @@ func _on_offering_drop_requested(offering: Dictionary) -> void:
 		return
 
 	_carried_offering = offering.duplicate(true)
-	_clear_petting_cursor()
 	_set_offering_cursor(String(_carried_offering.get("texture", "")))
 	_update_pet_window_mouse_passthrough()
 
