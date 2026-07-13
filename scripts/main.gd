@@ -4,15 +4,18 @@ extends Node2D
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 const FollowerProgression = preload("res://scripts/domain/follower_progression.gd")
+const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
 const ShopWindowScript = preload("res://scripts/shop_window.gd")
+const GachaWindowScript = preload("res://scripts/gacha_window.gd")
 const SideDrawerController = preload("res://scripts/side_drawer_controller.gd")
+const NativeVisualClickthrough = preload("res://scripts/native_visual_clickthrough.gd")
 
 # Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
-const PET_TASKBAR_OVERLAP_PIXELS := 14
+const PET_TASKBAR_OVERLAP_PIXELS := 0
 const PET_STAGE_MARGIN_X := 72.0
 const PET_STAGE_RIGHT_MARGIN := 96.0
 const PET_STAGE_START_SPACING := 132.0
@@ -22,27 +25,16 @@ const POSITION_RETRY_FRAMES := 90
 const OFFERING_CURSOR_SIZE := Vector2i(52, 52)
 const OFFERING_DROP_SCALE := 0.36
 const OFFERING_GAIN_SECONDS := 20.0
+const OFFERING_FEED_TIMEOUT_SECONDS := 12.0
 const OFFERING_DROP_ZONE_HEIGHT := 420.0
 const OFFERING_GROUND_MARGIN := 2.0
 const SAFE_CANVAS_MARGIN := 12.0
 const EMOTION_CONFUSED_TEXTURE := "res://assets/ui/emotions/confused.png"
 const EMOTION_HAPPY_TEXTURE := "res://assets/ui/emotions/happy.png"
-const EMOTION_HUNGRY_TEXTURE := "res://assets/ui/emotions/hungry.png"
 const EMOTION_LIKE_TEXTURE := "res://assets/ui/emotions/like.png"
 const EMOTION_SLEEPY_TEXTURE := "res://assets/ui/emotions/sleepy.png"
 const EMOTION_SUPRISED_TEXTURE := "res://assets/ui/emotions/suprised.png"
-const PETTING_EMOTIONS := ["happy", "confused", "sleepy", "suprised"]
 const EMOTION_SCALE := 0.28
-const TRUST_GAIN_ON_HAPPY := 1
-const TRUST_GAIN_ON_HAPPY_CHANCE := 0.05
-const TRUST_PET_COOLDOWN_MIN_SECONDS := 1800.0
-const TRUST_PET_COOLDOWN_MAX_SECONDS := 3600.0
-const PET_HUNGER_AFTER_SECONDS := 300.0
-const PET_HUNGER_NOTICE_MIN_SECONDS := 18.0
-const PET_HUNGER_NOTICE_MAX_SECONDS := 34.0
-const OFFERING_FAVOR_GAIN := 2
-const FAVOR_COST_REDUCTION_PER_POINT := 0.004
-const FAVOR_COST_REDUCTION_MAX := 0.4
 
 # Simulation and refresh cadence
 const EMOTION_MIN_INTERVAL_SECONDS := 2.8
@@ -55,6 +47,12 @@ const BELIEVER_SPAWN_MIN_SECONDS := 8.0
 const BELIEVER_SPAWN_MAX_SECONDS := 18.0
 const BELIEVER_FORCE_SPAWN_SECONDS := 60.0
 const UI_REFRESH_INTERVAL := 0.25
+const SAVE_PATH := "user://cthulu_save.cfg"
+const SAVE_VERSION := 3
+const AUTOSAVE_INTERVAL_SECONDS := 30.0
+const OFFLINE_PROGRESS_MAX_SECONDS := 12.0 * 60.0 * 60.0
+const OFFLINE_PROGRESS_EFFICIENCY := 0.5
+const NO_SAVE_ARGUMENT := "--no-save"
 
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
@@ -63,14 +61,18 @@ var _hovered_pet: Node2D
 var _active_emotions: Dictionary = {}
 var _active_emotion_tweens: Dictionary = {}
 var _next_emotion_allowed_at: Dictionary = {}
+var _next_ambient_emotion_at: Dictionary = {}
 var _carried_offering: Dictionary = {}
 var _current_cursor_texture: Texture2D
 var _offering_cursor_texture: Texture2D
 var _offering_cursor_path := ""
 var _offering_cursor_size := Vector2i.ZERO
 var _offering_cursor_active := false
+var _offering_input_window: Window
+var _offering_input_area: Control
 var _pending_offering_feeds: Dictionary = {}
-var _pet_window_mouse_passthrough := false
+var _loaded_offering_choices: Array[Dictionary] = []
+var _loaded_offering_next_stock_id := 1
 var _position_retry_frames := 0
 var _pet_window_size := PET_WINDOW_BASE_SIZE
 var _rng := RandomNumberGenerator.new()
@@ -87,21 +89,41 @@ var _next_believer_spawn_at := 0.0
 var _last_believer_spawn_at := 0.0
 var _inventory_window: Window
 var _shop_window: Window
+var _gacha_window: Window
 var _follower_count := 0.0
 var _last_reported_follower_count := -1
 var _shop_owned_counts := {}
 var _side_drawer: Node
+var _lifetime_faith := 0.0
+var _gacha_draw_count := 0
+var _gacha_pity_count := 0
+var _gacha_total_bonus := 0.0
+var _gacha_history: Array[Dictionary] = []
+var _autosave_timer := 0.0
+var _loaded_save_unix := 0.0
+var _persistence_enabled := true
 
 
 # Lifecycle
 func _ready() -> void:
 	Input.use_accumulated_input = false
 	_rng.randomize()
-	_configure_pet_window()
+	_persistence_enabled = (
+		DisplayServer.get_name() != "headless"
+		and not OS.get_cmdline_user_args().has(NO_SAVE_ARGUMENT)
+	)
+	if not _configure_pet_window():
+		push_error("Desktop pets stopped because safe click-through setup failed.")
+		get_tree().quit(2)
+		return
+	_load_game()
+	_apply_offline_progress()
 	_create_desktop_pets()
+	_create_offering_input_window()
 	_create_side_drawer()
 	_create_inventory_window()
 	_create_shop_window()
+	_create_gacha_window()
 	_refresh_pet_stats(true)
 	var now := _get_now_seconds()
 	_spawn_believer(true)
@@ -110,7 +132,7 @@ func _ready() -> void:
 
 	_position_retry_frames = POSITION_RETRY_FRAMES
 	call_deferred("_place_pet_window")
-	call_deferred("_update_pet_window_mouse_passthrough")
+	call_deferred("_update_offering_input_window")
 
 
 func _process(delta: float) -> void:
@@ -120,42 +142,26 @@ func _process(delta: float) -> void:
 
 	_update_faith(delta)
 	_update_followers(delta)
-	_update_pet_hunger()
+	_update_pet_emotions()
 	_update_believers()
-	_update_pet_window_mouse_passthrough(delta)
+	_update_pet_hover()
+	_update_offering_input_window()
 	_update_offering_cursor_state()
+	_update_pending_offerings()
+	_update_autosave(delta)
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		_cancel_all_pet_pointer_captures()
-		if not _carried_offering.is_empty():
-			_cancel_carried_offering()
 		call_deferred("_restore_desktop_input")
-
-
-func _input(event: InputEvent) -> void:
-	if _carried_offering.is_empty():
-		return
-
-	if event is InputEventMouseButton:
-		var mouse_event := event as InputEventMouseButton
-		if not mouse_event.pressed:
-			return
-
-		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			var drop_position := _get_window_mouse_position(get_window())
-			if not _is_offering_drop_zone(drop_position):
-				return
-			_drop_carried_offering(drop_position)
-			get_viewport().set_input_as_handled()
-		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
-			_cancel_carried_offering()
-			get_viewport().set_input_as_handled()
+	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_save_game()
+		get_tree().quit()
 
 
 # Window setup
-func _configure_pet_window() -> void:
+func _configure_pet_window() -> bool:
 	var window := get_window()
 	var usable_rect := _get_current_screen_usable_rect()
 	_pet_window_size = _get_target_pet_window_size(usable_rect)
@@ -177,7 +183,9 @@ func _configure_pet_window() -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_RESIZE_DISABLED, true)
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true)
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
-	_set_window_mouse_passthrough(window, true, true)
+	if not NativeVisualClickthrough.apply(window):
+		return false
+	return true
 
 
 # Desktop actors
@@ -214,9 +222,9 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	actor.forced_target_reached.connect(_on_pet_forced_target_reached)
 	add_child(actor)
 	_pets.append(actor)
+	_schedule_next_ambient_emotion(pet_id)
 	if _selected_pet_id.is_empty():
 		_selected_pet_id = pet_id
-	call_deferred("_update_pet_window_mouse_passthrough")
 	return actor
 
 
@@ -306,12 +314,24 @@ func _create_side_drawer() -> void:
 	add_child(_side_drawer)
 	_side_drawer.inventory_requested.connect(_on_inventory_requested)
 	_side_drawer.shop_requested.connect(_on_shop_requested)
+	_side_drawer.gacha_requested.connect(_on_gacha_requested)
 	_side_drawer.quit_requested.connect(_on_quit_requested)
 	_side_drawer.pet_count_upgrade_requested.connect(_on_pet_count_upgrade_requested)
+	_side_drawer.pet_evolution_requested.connect(_on_pet_evolution_requested)
 	_side_drawer.pet_rename_requested.connect(_on_inventory_pet_rename_requested)
 	_side_drawer.faith_add_requested.connect(_on_faith_add_requested)
 	_side_drawer.offering_drop_requested.connect(_on_offering_drop_requested)
 	_side_drawer.setup()
+	if _side_drawer.has_method("restore_offering_state"):
+		_side_drawer.call(
+			"restore_offering_state",
+			_loaded_offering_choices,
+			_loaded_offering_next_stock_id,
+			not _carried_offering.is_empty()
+		)
+	if not _carried_offering.is_empty():
+		_set_offering_cursor(String(_carried_offering.get("texture", "")))
+		_update_offering_input_window()
 
 
 func _create_inventory_window() -> void:
@@ -330,6 +350,14 @@ func _create_shop_window() -> void:
 	_sync_shop_state()
 
 
+func _create_gacha_window() -> void:
+	_gacha_window = GachaWindowScript.new()
+	add_child(_gacha_window)
+	_gacha_window.draw_requested.connect(_on_gacha_draw_requested)
+	_gacha_window.setup()
+	_sync_gacha_state()
+
+
 # Window clickthrough and hit testing
 func _place_pet_window() -> void:
 	var usable_rect := _get_current_screen_usable_rect()
@@ -343,7 +371,7 @@ func _place_pet_window() -> void:
 		target_y
 	)
 	_update_actor_window_bounds()
-	_set_window_mouse_passthrough(window, _pet_window_mouse_passthrough, true)
+	_update_offering_input_window()
 
 
 func _get_target_pet_window_size(usable_rect: Rect2i) -> Vector2i:
@@ -365,28 +393,14 @@ func _update_actor_window_bounds() -> void:
 			believer.call("set_window_size", _pet_window_size)
 
 
-func _update_pet_window_mouse_passthrough(_delta := 0.0) -> void:
-	var window := get_window()
-	var mouse_position := _get_window_mouse_position(window)
-	if not _carried_offering.is_empty():
-		_set_hovered_pet(null)
-		_set_window_mouse_passthrough(window, not _is_offering_drop_zone(mouse_position))
-		return
+func _update_pet_hover() -> void:
 	if _has_captured_pet_pointer():
 		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_cancel_all_pet_pointer_captures()
-			_set_window_mouse_passthrough(window, true)
-			return
-		_set_window_mouse_passthrough(window, false)
 		return
 
+	var mouse_position := _get_window_mouse_position(get_window())
 	var hit_pet := _get_pet_at_position(mouse_position)
-	if hit_pet == null:
-		_set_window_mouse_passthrough(window, true)
-		_set_hovered_pet(null)
-		return
-
-	_set_window_mouse_passthrough(window, false)
 	_set_hovered_pet(hit_pet)
 
 
@@ -411,7 +425,6 @@ func _restore_desktop_input() -> void:
 	if not is_inside_tree():
 		return
 	_set_hovered_pet(null)
-	_set_window_mouse_passthrough(get_window(), true, true)
 
 
 func _is_offering_drop_zone(window_position: Vector2) -> bool:
@@ -465,23 +478,8 @@ func _get_window_mouse_position(window: Window) -> Vector2:
 	return Vector2(global_mouse.x - window_position.x, global_mouse.y - window_position.y)
 
 
-func _set_window_mouse_passthrough(window: Window, enabled: bool, force := false) -> void:
-	if window == null or (not force and _pet_window_mouse_passthrough == enabled):
-		return
-
-	var window_id := window.get_window_id()
-	if window_id <= 0:
-		return
-
-	_pet_window_mouse_passthrough = enabled
-	DisplayServer.window_set_flag(
-		DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH,
-		enabled,
-		window_id
-	)
-
-
 func _exit_tree() -> void:
+	_save_game()
 	_clear_offering_cursor()
 
 
@@ -495,6 +493,54 @@ func _update_offering_cursor_state() -> void:
 		return
 
 
+func _create_offering_input_window() -> void:
+	_offering_input_window = Window.new()
+	_offering_input_window.name = "OfferingInputWindow"
+	_offering_input_window.title = "Cthulu Offering Input"
+	_offering_input_window.borderless = true
+	_offering_input_window.transparent = true
+	_offering_input_window.transparent_bg = true
+	_offering_input_window.unfocusable = true
+	_offering_input_window.unresizable = true
+	_offering_input_window.always_on_top = false
+	_offering_input_window.min_size = Vector2i.ZERO
+	_offering_input_window.size = Vector2i(_pet_window_size.x, int(OFFERING_DROP_ZONE_HEIGHT))
+	_offering_input_window.visible = false
+	add_child(_offering_input_window)
+
+	_offering_input_area = Control.new()
+	_offering_input_area.name = "OfferingDropArea"
+	_offering_input_area.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_offering_input_area.mouse_filter = Control.MOUSE_FILTER_STOP
+	_offering_input_area.gui_input.connect(_on_offering_input)
+	_offering_input_window.add_child(_offering_input_area)
+	_update_offering_input_window()
+
+
+func _update_offering_input_window() -> void:
+	if _offering_input_window == null:
+		return
+	var usable_bottom := _pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS
+	var zone_height := mini(int(OFFERING_DROP_ZONE_HEIGHT), usable_bottom)
+	_offering_input_window.position = get_window().position + Vector2i(0, usable_bottom - zone_height)
+	_offering_input_window.size = Vector2i(_pet_window_size.x, zone_height)
+	_offering_input_window.visible = not _carried_offering.is_empty()
+
+
+func _on_offering_input(event: InputEvent) -> void:
+	if _carried_offering.is_empty() or not event is InputEventMouseButton:
+		return
+	var mouse_event := event as InputEventMouseButton
+	if not mouse_event.pressed:
+		return
+	if mouse_event.button_index == MOUSE_BUTTON_LEFT:
+		_drop_carried_offering(_get_window_mouse_position(get_window()))
+		_offering_input_area.accept_event()
+	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+		_cancel_carried_offering()
+		_offering_input_area.accept_event()
+
+
 func _pet_the_pet(actor: Node2D) -> void:
 	if actor == null or not is_instance_valid(actor):
 		return
@@ -505,32 +551,14 @@ func _pet_the_pet(actor: Node2D) -> void:
 	if pet_id.is_empty():
 		return
 
-	var now := _get_now_seconds()
-	var state := _get_pet_state(pet_id)
-	var next_trust_pet_at := float(state.get("next_trust_pet_at", 0.0))
 	var emotion := _choose_petting_emotion(pet_id)
-	var spawned := _spawn_emotion(actor, emotion, Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
+	_spawn_emotion(actor, emotion, Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
 	if actor.has_method("react_to_petting"):
 		actor.call("react_to_petting", emotion)
 
-	if spawned and emotion == "happy" and now >= next_trust_pet_at and _rng.randf() <= TRUST_GAIN_ON_HAPPY_CHANCE:
-		state["trust"] = int(state.get("trust", 0)) + TRUST_GAIN_ON_HAPPY
-		state["favor"] = int(state.get("favor", state.get("trust", 0))) + TRUST_GAIN_ON_HAPPY
-		state["next_trust_pet_at"] = now + _rng.randf_range(TRUST_PET_COOLDOWN_MIN_SECONDS, TRUST_PET_COOLDOWN_MAX_SECONDS)
-		_refresh_pet_stats(true)
-		_spawn_emotion(actor, "like", Vector2(38.0, -10.0), 0.21, 0.16)
-
 
 func _choose_petting_emotion(pet_id: String) -> String:
-	var personality_emotions := {
-		"pet1": ["happy", "suprised", "suprised", "confused"],
-		"pet2": ["sleepy", "sleepy", "sleepy", "happy", "confused"],
-		"pet3": ["confused", "confused", "suprised", "happy"],
-		"pet4": ["happy", "happy", "confused", "sleepy"],
-		"pet5": ["suprised", "suprised", "happy", "confused"]
-	}
-	var choices: Array = personality_emotions.get(pet_id, PETTING_EMOTIONS)
-	return String(choices[_rng.randi_range(0, choices.size() - 1)])
+	return PetCatalog.choose_weighted_emotion(pet_id, _rng.randf(), "petting_emotion_weights")
 
 
 func _set_offering_cursor(texture_path: String) -> void:
@@ -732,6 +760,7 @@ func _clear_pet_runtime_effects(pet_id: String) -> void:
 	_active_emotions.erase(pet_id)
 	_active_emotion_tweens.erase(pet_id)
 	_next_emotion_allowed_at.erase(pet_id)
+	_next_ambient_emotion_at.erase(pet_id)
 
 
 func _get_emotion_texture_path(emotion_name: String) -> String:
@@ -740,8 +769,6 @@ func _get_emotion_texture_path(emotion_name: String) -> String:
 			return EMOTION_CONFUSED_TEXTURE
 		"happy":
 			return EMOTION_HAPPY_TEXTURE
-		"hungry":
-			return EMOTION_HUNGRY_TEXTURE
 		"like":
 			return EMOTION_LIKE_TEXTURE
 		"sleepy":
@@ -782,6 +809,8 @@ func _refresh_faith_display() -> void:
 		_side_drawer.refresh_faith(_faith_points, _get_faith_growth_rate())
 	if _shop_window != null and _shop_window.has_method("set_faith_points"):
 		_shop_window.call("set_faith_points", int(floor(_faith_points)))
+	if _gacha_window != null and _gacha_window.visible:
+		_sync_gacha_state()
 
 
 func _refresh_follower_display() -> void:
@@ -802,6 +831,212 @@ func _sync_shop_state() -> void:
 		_shop_window.call("set_owned_counts", _shop_owned_counts)
 
 
+func _sync_gacha_state() -> void:
+	if _gacha_window == null:
+		return
+	var next_cost := GachaProgression.draw_cost(_gacha_draw_count)
+	_gacha_window.refresh_state(
+		_faith_points,
+		_gacha_draw_count,
+		next_cost,
+		1.0 + _gacha_total_bonus,
+		_lifetime_faith,
+		_get_campaign_progress(),
+		_gacha_history
+	)
+
+
+func _load_game() -> void:
+	if not _persistence_enabled:
+		return
+	var save := ConfigFile.new()
+	var load_error := save.load(SAVE_PATH)
+	if load_error == ERR_FILE_NOT_FOUND:
+		return
+	if load_error != OK:
+		push_warning("Could not load save data: %s" % error_string(load_error))
+		return
+
+	_faith_points = maxf(0.0, float(save.get_value("economy", "faith_points", 0.0)))
+	_lifetime_faith = maxf(
+		_faith_points,
+		float(save.get_value("economy", "lifetime_faith", _faith_points))
+	)
+	_follower_count = maxf(0.0, float(save.get_value("economy", "followers", 0.0)))
+	_selected_pet_id = String(save.get_value("pets", "selected_pet_id", ""))
+	_pet_states = _sanitize_loaded_pet_states(save.get_value("pets", "states", {}))
+	_shop_owned_counts = _sanitize_owned_counts(save.get_value("shop", "owned_counts", {}))
+	_gacha_draw_count = clampi(int(save.get_value("gacha", "draw_count", 0)), 0, 1000000)
+	_gacha_pity_count = clampi(int(save.get_value("gacha", "pity_count", 0)), 0, 11)
+	_gacha_total_bonus = clampf(float(save.get_value("gacha", "total_bonus", 0.0)), 0.0, 1000.0)
+	_gacha_history = _sanitize_gacha_history(save.get_value("gacha", "history", []))
+	_loaded_offering_choices = _sanitize_loaded_offerings(
+		save.get_value("offerings", "choices", [])
+	)
+	_loaded_offering_next_stock_id = maxi(
+		1,
+		int(save.get_value("offerings", "next_stock_id", 1))
+	)
+	var carried_value: Variant = save.get_value("offerings", "carried", {})
+	if carried_value is Dictionary:
+		_carried_offering = SideDrawerController.normalize_offering_entry(carried_value)
+	else:
+		_carried_offering.clear()
+	_loaded_save_unix = maxf(0.0, float(save.get_value("meta", "saved_unix", 0.0)))
+
+
+func _save_game() -> void:
+	if not _persistence_enabled:
+		return
+	var save := ConfigFile.new()
+	save.set_value("meta", "version", SAVE_VERSION)
+	save.set_value("meta", "saved_unix", Time.get_unix_time_from_system())
+	save.set_value("economy", "faith_points", maxf(0.0, _faith_points))
+	save.set_value("economy", "lifetime_faith", maxf(0.0, _lifetime_faith))
+	save.set_value("economy", "followers", maxf(0.0, _follower_count))
+	save.set_value("pets", "selected_pet_id", _selected_pet_id)
+	save.set_value("pets", "states", _pet_states.duplicate(true))
+	save.set_value("shop", "owned_counts", _shop_owned_counts.duplicate(true))
+	save.set_value("gacha", "draw_count", _gacha_draw_count)
+	save.set_value("gacha", "pity_count", _gacha_pity_count)
+	save.set_value("gacha", "total_bonus", _gacha_total_bonus)
+	save.set_value("gacha", "history", _gacha_history.duplicate(true))
+	var offering_state := {
+		"choices": _loaded_offering_choices.duplicate(true),
+		"next_stock_id": _loaded_offering_next_stock_id
+	}
+	if _side_drawer != null and _side_drawer.has_method("get_offering_state"):
+		offering_state = _side_drawer.call("get_offering_state")
+	save.set_value("offerings", "choices", offering_state.get("choices", []))
+	save.set_value("offerings", "next_stock_id", maxi(1, int(offering_state.get("next_stock_id", 1))))
+	save.set_value("offerings", "carried", _carried_offering.duplicate(true))
+	var save_error := save.save(SAVE_PATH)
+	if save_error != OK:
+		push_warning("Could not save game data: %s" % error_string(save_error))
+
+
+func _apply_offline_progress() -> void:
+	if _loaded_save_unix <= 0.0:
+		return
+	var elapsed_seconds := clampf(
+		Time.get_unix_time_from_system() - _loaded_save_unix,
+		0.0,
+		OFFLINE_PROGRESS_MAX_SECONDS
+	)
+	_loaded_save_unix = 0.0
+	if elapsed_seconds < 1.0:
+		return
+	var effective_seconds := elapsed_seconds * OFFLINE_PROGRESS_EFFICIENCY
+	var faith_rate := _get_faith_growth_rate()
+	_grant_faith(faith_rate * effective_seconds)
+	_follower_count = FollowerProgression.advance(_follower_count, faith_rate, effective_seconds)
+
+
+func _update_autosave(delta: float) -> void:
+	if not _persistence_enabled:
+		return
+	_autosave_timer += maxf(0.0, delta)
+	if _autosave_timer < AUTOSAVE_INTERVAL_SECONDS:
+		return
+	_autosave_timer = 0.0
+	_save_game()
+
+
+func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
+	var sanitized := {}
+	if not raw_value is Dictionary:
+		return sanitized
+	var raw_states: Dictionary = raw_value
+	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+		var pet_id := String(pet_id_value)
+		var state_value: Variant = raw_states.get(pet_id, {})
+		if not state_value is Dictionary:
+			continue
+		var state: Dictionary = state_value.duplicate(true)
+		state["count"] = clampi(int(state.get("count", 1)), 1, 100000)
+		state["upgrade_level"] = clampi(int(state.get("upgrade_level", state["count"])), 1, 100000)
+		state["evolution_stage"] = clampi(int(state.get("evolution_stage", 0)), 0, 2)
+		state.erase("leader_age")
+		state.erase("trust")
+		state.erase("favor")
+		state.erase("next_trust_pet_at")
+		state.erase("hungry")
+		state.erase("last_fed_at")
+		state.erase("next_hunger_notice_at")
+		var custom_name := String(state.get("name", "")).strip_edges().left(40)
+		if custom_name.is_empty():
+			state.erase("name")
+		else:
+			state["name"] = custom_name
+		sanitized[pet_id] = state
+	return sanitized
+
+
+func _sanitize_loaded_offerings(raw_value: Variant) -> Array[Dictionary]:
+	var sanitized: Array[Dictionary] = []
+	if not raw_value is Array:
+		return sanitized
+	for entry_value in raw_value:
+		if not entry_value is Dictionary:
+			continue
+		var entry := SideDrawerController.normalize_offering_entry(entry_value)
+		if entry.is_empty():
+			continue
+		var duplicate_type := false
+		var duplicate_stock := false
+		for existing in sanitized:
+			duplicate_type = duplicate_type or String(existing.get("id", "")) == String(entry.get("id", ""))
+			duplicate_stock = duplicate_stock or String(existing.get("stock_id", "")) == String(entry.get("stock_id", ""))
+		if duplicate_type or duplicate_stock:
+			continue
+		sanitized.append(entry)
+		if sanitized.size() >= 2:
+			break
+	return sanitized
+
+
+func _sanitize_owned_counts(raw_value: Variant) -> Dictionary:
+	var sanitized := {}
+	if not raw_value is Dictionary:
+		return sanitized
+	var raw_counts: Dictionary = raw_value
+	for key_value in raw_counts:
+		var key := String(key_value)
+		if key.is_empty():
+			continue
+		sanitized[key] = clampi(int(raw_counts[key_value]), 0, 100000)
+	return sanitized
+
+
+func _sanitize_gacha_history(raw_value: Variant) -> Array[Dictionary]:
+	var sanitized: Array[Dictionary] = []
+	if not raw_value is Array:
+		return sanitized
+	for entry_value in raw_value:
+		if not entry_value is Dictionary:
+			continue
+		var entry: Dictionary = entry_value
+		var entry_id := String(entry.get("id", ""))
+		for buff_value in GachaProgression.BUFFS:
+			var buff: Dictionary = buff_value
+			if String(buff.get("id", "")) == entry_id:
+				sanitized.append(buff.duplicate(true))
+				break
+		if sanitized.size() >= 10:
+			break
+	return sanitized
+
+
+func _get_campaign_progress() -> float:
+	var achieved := 0.0
+	var upgrades_per_pet := maxi(1, GachaProgression.CAMPAIGN_PET_COUNT_TARGET - 1)
+	var total_target := float(PetCatalog.ACTIVE_DESKTOP_PETS.size() * upgrades_per_pet)
+	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+		var count := int(_get_pet_state(String(pet_id_value)).get("count", 1))
+		achieved += float(clampi(count - 1, 0, upgrades_per_pet))
+	return clampf(achieved / maxf(1.0, total_target), 0.0, 1.0)
+
+
 func _select_pet(actor: Node2D) -> void:
 	if actor == null or not is_instance_valid(actor):
 		return
@@ -818,26 +1053,22 @@ func _select_pet(actor: Node2D) -> void:
 func _ensure_pet_state(pet_id: String) -> void:
 	if not _pet_states.has(pet_id):
 		_pet_states[pet_id] = {
-			"trust": 0,
-			"favor": 0,
 			"count": 1,
-			"leader_age": _make_leader_age(pet_id),
-			"hungry": false,
-			"last_fed_at": _get_now_seconds(),
-			"next_hunger_notice_at": _get_now_seconds() + PET_HUNGER_AFTER_SECONDS,
-			"next_trust_pet_at": _get_now_seconds() + _rng.randf_range(TRUST_PET_COOLDOWN_MIN_SECONDS, TRUST_PET_COOLDOWN_MAX_SECONDS)
+			"upgrade_level": 1,
+			"evolution_stage": 0
 		}
 		return
 
 	var state: Dictionary = _pet_states[pet_id]
-	if not state.has("leader_age"):
-		state["leader_age"] = _make_leader_age(pet_id)
+	state.erase("trust")
+	state.erase("favor")
+	state.erase("next_trust_pet_at")
+	state.erase("leader_age")
+	if not state.has("upgrade_level"):
+		state["upgrade_level"] = maxi(1, int(state.get("count", 1)))
+	if not state.has("evolution_stage"):
+		state["evolution_stage"] = 0
 	_pet_states[pet_id] = state
-
-
-func _make_leader_age(pet_id: String) -> int:
-	var pet_index := maxi(0, PetCatalog.ACTIVE_DESKTOP_PETS.find(pet_id))
-	return 24 + (pet_index * 9) + _rng.randi_range(0, 7)
 
 
 func _get_pet_state(pet_id: String) -> Dictionary:
@@ -851,30 +1082,41 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 		var pet_id := String(pet_id_value)
 		var state := _get_pet_state(pet_id)
 		var count := int(state.get("count", 1))
-		var cost := _get_upgrade_cost(pet_id)
 		var pet_data := PetCatalog.get_definition(pet_id)
-		var favor := _get_pet_favor(pet_id)
-		var discount := _get_pet_upgrade_discount(pet_id)
-		var current_fps := _get_pet_faith_per_second(pet_id, count) * _get_total_faith_multiplier()
-		var next_fps := _get_pet_faith_per_second(pet_id, count + 1) * _get_total_faith_multiplier()
+		var evolution_stage := PetProgression.evolution_stage(state)
+		var can_evolve := PetProgression.can_evolve(pet_data, state)
+		var next_evolution_threshold := PetProgression.next_evolution_threshold(pet_data, state)
+		var population_gain := PetProgression.population_gain(count)
+		var cost := 0 if can_evolve else _get_upgrade_cost(pet_id)
+		var next_state := state.duplicate(true)
+		var next_count := count
+		if can_evolve:
+			next_state["evolution_stage"] = mini(PetProgression.MAX_EVOLUTION_STAGE, evolution_stage + 1)
+		else:
+			next_count = count + population_gain
+			next_state["count"] = next_count
+			next_state["upgrade_level"] = PetProgression.progression_level(state) + 1
+		var current_fps := _get_pet_faith_per_second(pet_id, count, state) * _get_total_faith_multiplier()
+		var next_fps := _get_pet_faith_per_second(pet_id, next_count, next_state) * _get_total_faith_multiplier()
 		entries.append({
 			"id": pet_id,
 			"name": _get_pet_display_name(pet_id),
 			"description": String(pet_data.get("description", "")),
 			"count": count,
-			"favor": favor,
-			"hungry": _is_pet_hungry(pet_id),
-			"upgrade_discount": discount,
+			"upgrade_level": PetProgression.progression_level(state),
+			"evolution_stage": evolution_stage,
+			"next_evolution_threshold": next_evolution_threshold,
+			"can_evolve": can_evolve,
+			"is_max_evolution": evolution_stage >= PetProgression.MAX_EVOLUTION_STAGE,
 			"cost": cost,
 			"base_fps": float(pet_data.get("base_fps", 0.05)),
 			"cost_growth": float(pet_data.get("upgrade_cost_growth", 1.18)),
 			"power_growth": float(pet_data.get("power_growth", 1.035)),
-			"leader_age": _get_pet_leader_age(pet_id),
 			"current_fps": current_fps,
 			"next_fps": next_fps,
 			"next_growth_bonus": maxf(0.0, next_fps - current_fps),
 			"total_growth_bonus": current_fps,
-			"affordable": int(floor(_faith_points)) >= cost
+			"affordable": can_evolve or int(floor(_faith_points)) >= cost
 		})
 
 	return entries
@@ -883,39 +1125,7 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 func _get_upgrade_cost(pet_id: String) -> int:
 	var pet_data := PetCatalog.get_definition(pet_id)
 	var state := _get_pet_state(pet_id)
-	return PetProgression.upgrade_cost(
-		pet_data,
-		state,
-		FAVOR_COST_REDUCTION_PER_POINT,
-		FAVOR_COST_REDUCTION_MAX
-	)
-
-
-func _get_pet_favor(pet_id: String) -> int:
-	return PetProgression.favor(_get_pet_state(pet_id))
-
-
-func _get_pet_upgrade_discount(pet_id: String) -> float:
-	return PetProgression.upgrade_discount(
-		_get_pet_state(pet_id),
-		FAVOR_COST_REDUCTION_PER_POINT,
-		FAVOR_COST_REDUCTION_MAX
-	)
-
-
-func _get_pet_leader_age(pet_id: String) -> int:
-	var state := _get_pet_state(pet_id)
-	if not state.has("leader_age"):
-		state["leader_age"] = _make_leader_age(pet_id)
-		_pet_states[pet_id] = state
-	return maxi(1, int(state.get("leader_age", 24)))
-
-
-func _is_pet_hungry(pet_id: String) -> bool:
-	var state := _get_pet_state(pet_id)
-	if bool(state.get("hungry", false)):
-		return true
-	return _get_now_seconds() - float(state.get("last_fed_at", _get_now_seconds())) >= PET_HUNGER_AFTER_SECONDS
+	return PetProgression.upgrade_cost(pet_data, state)
 
 
 func _get_faith_growth_rate() -> float:
@@ -932,12 +1142,22 @@ func _get_follower_growth_rate() -> float:
 	return FollowerProgression.followers_per_second(_get_faith_growth_rate())
 
 
-func _get_pet_faith_per_second(pet_id: String, level: int) -> float:
-	return PetProgression.faith_per_second(PetCatalog.get_definition(pet_id), level)
+func _get_pet_faith_per_second(pet_id: String, count: int, state_override := {}) -> float:
+	var state: Dictionary = state_override if not state_override.is_empty() else _get_pet_state(pet_id)
+	var base_output := PetProgression.faith_per_second(
+		PetCatalog.get_definition(pet_id),
+		count,
+		PetProgression.progression_level(state)
+	)
+	var evolution_multiplier := PetProgression.evolution_multiplier(
+		PetCatalog.get_definition(pet_id),
+		state
+	)
+	return base_output * evolution_multiplier
 
 
 func _get_total_faith_multiplier() -> float:
-	return GLOBAL_FAITH_MULTIPLIER * BUFF_FAITH_MULTIPLIER
+	return GLOBAL_FAITH_MULTIPLIER * BUFF_FAITH_MULTIPLIER * (1.0 + _gacha_total_bonus)
 
 
 func _get_pet_display_name(pet_id: String) -> String:
@@ -977,8 +1197,16 @@ func _set_pet_custom_name(pet_id: String, custom_name: String) -> void:
 	_refresh_pet_stats(true)
 
 
+func _grant_faith(amount: float) -> void:
+	var safe_amount := maxf(0.0, amount)
+	if safe_amount <= 0.0:
+		return
+	_faith_points += safe_amount
+	_lifetime_faith += safe_amount
+
+
 func _update_faith(delta: float) -> void:
-	_faith_points += _get_faith_growth_rate() * delta
+	_grant_faith(_get_faith_growth_rate() * delta)
 	_refresh_faith_display()
 	_stats_refresh_timer += delta
 	if _stats_refresh_timer >= UI_REFRESH_INTERVAL:
@@ -998,7 +1226,7 @@ func _update_followers(delta: float) -> void:
 		_refresh_follower_display()
 
 
-func _update_pet_hunger() -> void:
+func _update_pet_emotions() -> void:
 	var now := _get_now_seconds()
 	for pet in _pets:
 		if not is_instance_valid(pet):
@@ -1008,20 +1236,23 @@ func _update_pet_hunger() -> void:
 		if pet_id.is_empty():
 			continue
 
-		var state := _get_pet_state(pet_id)
-		var last_fed_at := float(state.get("last_fed_at", now))
-		if now - last_fed_at < PET_HUNGER_AFTER_SECONDS:
+		var next_emotion_at := float(_next_ambient_emotion_at.get(pet_id, 0.0))
+		if now < next_emotion_at:
 			continue
 
-		if not bool(state.get("hungry", false)):
-			state["hungry"] = true
-			state["next_hunger_notice_at"] = now
-			_pet_upgrade_stats_dirty = true
+		var emotion := PetCatalog.choose_weighted_emotion(pet_id, _rng.randf())
+		var spawned := _spawn_emotion(pet, emotion, Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
+		if spawned and pet.has_method("react_to_emotion"):
+			pet.call("react_to_emotion", emotion)
+		_schedule_next_ambient_emotion(pet_id, now)
 
-		var next_notice_at := float(state.get("next_hunger_notice_at", now))
-		if now >= next_notice_at:
-			_spawn_emotion(pet, "hungry", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
-			state["next_hunger_notice_at"] = now + _rng.randf_range(PET_HUNGER_NOTICE_MIN_SECONDS, PET_HUNGER_NOTICE_MAX_SECONDS)
+
+func _schedule_next_ambient_emotion(pet_id: String, now := -1.0) -> void:
+	var pet_data := PetCatalog.get_definition(pet_id)
+	var interval_min := maxf(4.0, float(pet_data.get("ambient_emotion_interval_min", 18.0)))
+	var interval_max := maxf(interval_min, float(pet_data.get("ambient_emotion_interval_max", 36.0)))
+	var base_time := _get_now_seconds() if now < 0.0 else now
+	_next_ambient_emotion_at[pet_id] = base_time + _rng.randf_range(interval_min, interval_max)
 
 
 # Shared helpers
@@ -1033,7 +1264,7 @@ func _get_actor_pet_id(actor: Node2D) -> String:
 
 
 func _get_now_seconds() -> float:
-	return float(Time.get_ticks_msec()) / 1000.0
+	return Time.get_unix_time_from_system()
 
 
 func _get_current_screen_usable_rect() -> Rect2i:
@@ -1076,7 +1307,6 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 	actor.queue_free()
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
-	call_deferred("_update_pet_window_mouse_passthrough")
 
 
 func _finish_pending_offering_for_actor(actor: Node2D) -> void:
@@ -1126,6 +1356,41 @@ func _on_shop_requested() -> void:
 		_shop_window.call("open_window")
 
 
+func _on_gacha_requested() -> void:
+	if _gacha_window == null:
+		return
+	_sync_gacha_state()
+	_gacha_window.open_window()
+
+
+func _on_gacha_draw_requested() -> void:
+	if _gacha_window == null:
+		return
+	var cost := GachaProgression.draw_cost(_gacha_draw_count)
+	if int(floor(_faith_points)) < cost:
+		_sync_gacha_state()
+		return
+
+	_faith_points -= float(cost)
+	var buff := GachaProgression.roll(_rng.randf(), _gacha_pity_count)
+	if buff.is_empty():
+		_faith_points += float(cost)
+		_sync_gacha_state()
+		return
+
+	_gacha_total_bonus = GachaProgression.apply_buff(_gacha_total_bonus, buff)
+	_gacha_pity_count = GachaProgression.next_pity_count(_gacha_pity_count, buff)
+	_gacha_draw_count += 1
+	_gacha_history.push_front(buff.duplicate(true))
+	if _gacha_history.size() > 10:
+		_gacha_history.resize(10)
+	_gacha_window.show_result(buff)
+	_pet_upgrade_stats_dirty = true
+	_refresh_pet_stats(true)
+	_sync_gacha_state()
+	_save_game()
+
+
 func _on_shop_purchase_requested(good_id: String) -> void:
 	if _shop_window == null or good_id.is_empty():
 		return
@@ -1145,6 +1410,7 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 	_sync_shop_state()
 	_shop_window.call("set_purchase_result", good_id, true, "购买成功：%s" % String(good.get("name", "商品")))
 	_refresh_pet_stats(true)
+	_save_game()
 
 
 func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
@@ -1158,8 +1424,6 @@ func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
 	_selected_pet_id = pet_id
 	if _inventory_window != null and _inventory_window.has_method("remove_pet"):
 		_inventory_window.call("remove_pet", pet_id)
-	if _side_drawer != null and _side_drawer.has_method("try_spawn_offering"):
-		_side_drawer.call("try_spawn_offering")
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
 
@@ -1170,18 +1434,29 @@ func _on_inventory_pet_rename_requested(pet_id: String, custom_name: String) -> 
 
 # Offerings
 func _on_offering_drop_requested(offering: Dictionary) -> void:
-	if offering.is_empty():
+	if offering.is_empty() or not _carried_offering.is_empty():
 		return
 
 	_carried_offering = offering.duplicate(true)
 	_set_offering_cursor(String(_carried_offering.get("texture", "")))
-	_update_pet_window_mouse_passthrough()
+	_update_offering_input_window()
+	_save_game()
 
 
 func _cancel_carried_offering() -> void:
+	var cancelled_offering := _carried_offering.duplicate(true)
 	_carried_offering.clear()
 	_clear_offering_cursor()
-	call_deferred("_update_pet_window_mouse_passthrough")
+	_return_offering_to_altar(cancelled_offering)
+	call_deferred("_update_offering_input_window")
+	_save_game()
+
+
+func _return_offering_to_altar(offering: Dictionary) -> void:
+	if offering.is_empty() or _side_drawer == null:
+		return
+	if _side_drawer.has_method("return_offering"):
+		_side_drawer.call("return_offering", offering.duplicate(true))
 
 
 func _drop_carried_offering(window_position: Vector2) -> void:
@@ -1191,14 +1466,15 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 	var offering := _carried_offering.duplicate(true)
 	_carried_offering.clear()
 	_clear_offering_cursor()
-	call_deferred("_update_pet_window_mouse_passthrough")
+	call_deferred("_update_offering_input_window")
+	if _side_drawer != null and _side_drawer.has_method("complete_offering_choice"):
+		_side_drawer.call("complete_offering_choice")
+	_save_game()
 
 	var texture := load(String(offering.get("texture", ""))) as Texture2D
 	var faith_gain := _get_offering_faith_gain(offering)
 	if texture == null:
-		_faith_points += float(faith_gain)
-		_refresh_pet_stats(true)
-		_show_faith_gain_popup(window_position, faith_gain)
+		_finish_offering_consumed(null, faith_gain, window_position)
 		return
 
 	var sprite := Sprite2D.new()
@@ -1218,7 +1494,7 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 	drop_tween.tween_property(sprite, "position", drop_position, 0.28)
 	drop_tween.parallel().tween_property(sprite, "scale", Vector2.ONE * OFFERING_DROP_SCALE, 0.28)
 
-	var target := _get_random_offering_target_pet()
+	var target := _get_offering_target_pet(drop_position.x)
 	if target == null or not is_instance_valid(target):
 		drop_tween.tween_interval(0.18)
 		drop_tween.tween_callback(_finish_offering_consumed.bind(sprite, faith_gain, drop_position))
@@ -1230,6 +1506,7 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 		"faith_gain": faith_gain,
 		"drop_position": drop_position,
 		"target": target,
+		"expires_at": _get_now_seconds() + OFFERING_FEED_TIMEOUT_SECONDS,
 		"landed": false,
 		"arrived": false
 	}
@@ -1245,7 +1522,7 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 
 func _get_offering_faith_gain(offering: Dictionary) -> int:
 	var base_gain := maxi(1, int(offering.get("faith", 1)))
-	var scaled_gain := int(round(_get_faith_growth_rate() * float(base_gain) * OFFERING_GAIN_SECONDS))
+	var scaled_gain := int(round(_get_faith_growth_rate() * OFFERING_GAIN_SECONDS))
 	return maxi(base_gain, scaled_gain)
 
 
@@ -1257,24 +1534,19 @@ func _get_grounded_offering_position(click_x: float, texture: Texture2D, sprite_
 	return _get_safe_sprite_position(Vector2(x, y), texture, sprite_scale, OFFERING_GROUND_MARGIN)
 
 
-func _get_random_offering_target_pet() -> Node2D:
-	var hungry_candidates: Array[Node2D] = []
-	var candidates: Array[Node2D] = []
+func _get_offering_target_pet(drop_x: float) -> Node2D:
+	var nearest_pet: Node2D
+	var nearest_distance := INF
 	for pet in _pets:
 		if not is_instance_valid(pet):
 			continue
-		candidates.append(pet)
-		var pet_id := _get_actor_pet_id(pet)
-		if not pet_id.is_empty() and _is_pet_hungry(pet_id):
-			hungry_candidates.append(pet)
-
-	if not hungry_candidates.is_empty():
-		return hungry_candidates[_rng.randi_range(0, hungry_candidates.size() - 1)]
-
-	if candidates.is_empty():
-		return null
-
-	return candidates[_rng.randi_range(0, candidates.size() - 1)]
+		if _pending_offering_feeds.has(str(pet.get_instance_id())):
+			continue
+		var distance := absf(pet.position.x - drop_x)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest_pet = pet
+	return nearest_pet
 
 
 func _send_pet_to_offering(target: Node2D, target_key: String, target_x: float) -> void:
@@ -1293,6 +1565,28 @@ func _send_pet_to_offering(target: Node2D, target_key: String, target_x: float) 
 	var actor := feed_data.get("target") as Node2D
 	var pet_id := _get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
 	_finish_offering_consumed(sprite, faith_gain, drop_position, pet_id)
+
+
+func _update_pending_offerings() -> void:
+	if _pending_offering_feeds.is_empty():
+		return
+	var now := _get_now_seconds()
+	for target_key_value in _pending_offering_feeds.keys().duplicate():
+		var target_key := String(target_key_value)
+		var feed_data: Dictionary = _pending_offering_feeds.get(target_key, {})
+		if feed_data.is_empty():
+			continue
+		var actor := feed_data.get("target") as Node2D
+		var expired := now >= float(feed_data.get("expires_at", now + OFFERING_FEED_TIMEOUT_SECONDS))
+		if actor != null and is_instance_valid(actor) and not expired:
+			continue
+
+		_pending_offering_feeds.erase(target_key)
+		var sprite := feed_data.get("sprite") as Sprite2D
+		var faith_gain := int(feed_data.get("faith_gain", 1))
+		var drop_position: Vector2 = feed_data.get("drop_position", Vector2(_pet_window_size) * 0.5)
+		var pet_id := _get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
+		_finish_offering_consumed(sprite, faith_gain, drop_position, pet_id)
 
 
 func _mark_offering_landed(target_key: String) -> void:
@@ -1354,26 +1648,18 @@ func _finish_offering_consumed(sprite: Sprite2D, faith_gain: int, popup_position
 		sprite.queue_free()
 
 	if not pet_id.is_empty():
-		_apply_pet_fed(pet_id)
-	_faith_points += float(faith_gain)
+		_react_pet_to_offering(pet_id)
+	_grant_faith(float(faith_gain))
 	_refresh_pet_stats(true)
 	_show_faith_gain_popup(popup_position, faith_gain)
+	_save_game()
 
 
-func _apply_pet_fed(pet_id: String) -> void:
-	var state := _get_pet_state(pet_id)
-	var now := _get_now_seconds()
-	state["favor"] = _get_pet_favor(pet_id) + OFFERING_FAVOR_GAIN
-	state["trust"] = int(state.get("trust", 0)) + OFFERING_FAVOR_GAIN
-	state["hungry"] = false
-	state["last_fed_at"] = now
-	state["next_hunger_notice_at"] = now + PET_HUNGER_AFTER_SECONDS
-	_pet_upgrade_stats_dirty = true
-
+func _react_pet_to_offering(pet_id: String) -> void:
 	var actor := _get_desktop_pet_by_id(pet_id)
 	if actor != null:
 		_clear_pet_runtime_effects(pet_id)
-		_spawn_emotion(actor, "like", Vector2(38.0, -10.0), 0.21, 0.0, true)
+		_spawn_emotion(actor, "happy", Vector2(38.0, -10.0), 0.21, 0.0, true)
 
 
 func _get_desktop_pet_by_id(pet_id: String) -> Node2D:
@@ -1420,6 +1706,11 @@ func _get_safe_control_position(raw_position: Vector2, size: Vector2, margin: fl
 func _on_pet_count_upgrade_requested(pet_id: String) -> void:
 	if pet_id.is_empty():
 		return
+	var state := _get_pet_state(pet_id)
+	var pet_data := PetCatalog.get_definition(pet_id)
+	if PetProgression.can_evolve(pet_data, state):
+		_on_pet_evolution_requested(pet_id)
+		return
 
 	var cost := _get_upgrade_cost(pet_id)
 	if int(floor(_faith_points)) < cost:
@@ -1427,17 +1718,43 @@ func _on_pet_count_upgrade_requested(pet_id: String) -> void:
 		return
 
 	_faith_points = maxf(0.0, _faith_points - float(cost))
-	var state := _get_pet_state(pet_id)
-	state["count"] = int(state.get("count", 1)) + 1
+	var count := maxi(1, int(state.get("count", 1)))
+	state["count"] = clampi(count + PetProgression.population_gain(count), 1, 100000)
+	state["upgrade_level"] = clampi(PetProgression.progression_level(state) + 1, 1, 100000)
 	_selected_pet_id = pet_id
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
+	_save_game()
+
+
+func _on_pet_evolution_requested(pet_id: String) -> void:
+	if pet_id.is_empty() or not PetCatalog.DEFINITIONS.has(pet_id):
+		return
+	var state := _get_pet_state(pet_id)
+	var pet_data := PetCatalog.get_definition(pet_id)
+	if not PetProgression.can_evolve(pet_data, state):
+		_refresh_pet_stats(true)
+		return
+
+	state["evolution_stage"] = mini(
+		PetProgression.MAX_EVOLUTION_STAGE,
+		PetProgression.evolution_stage(state) + 1
+	)
+	_selected_pet_id = pet_id
+	_pet_upgrade_stats_dirty = true
+	_refresh_pet_stats(true)
+	var actor := _get_desktop_pet_by_id(pet_id)
+	if actor != null:
+		_spawn_emotion(actor, "like", Vector2(38.0, -10.0), 0.24, 0.0, true)
+	_save_game()
 
 
 func _on_faith_add_requested(amount: int) -> void:
-	_faith_points += float(maxi(1, amount))
+	_grant_faith(float(maxi(1, amount)))
 	_refresh_pet_stats(true)
+	_save_game()
 
 
 func _on_quit_requested() -> void:
+	_save_game()
 	get_tree().quit()

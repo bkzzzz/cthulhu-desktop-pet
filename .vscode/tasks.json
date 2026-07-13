@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Godot: Run Game",
+      "type": "process",
+      "command": "${workspaceFolder}\\run_game.cmd",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Godot: Run Tests",
+      "type": "process",
+      "command": "${workspaceFolder}\\run_tests.cmd",
+      "problemMatcher": [],
+      "group": "test"
+    }
+  ]
+}

@@ -10,6 +10,8 @@ static func run() -> Array[String]:
 	var behavior_styles := {}
 	var minimum_scale := INF
 	var maximum_scale := 0.0
+	var previous_first_evolution := 0
+	var previous_second_evolution := 0
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
 		failures.append("all five pets must be active")
 	if PetCatalog.INVENTORY_STARTER_PETS != expected_pets:
@@ -45,6 +47,26 @@ static func run() -> Array[String]:
 			failures.append("%s walk fallback must contain 12 frames" % pet_id)
 		if float(definition.get("base_fps", 0.0)) <= 0.0:
 			failures.append("%s must produce faith" % pet_id)
+		var walk_distance_min := float(definition.get("walk_distance_min", 0.0))
+		var walk_distance_max := float(definition.get("walk_distance_max", 0.0))
+		if walk_distance_min <= 0.0 or walk_distance_max <= walk_distance_min:
+			failures.append("%s must define its own valid walking distance range" % pet_id)
+		var emotion_weights: Dictionary = definition.get("emotion_weights", {})
+		if emotion_weights.size() < 3:
+			failures.append("%s must define a varied personality emotion profile" % pet_id)
+		if emotion_weights.has("hungry"):
+			failures.append("%s personality must not use the removed hunger emotion" % pet_id)
+		var thresholds: Array = definition.get("evolution_thresholds", [])
+		if thresholds.size() != 2 or int(thresholds[0]) <= 0 or int(thresholds[1]) <= int(thresholds[0]):
+			failures.append("%s must define exactly two increasing evolution thresholds" % pet_id)
+		elif int(thresholds[0]) < previous_first_evolution or int(thresholds[1]) < previous_second_evolution:
+			failures.append("later pets must not evolve sooner or more cheaply than earlier pets")
+		else:
+			previous_first_evolution = int(thresholds[0])
+			previous_second_evolution = int(thresholds[1])
+		var evolution_multipliers: Array = definition.get("evolution_multipliers", [])
+		if evolution_multipliers.size() != 3:
+			failures.append("%s must define base, first, and second evolution output multipliers" % pet_id)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
 	if behavior_styles.size() != expected_pets.size():
@@ -53,20 +75,20 @@ static func run() -> Array[String]:
 		failures.append("the smallest desktop pet must be visibly small")
 	if maximum_scale - minimum_scale < 0.6:
 		failures.append("desktop pet sizes must have a clear visual range")
-	for climbing_pet_id in ["pet4", "pet5"]:
+	for climbing_pet_id in ["pet1", "pet4", "pet5"]:
 		if float(PetCatalog.get_definition(climbing_pet_id).get("wall_chance", 0.0)) <= 0.0:
 			failures.append("%s must occasionally climb a screen edge" % climbing_pet_id)
-	for ground_pet_id in ["pet1", "pet3"]:
+	for ground_pet_id in ["pet3"]:
 		if float(PetCatalog.get_definition(ground_pet_id).get("wall_chance", 0.0)) > 0.0:
 			failures.append("%s must remain a ground-only pet" % ground_pet_id)
-	for raised_pet_id in ["pet1", "pet4", "pet5"]:
-		var offset := float(PetCatalog.get_definition(raised_pet_id).get("ground_offset_y", 0.0))
-		if offset < -6.0 or offset >= 0.0:
-			failures.append("%s must sit just above the taskbar edge" % raised_pet_id)
-	if not is_zero_approx(float(PetCatalog.get_definition("pet3").get("ground_offset_y", -1.0))):
-		failures.append("pet3 must sit directly on the ground line")
+	for ground_pet_id in ["pet1", "pet3", "pet4", "pet5"]:
+		var offset := float(PetCatalog.get_definition(ground_pet_id).get("ground_offset_y", -99.0))
+		if not is_zero_approx(offset):
+			failures.append("%s must use the shared pixel-exact taskbar foot line" % ground_pet_id)
 	if float(PetCatalog.get_definition("pet2").get("air_roam_chance", 0.0)) <= 0.0:
 		failures.append("pet2 must occasionally roam above the taskbar")
+	if PetCatalog.choose_weighted_emotion("pet2", 0.1) != "sleepy":
+		failures.append("pet2 personality must strongly prefer sleepy emotions")
 	var pet2_frames := PetCatalog.build_frames("pet2")
 	_check_frame_count(failures, pet2_frames, "close_eye", 16)
 	_check_frame_count(failures, pet2_frames, "open_eye", 16)

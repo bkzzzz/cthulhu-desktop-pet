@@ -22,4 +22,20 @@
 4. 使用导出预设生成 Windows 可执行文件
 5. 将生成产物上传到 Steam 发布流程
 
-（启动器在上层目录）
+## 启动与测试
+
+Godot 编辑器位于项目的上层目录。不要依赖终端当前所在目录，统一从项目根目录使用启动脚本：
+
+```powershell
+# 运行游戏
+.\run_game.cmd
+
+# 打开编辑器
+.\run_game.cmd -Editor
+
+# 运行全部测试
+.\run_tests.cmd
+```
+
+VS Code 中也可以运行默认生成任务 `Godot: Run Game`，测试任务为 `Godot: Run Tests`。
+脚本会根据自身位置解析项目目录和上层的 Godot 程序，因此从任意工作目录调用都不会启动错项目。
