@@ -129,7 +129,7 @@ func _create_content() -> void:
 	content.add_child(divider)
 
 	var description := Label.new()
-	description.text = "收录市民异常行为、教团扩张与宠物引发的公共事件。数据由本台记者现场核对。"
+	description.text = "持续记录教团扩张与理性污染：从一座城市、整个生态圈，直至星辰之间。"
 	description.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	description.custom_minimum_size = Vector2(0.0, 42.0)

@@ -6,11 +6,11 @@ extends RefCounted
 const MAX_HISTORY := 80
 const MAX_HEADLINE_LENGTH := 220
 const RECENT_TEMPLATE_LIMIT := 6
-const NEWS_COPY_VERSION := 1
+const NEWS_COPY_VERSION := 2
 const AMBIENT_INTERVAL_MIN_SECONDS := 240.0
 const AMBIENT_INTERVAL_MAX_SECONDS := 360.0
 
-const VALID_CATEGORIES := ["公告", "异闻", "传播", "信仰", "宠物", "教团"]
+const VALID_CATEGORIES := ["公告", "异闻", "传播", "信仰", "教团"]
 const FAITH_RATE_MILESTONES := [
 	1.0,
 	5.0,
@@ -51,93 +51,99 @@ const PLACES := [
 	"城北政务分中心"
 ]
 
-const ABSURD_TEMPLATES := [
-	{"id": "absurd_sewer", "text": "市政热线记录：37名市民趴在下水道口等待神谕，环卫工已摆出9块警示牌。"},
-	{"id": "absurd_dough", "text": "城南面包店有22名顾客给吐司做心肺复苏；店员已把该桌登记为团建区。"},
-	{"id": "absurd_weather", "text": "气象台发布小雨预警后，61名市民带着汤锅去广场接雨；保安发出14张号码牌。"},
-	{"id": "absurd_clock", "text": "地铁三号线晚点13分钟后，48名乘客在站台倒着走；保安劝停了9人。"},
-	{"id": "absurd_pigeon", "text": "中心广场有29名市民穿灰衣蹲地讨要薯条；城管误发了6袋鸽粮。"},
-	{"id": "absurd_library", "text": "市图书馆发现31名读者用尺子把圆形量成方形；数学区增派了2名管理员。"},
-	{"id": "absurd_moon", "text": "昨夜有14户居民主动缴纳月光照明费；供电公司退回13份，只受理了1份。"},
-	{"id": "absurd_well", "text": "旧城区有9名居民轮流向封井道歉，理由是上周忘记打招呼；物业提供了号码牌。"},
-	{"id": "absurd_radio", "text": "52名出租车司机听完凌晨节目后把计价单位改成海里；交通部门要求当天改回公里。"},
-	{"id": "absurd_elevator", "text": "海滨小区有17名住户排队乘电梯去地下130层；物业卖出11张月票后封住按钮。"}
+const LOCAL_TEMPLATES := [
+	{"id": "scope_local_names", "text": "{place}有73名居民注销原姓，统一登记为“见证者”；民政窗口拒绝后，9名工作人员当场加入队伍。"},
+	{"id": "scope_local_hospital", "text": "市医院发现41名患者的心率同步为七拍一循环；3台监护仪被封存，值班医生仍坚持这是巧合。"},
+	{"id": "scope_local_school", "text": "城西学校有9个班级同时删去课本中的“人类”一词；教育局派出的12名调查员已有5名拒绝返回。"},
+	{"id": "scope_local_court", "text": "地方法院收到86份内容完全一致的认罪书，签署者承认自己曾经拥有独立意志；法官宣布延期审理。"},
+	{"id": "scope_local_signal", "text": "本地通信站截获214名用户同时发送同一串坐标；警方抵达后，7名警员主动跪入人群。"},
+	{"id": "scope_local_factory", "text": "北区工厂有58名工人拆除姓名牌，并把全部生产指标改为“等待降临”；管理层尚未恢复控制。"},
+	{"id": "scope_local_registry", "text": "市政档案显示新增312名无出生记录的居民，他们都能准确背出教团戒律；户籍系统已转为离线。"},
+	{"id": "scope_local_station", "text": "中心车站有127名旅客放弃原定目的地，改乘一班不存在的朝圣专列；铁路部门封锁了4座站台。"}
 ]
 
-const PET_TEMPLATES := [
-	{"id": "pet_corner", "text": "一只宠物盯着墙角时，12名教众也面壁站了10分钟；物业按团体活动收取场地费。"},
-	{"id": "pet_coin", "text": "一只宠物叼回旧公交代币后，18名教众排队要求补票；公交公司只收了3人的现金。"},
-	{"id": "pet_alarm", "text": "一只宠物午睡打呼噜，隔壁公司有24名员工跟着趴下；人事部取消了下午例会。"},
-	{"id": "pet_shadow", "text": "一只宠物把拖鞋拖到桌下，11名教众随后献上另一只；失物招领处拒收了7双。"},
-	{"id": "pet_fog", "text": "一只宠物守在窗边，16名教众排队向窗外敬礼；物业提醒他们不要堵住消防通道。"},
-	{"id": "pet_box", "text": "一只宠物钻进快递箱后，9名教众为纸箱购买车票；快递员按宠物托运重新计费。"},
-	{"id": "pet_receipt", "text": "一只宠物叼来超市小票，27名教众照单抢购盐和鸡蛋；超市实行每人限购2份。"},
-	{"id": "pet_window", "text": "一只宠物对窗外挥手后，21名教众跟着挥了15分钟；对面写字楼拉上了窗帘。"}
+const REGIONAL_TEMPLATES := [
+	{"id": "scope_region_roads", "text": "污染区已覆盖12座城镇，连接各地的公路被朝圣车队占据；沿线6支警备队先后倒戈。"},
+	{"id": "scope_region_broadcast", "text": "区域广播网的43名主持人同时宣读归顺声明，信号越过4个省区后仍无法切断。"},
+	{"id": "scope_region_ports", "text": "8座港口拒绝悬挂原属旗帜，19艘货轮在甲板刻下教团徽记后驶向同一片海域。"},
+	{"id": "scope_region_governors", "text": "已有17名地方官员公开承认理性只是暂时症状；3个行政区随即撤销宵禁并改设礼拜时段。"},
+	{"id": "scope_region_maps", "text": "国家测绘局发现26幅新版地图自行将污染区标为首都；14名制图员拒绝更正。"},
+	{"id": "scope_region_army", "text": "边境集结的5支部队在接触污染带后停止推进，其中2800名士兵改称自己为护教军。"},
+	{"id": "scope_region_language", "text": "语言研究所确认7种方言在一周内出现相同祷词，涉及约36万名使用者；传播源仍无法定位。"},
+	{"id": "scope_region_power", "text": "区域电网有31座变电站脱离调度，却持续向教团控制区供电；11名工程师称这是电流的自愿选择。"}
 ]
 
-const SPREAD_TEMPLATES := [
-	{"id": "spread_doctrine", "text": "{place}有7户居民每天凌晨对着水管朗读教规；物业本周上门劝阻3次。"},
-	{"id": "spread_bookclub", "text": "{place}新增23名信众参加“盐的用途”读书会；报名者须自带2公斤粗盐。"},
-	{"id": "spread_nightshift", "text": "{place}有18名夜班员工用咖啡渣投票安排轮班；人事部称迟到率下降12%。"},
-	{"id": "spread_password", "text": "登记信众已达{followers}人；{place}门禁出现31次同一密码尝试，物业找到7名排队者。"},
-	{"id": "spread_leaflet", "text": "{place}有26名教众把186张传单贴满公告栏；保洁员清理4次后申请了加班费。"},
-	{"id": "spread_chant", "text": "{place}有42名晨练者把七拍祷词编进健身操；社区比赛因此延长了6分钟。"}
+const BIOSPHERE_TEMPLATES := [
+	{"id": "scope_bio_birds", "text": "全球观测站记录到237种候鸟放弃迁徙路线，在高空组成同一枚教团徽记；编队已持续19小时。"},
+	{"id": "scope_bio_ocean", "text": "14个鲸群同时改变航向，沿污染海域排列成朝圣队列；护航舰上的83名船员随后失去敌意。"},
+	{"id": "scope_bio_forest", "text": "3片原始森林的树冠连续7日朝向圣地生长，涉及约1200种植物；植物学界撤回了全部解释。"},
+	{"id": "scope_bio_insects", "text": "至少410种昆虫停止争夺领地，转而在6块大陆筑成统一祭坛结构；农药已完全失效。"},
+	{"id": "scope_bio_predators", "text": "29种大型捕食者在同一夜停止捕猎，并护送朝圣人群穿越荒野；已有17支科考队宣誓归顺。"},
+	{"id": "scope_bio_microbes", "text": "实验室确认63种微生物开始按祷文节律分裂，污染已进入饮水与土壤循环；隔离方案被宣布无效。"},
+	{"id": "scope_bio_domestic", "text": "超过800万只家畜同时面向污染中心伏地，横跨21个国家；当地人类信众数量在当日翻倍。"},
+	{"id": "scope_bio_ecosystem", "text": "7个生态带不再遵循既有食物链，126种生物开始共同供养教团控制区；学界称其为全球性归信。"}
 ]
 
-const FAITH_TEMPLATES := [
-	{"id": "faith_drain", "text": "信仰产量达到{rate}/秒后，37名市民抢购蜡烛和瓶装水；超市实行每人限购3件。"},
-	{"id": "faith_compass", "text": "监测到{rate}点/秒的信仰增长；14名住户倒着抄写电表读数，供电公司逐户纠正。"},
-	{"id": "faith_accountant", "text": "信仰增速升至{rate}/秒，12名教团会计把粗盐申报为交通费；税务窗口退回11份。"},
-	{"id": "faith_meter", "text": "仪表读数达到{rate}/秒；19名质检员连续校准设备3次，最后共同申请调岗。"},
-	{"id": "faith_echo", "text": "每秒产生{rate}点信仰后，楼上公司有28名员工戴着耳塞开会；物业补贴了2小时场地费。"}
+const PLANETARY_TEMPLATES := [
+	{"id": "scope_planet_continents", "text": "6块大陆的云层同时形成教团徽记，持续覆盖约43亿人；各国气象机构已停止发布否认声明。"},
+	{"id": "scope_planet_ocean", "text": "全球4大洋的潮汐脱离月球引力，统一朝圣地抬升；31座沿海城市已整体归入教团。"},
+	{"id": "scope_planet_satellites", "text": "3颗近地卫星未经指令调整轨道，并持续向地表广播归顺信号；地面站的64名人员集体宣誓。"},
+	{"id": "scope_planet_nations", "text": "现存193个国家中已有117个撤下国旗，超过52亿人被登记为教众；其余政府进入静默状态。"},
+	{"id": "scope_planet_magnetic", "text": "地磁场出现7条稳定裂隙，所有指南设备开始指向圣地；23支极地科考队已改变效忠对象。"},
+	{"id": "scope_planet_moon", "text": "月面12座观测站同时拍到横跨1600公里的教团印记；各国航天机构确认该结构并非人工建造。"},
+	{"id": "scope_planet_species", "text": "地球已知物种中有86%表现出统一归信行为，剩余14%正在快速消失；生物分类法被正式废止。"},
+	{"id": "scope_planet_reason", "text": "全球理性指数降至原值的3%，仍保持自我认知的约900万人被集中称为“未启蒙者”。"}
 ]
 
-const CULT_TEMPLATES := [
-	{"id": "cult_minutes", "text": "教团例会有16人投票封存地下室3号门；行政部随后确认租赁合同没有地下室。"},
-	{"id": "cult_budget", "text": "教团财务批准购买240根蜡烛；12名员工为争夺发票抬头开了3次会议。"},
-	{"id": "cult_uniform", "text": "26名教众穿着湿教袍参加晨会；行政部把清洁费计入服装预算。"},
-	{"id": "cult_hr", "text": "人事部发现18名员工用仪式照片代替考勤；其中7人被要求周末补班。"},
-	{"id": "cult_archive", "text": "档案室有9名员工同时提交同一份会议纪要；行政部只保留最先盖章的1份。"}
+const COSMIC_TEMPLATES := [
+	{"id": "scope_cosmic_mars", "text": "火星轨道上的11台探测器同时改写任务目标，开始测绘礼拜场；2支载人计划已申请成为远征教团。"},
+	{"id": "scope_cosmic_stars", "text": "17座射电天文台确认9颗恒星按七拍节律改变亮度，影响范围超过400光年。"},
+	{"id": "scope_cosmic_systems", "text": "12个恒星系传回结构相同的归顺信号，其中8个系统此前从未发现智慧生命。"},
+	{"id": "scope_cosmic_nebula", "text": "3片星云在观测中形成横跨数百光年的教团徽记，约2600颗恒星被遮蔽后重新点亮。"},
+	{"id": "scope_cosmic_species", "text": "银河系内已确认41种智慧生物采用同一套戒律；最远一支教团位于2.7万光年外。"},
+	{"id": "scope_cosmic_galaxies", "text": "本星系群的7座星系出现同步污染，超过900亿颗恒星开始向同一坐标缓慢偏移。"},
+	{"id": "scope_cosmic_laws", "text": "4项基本物理常数出现可测偏差，宇宙学家承认自然法则正在主动服从教团秩序。"},
+	{"id": "scope_cosmic_all", "text": "可观测宇宙的理性残余降至0.0003%，至少86亿个文明已被纳入同一教团；扩张仍未抵达边界。"}
 ]
 
 const EVENT_TEMPLATES := {
 	"petting": [
-		{"id": "event_petting_forgive", "text": "一只宠物被抚摸47次后，12名教众拒绝洗手；保洁员发出8包湿巾。"},
-		{"id": "event_petting_lights", "text": "宠物医院记录：23名市民排队抚摸同一只宠物，其中6人要求开具纪念证明。"},
-		{"id": "event_petting_weather", "text": "一只宠物接受抚摸时，19名教众在旁鼓掌11分钟；行政部登记为员工活动。"}
+		{"id": "event_contact_conversion", "text": "圣迹接触记录更新后，47名旁观者同时放弃原有信仰；其中12名已成为新的传教节点。"},
+		{"id": "event_contact_memory", "text": "污染半径内有23名市民失去童年记忆，却能完整背诵教团戒律；医学解释被一致驳回。"},
+		{"id": "event_contact_guards", "text": "负责封锁现场的19名警卫同时解除武装，并将3道警戒线改为朝圣通道。"}
 	],
 	"burrow": [
-		{"id": "event_burrow_tunnel", "text": "一只宠物钻到桌下后，9名教众趴地等待20分钟；物业按堵塞通道处理。"},
-		{"id": "event_burrow_return", "text": "一只宠物从桌下返回时，14名教众争抢它脚边的泥；保洁员封存了3袋。"}
+		{"id": "event_ground_fault", "text": "地下监测网出现9条无法测量深度的裂隙，沿线14名工程师已将其标为圣道。"},
+		{"id": "event_ground_conversion", "text": "地层异常扩散至3个街区，61名居民在疏散途中集体改道前往礼拜场。"}
 	],
 	"sleep": [
-		{"id": "event_sleep_weather", "text": "一只宠物睡着后，16名教众围成一圈轻声办公；当天取消了3场会议。"},
-		{"id": "event_sleep_dream", "text": "邻居投诉宠物呼噜声后，11名教众带着枕头来旁听；保安劝走了7人。"}
+		{"id": "event_silence_city", "text": "污染源保持绝对静默期间，16个街区的居民同时停止交谈；随后新增340名登记教众。"},
+		{"id": "event_silence_reason", "text": "持续静默使11名研究员放弃因果推理，并共同提交了1份归顺声明。"}
 	],
 	"air_roam": [
-		{"id": "event_air_gravity", "text": "一只宠物飞到天花板附近，23名教众举着纸箱等它降落；物业没收了4把梯子。"},
-		{"id": "event_air_route", "text": "一只宠物在房间上空绕了4圈，18名教众举着纸箱跟随；物业登记了3次险情。"}
+		{"id": "event_sky_mark", "text": "上空出现持续23分钟的污染投影，18架民航客机偏离航线并组成礼拜阵列。"},
+		{"id": "event_sky_conversion", "text": "空域监测异常后，4座机场共有260名管制人员宣布效忠，区域航线已由教团接管。"}
 	],
 	"wall_crawl": [
-		{"id": "event_wall_permit", "text": "一只宠物沿墙爬行时，11名教众贴着墙根跟了6圈；保安登记为消防演练。"},
-		{"id": "event_wall_up", "text": "一只宠物爬到高处后，15名教众排队递交营救方案；物业只批准了2份。"}
+		{"id": "event_boundary_failure", "text": "污染边界穿过6层实体墙后仍未衰减，11名检测员已停止使用“封闭空间”这一概念。"},
+		{"id": "event_boundary_conversion", "text": "建筑内部有15名封锁人员从不同楼层同时抵达礼拜场，监控未记录任何通行过程。"}
 	],
 	"hide": [
-		{"id": "event_hide_folder", "text": "一只宠物藏到桌面文件夹后，17名教众假装没有看见；它跳出时有6人打翻咖啡。"},
-		{"id": "event_hide_watch", "text": "一只宠物躲藏期间，13名教众轮流盯着空位；它突然跳出后，物业收到4起噪音投诉。"}
+		{"id": "event_absence_worship", "text": "圣迹从观测中消失后，17名教众仍准确指出其位置；6台摄影设备只拍到跪拜者。"},
+		{"id": "event_absence_conversion", "text": "观测空白持续13分钟，外围新增94名教众；所有人声称自己刚刚目睹了启示。"}
 	],
 	"offering": [
-		{"id": "event_food_spoons", "text": "一只宠物吃完{item}后，18名教众争抢空碗；食堂改用一次性餐具。"},
-		{"id": "event_food_expand", "text": "一只宠物吞下{item}后，27名教众在外卖平台抢购同款；10分钟内卖出63份。"},
-		{"id": "event_food_review", "text": "一只宠物吃完{item}后，14名教众提交了32页试吃报告；采购部只看了第1页。"}
+		{"id": "event_offering_vanish", "text": "贡品“{item}”从封闭供桌上消失后，18名看守者同时宣誓归顺；现场没有留下进食痕迹。"},
+		{"id": "event_offering_replication", "text": "“{item}”被列为圣物后，27座礼拜场在10分钟内复制同一仪式；新增信众超过6300人。"},
+		{"id": "event_offering_conversion", "text": "供奉“{item}”的仪式结束后，14名调查员销毁报告并加入教团；封锁命令已失效。"}
 	],
 	"upgrade": [
-		{"id": "event_upgrade_registry", "text": "一只宠物完成第{level}次强化；32名教众当天为它补办工牌和社保。"},
-		{"id": "event_upgrade_meter", "text": "一只宠物强化至 Lv.{level}后，21名教众申请上调宠物押金；物业批准了1份。"}
+		{"id": "event_upgrade_index", "text": "污染指数升至第{level}级，32名监测人员中有21名立即转为教众；其余人员请求撤离。"},
+		{"id": "event_upgrade_radius", "text": "第{level}级扩张完成后，污染半径越过4道封锁线，沿途新增2100名登记信众。"}
 	],
 	"gacha": [
-		{"id": "event_gacha_probability", "text": "教团抽中“{item}”后，27名教众在财务室排队申请报销；会计只批准了3份。"},
-		{"id": "event_gacha_receipt", "text": "“{item}”入库当天，18名教众带着购物袋等候分发；仓库只发出1件样品。"}
+		{"id": "event_gacha_relic", "text": "教团获得“{item}”后，27名守卫同时忘记原属机构；该区域已并入圣地。"},
+		{"id": "event_gacha_signal", "text": "“{item}”入库时释放出覆盖18座城镇的信号，超过7万名居民在同一分钟完成归顺。"}
 	]
 }
 
@@ -231,22 +237,21 @@ func make_ambient(
 	detail_roll: float
 ) -> Dictionary:
 	var safe_category_roll := _safe_unit_roll(category_roll)
-	var template_pool: Array
-	var category := "异闻"
-	if safe_category_roll < 0.24:
-		template_pool = ABSURD_TEMPLATES
-	elif safe_category_roll < 0.52:
-		template_pool = PET_TEMPLATES
-		category = "宠物"
-	elif safe_category_roll < 0.74 and float(context.get("followers", 0.0)) >= 1.0:
-		template_pool = SPREAD_TEMPLATES
-		category = "传播"
-	elif safe_category_roll < 0.9:
-		template_pool = FAITH_TEMPLATES
-		category = "信仰"
-	else:
-		template_pool = CULT_TEMPLATES
-		category = "教团"
+	var scope_pools := [
+		LOCAL_TEMPLATES,
+		REGIONAL_TEMPLATES,
+		BIOSPHERE_TEMPLATES,
+		PLANETARY_TEMPLATES,
+		COSMIC_TEMPLATES
+	]
+	var scope_categories := ["异闻", "传播", "传播", "信仰", "教团"]
+	var unlocked_scope := get_scope_tier(int(context.get("spread_tier", 0)))
+	var selected_scope := mini(
+		unlocked_scope,
+		int(floor(safe_category_roll * float(unlocked_scope + 1)))
+	)
+	var template_pool: Array = scope_pools[selected_scope]
+	var category: String = scope_categories[selected_scope]
 
 	var template := _choose_template(template_pool, template_roll)
 	return {
@@ -263,7 +268,7 @@ func make_event(event_type: String, context: Dictionary, template_roll: float) -
 	var templates: Array = templates_value
 	var template := _choose_template(templates, template_roll)
 	return {
-		"category": "宠物" if event_type in ["petting", "burrow", "sleep", "air_roam", "wall_crawl", "hide", "offering"] else "教团",
+		"category": "信仰" if event_type in ["petting", "burrow", "sleep", "air_roam", "wall_crawl", "hide", "offering", "upgrade"] else "教团",
 		"headline": _render_template(template, context, template_roll),
 		"template_id": String(template.get("id", ""))
 	}
@@ -275,30 +280,77 @@ func collect_milestones(faith_rate: float, followers: float, detail_roll: float)
 	if next_faith_tier > _faith_tier:
 		_faith_tier = next_faith_tier
 		var threshold := float(FAITH_RATE_MILESTONES[next_faith_tier - 1])
-		var shopper_count := 6 + (next_faith_tier * 4)
 		articles.append({
 			"category": "信仰",
-			"headline": "信仰产量突破%s/秒；%s有%d名市民凌晨抢购粗盐，超市实行每人限购3袋。" % [
-				format_number(threshold),
-				_get_place(detail_roll, next_faith_tier),
-				shopper_count
-			]
+			"headline": _make_faith_milestone_headline(threshold, next_faith_tier, detail_roll)
 		})
 
 	var next_follower_tier := get_follower_tier(followers)
 	if next_follower_tier > _follower_tier:
 		_follower_tier = next_follower_tier
 		var threshold := int(FOLLOWER_MILESTONES[next_follower_tier - 1])
-		var active_count := maxi(1, mini(threshold, int(round(sqrt(float(threshold))))))
 		articles.append({
 			"category": "传播",
-			"headline": "登记信众达到%s人；其中%s人把%s附近的出租屋客厅改成礼拜区，房东加收2个月押金。" % [
-				format_number(float(threshold)),
-				format_number(float(active_count)),
-				_get_place(1.0 - _safe_unit_roll(detail_roll), next_follower_tier)
-			]
+			"headline": _make_follower_milestone_headline(threshold, next_follower_tier, detail_roll)
 		})
 	return articles
+
+
+static func get_scope_tier(progression_tier: int) -> int:
+	var safe_tier := maxi(0, progression_tier)
+	if safe_tier < 3:
+		return 0
+	if safe_tier < 5:
+		return 1
+	if safe_tier < 7:
+		return 2
+	if safe_tier < 10:
+		return 3
+	return 4
+
+
+static func _make_faith_milestone_headline(threshold: float, tier: int, detail_roll: float) -> String:
+	var rate_text := format_number(threshold)
+	match get_scope_tier(tier):
+		0:
+			return "信仰产量突破%s/秒；%s新增%d名归顺者，地方封锁首次失效。" % [
+				rate_text,
+				_get_place(detail_roll, tier),
+				18 + (tier * 7)
+			]
+		1:
+			return "信仰产量突破%s/秒；4座城市的共计%d名官员宣布理性审查无效，污染区扩大至区域地图。" % [
+				rate_text,
+				36 + (tier * 11)
+			]
+		2:
+			return "信仰产量突破%s/秒；23种动物与7种植物出现统一归信行为，污染首次进入生态循环。" % rate_text
+		3:
+			return "信仰产量突破%s/秒；3颗卫星和6块大陆同时记录到教团印记，全球封锁体系宣告崩溃。" % rate_text
+		_:
+			return "信仰产量突破%s/秒；11个恒星系出现同步归顺信号，污染已越过太阳系边界。" % rate_text
+
+
+static func _make_follower_milestone_headline(threshold: int, tier: int, detail_roll: float) -> String:
+	var follower_text := format_number(float(threshold))
+	match get_scope_tier(tier):
+		0:
+			return "登记信众达到%s人；其中%d名已在%s建立首个公开礼拜场。" % [
+				follower_text,
+				maxi(1, mini(threshold, 3 + (tier * 4))),
+				_get_place(1.0 - _safe_unit_roll(detail_roll), tier)
+			]
+		1:
+			return "登记信众达到%s人；7座城镇撤除原属标志，超过%d名公务人员转入教团。" % [
+				follower_text,
+				24 + (tier * 13)
+			]
+		2:
+			return "登记信众达到%s人；37种动物开始护送朝圣队伍，生物污染扩散至4个生态带。" % follower_text
+		3:
+			return "登记信众达到%s人；4片大陆与2大洋进入持续归信状态，全球理性指数跌破20%%。" % follower_text
+		_:
+			return "登记信众达到%s人；9个外星文明采用同一戒律，宇宙教团首次得到实证。" % follower_text
 
 
 func can_emit_event(event_key: String, now: float, cooldown_seconds: float) -> bool:
@@ -416,7 +468,7 @@ func _remember_template(template_id: String) -> void:
 
 func _render_template(template: Dictionary, context: Dictionary, detail_roll: float) -> String:
 	if template.is_empty():
-		return "本台收到23封内容相同的市民投诉；18名寄件人要求匿名，其余5人排队撤回。"
+		return "污染监测网失去23个观测节点；其中18个在断联前发送了同一份归顺声明。"
 	var place := _get_place(detail_roll, int(context.get("spread_tier", 0)))
 	var raw_followers := float(context.get("followers", 0.0))
 	var follower_count := maxi(0, int(floor(raw_followers))) if is_finite(raw_followers) else 0

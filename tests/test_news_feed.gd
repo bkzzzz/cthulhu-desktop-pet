@@ -20,7 +20,19 @@ const FORBIDDEN_COPY_FRAGMENTS := [
 	"一小片多云",
 	"此前不存在",
 	"明日会议纪要",
-	"邮戳日期是明天"
+	"邮戳日期是明天",
+	"一只宠物",
+	"宠物",
+	"打呼噜",
+	"叼",
+	"拖鞋",
+	"车票",
+	"快递箱",
+	"外卖平台",
+	"物业",
+	"保洁员",
+	"工牌",
+	"押金"
 ]
 
 
@@ -41,18 +53,26 @@ static func run() -> Array[String]:
 static func _test_ambient_templates(failures: Array[String]) -> void:
 	var feed := NewsFeed.new()
 	feed.restore({}, 0.85, 12.0)
-	var context := {
-		"pet_name": PET_NAME_SENTINEL,
-		"faith_rate": 123.0,
-		"followers": 456.0,
-		"spread_tier": 4
-	}
-	var category_rolls := [0.0, 0.3, 0.6, 0.8, 0.95]
-	var expected_categories := ["异闻", "宠物", "传播", "信仰", "教团"]
-	for index in category_rolls.size():
-		var article: Dictionary = feed.make_ambient(context, category_rolls[index], 0.17, 0.42)
-		if String(article.get("category", "")) != expected_categories[index]:
-			failures.append("ambient news category rolls must select the expected pool")
+	var scope_cases := [
+		{"tier": 0, "prefix": "scope_local_", "category": "异闻"},
+		{"tier": 3, "prefix": "scope_region_", "category": "传播"},
+		{"tier": 5, "prefix": "scope_bio_", "category": "传播"},
+		{"tier": 7, "prefix": "scope_planet_", "category": "信仰"},
+		{"tier": 10, "prefix": "scope_cosmic_", "category": "教团"}
+	]
+	for case_value in scope_cases:
+		var scope_case: Dictionary = case_value
+		var context := {
+			"pet_name": PET_NAME_SENTINEL,
+			"faith_rate": 123.0,
+			"followers": 456.0,
+			"spread_tier": int(scope_case.get("tier", 0))
+		}
+		var article: Dictionary = feed.make_ambient(context, 0.999, 0.17, 0.42)
+		if String(article.get("category", "")) != String(scope_case.get("category", "")):
+			failures.append("ambient news must use the category of its unlocked expansion scale")
+		if not String(article.get("template_id", "")).begins_with(String(scope_case.get("prefix", ""))):
+			failures.append("ambient news must unlock local, regional, biosphere, planetary, and cosmic scales gradually")
 		var headline := String(article.get("headline", ""))
 		if headline.is_empty() or headline.contains("{") or headline.contains("}"):
 			failures.append("ambient news templates must render complete non-empty headlines")
@@ -62,8 +82,9 @@ static func _test_ambient_templates(failures: Array[String]) -> void:
 	var seen_ids := {}
 	var dedupe_feed := NewsFeed.new()
 	dedupe_feed.restore({}, 0.0, 0.0)
+	var local_context := {"faith_rate": 0.0, "followers": 0.0, "spread_tier": 0}
 	for _index in 6:
-		var article: Dictionary = dedupe_feed.make_ambient(context, 0.0, 0.0, 0.0)
+		var article: Dictionary = dedupe_feed.make_ambient(local_context, 0.0, 0.0, 0.0)
 		seen_ids[String(article.get("template_id", ""))] = true
 	if seen_ids.size() != 6:
 		failures.append("ambient news must avoid recently used templates")
@@ -83,17 +104,17 @@ static func _test_event_templates(failures: Array[String]) -> void:
 
 	var wall: Dictionary = feed.make_event("wall_crawl", {"pet_name": PET_NAME_SENTINEL}, 0.0)
 	if (
-		String(wall.get("category", "")) != "宠物"
+		String(wall.get("category", "")) != "信仰"
 		or String(wall.get("headline", "")).contains(PET_NAME_SENTINEL)
 	):
-		failures.append("real pet actions must create anonymous pet news")
+		failures.append("runtime incidents must report anonymous contamination instead of pet behavior")
 
 	var hide: Dictionary = feed.make_event("hide", {"pet_name": PET_NAME_SENTINEL}, 0.0)
 	if (
-		String(hide.get("category", "")) != "宠物"
+		String(hide.get("category", "")) != "信仰"
 		or String(hide.get("headline", "")).contains(PET_NAME_SENTINEL)
 	):
-		failures.append("hide-and-pop actions must create anonymous pet news")
+		failures.append("visibility incidents must describe external contamination without lowering the sacred source")
 
 	for template_roll in [0.0, 0.75]:
 		var upgrade: Dictionary = feed.make_event(
@@ -124,16 +145,16 @@ static func _test_direct_copy_contract(failures: Array[String]) -> void:
 		"spread_tier": 4
 	}
 	var numbered_people := RegEx.new()
-	if numbered_people.compile("[0-9]+(名|人|户)") != OK:
+	if numbered_people.compile("[0-9]+(\\.[0-9]+)?(万|亿)?(名|人|户|种|群|个|颗|片|支|座|台|艘|架|项|份|道|层|块|%)") != OK:
 		failures.append("direct-news test pattern must compile")
 		return
 
 	var ambient_pools := [
-		NewsFeed.ABSURD_TEMPLATES,
-		NewsFeed.PET_TEMPLATES,
-		NewsFeed.SPREAD_TEMPLATES,
-		NewsFeed.FAITH_TEMPLATES,
-		NewsFeed.CULT_TEMPLATES
+		NewsFeed.LOCAL_TEMPLATES,
+		NewsFeed.REGIONAL_TEMPLATES,
+		NewsFeed.BIOSPHERE_TEMPLATES,
+		NewsFeed.PLANETARY_TEMPLATES,
+		NewsFeed.COSMIC_TEMPLATES
 	]
 	for pool_value in ambient_pools:
 		var pool: Array = pool_value
@@ -187,6 +208,10 @@ static func _test_milestones(failures: Array[String]) -> void:
 			failures.append("faith milestone news must report the highest crossed threshold")
 		if not String(articles[1].get("headline", "")).contains("5000"):
 			failures.append("follower milestone news must report the highest crossed threshold")
+		if not String(articles[0].get("headline", "")).contains("23种"):
+			failures.append("faith milestones must expand from human conversion into biosphere contamination")
+		if not String(articles[1].get("headline", "")).contains("4片大陆"):
+			failures.append("follower milestones must expand into planetary-scale conversion")
 		for article in articles:
 			var headline := String(article.get("headline", ""))
 			if headline.contains(PET_NAME_SENTINEL) or headline.contains("{") or headline.contains("}"):
@@ -279,12 +304,12 @@ static func _test_copy_version_migration(failures: Array[String]) -> void:
 			"history": [
 				{
 					"id": 9,
-					"category": "宠物",
-					"headline": "12名教众排队抚摸一只宠物",
+					"category": "教团",
+					"headline": "12个恒星系传回结构相同的归顺信号",
 					"created_at": 200.0
 				}
 			],
-			"recent_templates": ["event_petting_forgive"]
+			"recent_templates": ["scope_cosmic_systems"]
 		},
 		0.0,
 		0.0
@@ -292,7 +317,7 @@ static func _test_copy_version_migration(failures: Array[String]) -> void:
 	if current.get_history().size() != 1:
 		failures.append("current-version news copy must survive restore")
 	var current_recent: Variant = current.get_state().get("recent_templates", [])
-	if not current_recent is Array or current_recent != ["event_petting_forgive"]:
+	if not current_recent is Array or current_recent != ["scope_cosmic_systems"]:
 		failures.append("current-version recent news templates must survive restore")
 
 

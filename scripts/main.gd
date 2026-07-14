@@ -149,7 +149,7 @@ func _ready() -> void:
 	if _news_feed.get_history().is_empty():
 		_publish_news({
 			"category": "公告",
-			"headline": "《深潮晚报》恢复播报。今早已有17名教众因在办公区集体跪拜被保安登记。"
+			"headline": "《深潮晚报》恢复播报。首批17名调查员已放弃原属身份，污染区边界仍在向外扩张。"
 		}, false, false)
 	_next_news_at = _get_news_runtime_seconds() + NEWS_INITIAL_AMBIENT_DELAY
 	_refresh_pet_stats(true)

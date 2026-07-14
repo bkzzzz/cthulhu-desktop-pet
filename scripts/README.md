@@ -17,7 +17,7 @@ This folder is split by runtime responsibility:
 
 Followers grow automatically from faith production and require no separate player management.
 Clicking a pet row in the side drawer buys one level and raises that pet's faith generation; there is no separate population, leader, or evolution layer.
-The news feed uses concrete, numbered public incidents instead of pet names or abstract omens. Faith-rate milestones broadcast immediately; other absurd, propagation, and real pet-action stories wait for the low-frequency idle-news slot, while the newest 80 reports remain available from the news bookmark.
+The news feed treats pets as silent sacred sources and reports only the surrounding conversion and loss of reason. Its scope unlocks with follower milestones, progressing from local incidents through regional collapse, biosphere conversion, planetary submission, and cosmic contamination. Faith-rate milestones broadcast immediately; other reports wait for the low-frequency idle-news slot, while the newest 80 remain available from the news bookmark.
 Offerings are bought with faith in the shop. A purchased offering replaces the mouse cursor until the player left-clicks the lower desktop to drop it for a pet, or right-clicks to cancel and refund the purchase.
 
 The active desktop roster is defined by `pet_catalog.gd`. Character-specific scale and frame-floor values keep different source sheet sizes aligned to the desktop floor; pet6 keeps its authored foot line on the taskbar edge while its lower hand remains visual and click-through.
