@@ -5,6 +5,7 @@ const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
+	_check_equal(failures, "campaign target uses pet levels", GachaProgression.CAMPAIGN_PET_LEVEL_TARGET, 100)
 	_check_draw_costs(failures)
 	_check_weight_boundaries(failures)
 	_check_twelve_draw_pity(failures)

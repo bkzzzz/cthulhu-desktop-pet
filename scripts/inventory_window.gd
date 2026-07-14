@@ -82,6 +82,22 @@ func remove_pet(pet_id: String) -> bool:
 	return false
 
 
+func set_pet_name(pet_id: String, custom_name: String) -> void:
+	var next_name := custom_name.strip_edges().left(40)
+	if next_name.is_empty():
+		next_name = String(PetCatalog.get_definition(pet_id).get("name", pet_id))
+	for index in _pets.size():
+		var entry := _pets[index]
+		if String(entry.get("id", "")) != pet_id:
+			continue
+		entry["name"] = next_name
+		_pets[index] = entry
+		if _detail_slot_index == index and _detail_name_edit != null and not _detail_name_edit.has_focus():
+			_detail_name_edit.text = next_name
+		break
+	_refresh_page_icons_only()
+
+
 func _configure_window() -> void:
 	name = "InventoryWindow"
 	title = "仓库"
@@ -260,6 +276,7 @@ func _create_detail_panel() -> void:
 
 	_detail_name_edit = LineEdit.new()
 	_detail_name_edit.placeholder_text = "宠物名字"
+	_detail_name_edit.max_length = 40
 	_detail_name_edit.custom_minimum_size = Vector2(220, 36)
 	_detail_name_edit.add_theme_stylebox_override("normal", _make_detail_name_style(false))
 	_detail_name_edit.add_theme_stylebox_override("focus", _make_detail_name_style(true))
@@ -461,7 +478,12 @@ func _show_detail_panel(pet_index: int) -> void:
 	var pet_data := PetCatalog.get_definition(pet_id)
 	_detail_icon.texture = PetCatalog.make_icon_texture(String(entry.get("texture", pet_data.get("icon", ""))), 6)
 	_detail_name_edit.text = String(entry.get("name", pet_data.get("name", pet_id)))
-	_detail_desc_label.text = String(pet_data.get("description", ""))
+	var rarity_stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
+	_detail_desc_label.text = "稀有度  %s\n年龄  %s\n性格  %s" % [
+		"★".repeat(rarity_stars),
+		String(pet_data.get("age_text", pet_data.get("age", "不详"))),
+		String(pet_data.get("personality", "不详"))
+	]
 	_detail_panel.visible = true
 
 
@@ -477,7 +499,7 @@ func _on_detail_name_changed(new_text: String) -> void:
 
 	var entry := _pets[_detail_slot_index]
 	var pet_id := String(entry.get("id", ""))
-	var custom_name := new_text.strip_edges()
+	var custom_name := new_text.strip_edges().left(40)
 	entry["name"] = custom_name
 	_pets[_detail_slot_index] = entry
 	if not pet_id.is_empty():
@@ -491,7 +513,12 @@ func _refresh_page_icons_only() -> void:
 		var pet_index := page_start + slot_index
 		if pet_index >= _pets.size():
 			continue
-		_slot_controls[slot_index].tooltip_text = "查看：%s" % String(_pets[pet_index].get("name", _pets[pet_index].get("id", "")))
+		var entry := _pets[pet_index]
+		var pet_id := String(entry.get("id", ""))
+		var display_name := String(entry.get("name", "")).strip_edges()
+		if display_name.is_empty():
+			display_name = String(PetCatalog.get_definition(pet_id).get("name", pet_id))
+		_slot_controls[slot_index].tooltip_text = "查看：%s" % display_name
 
 
 func _deploy_detail_pet() -> void:

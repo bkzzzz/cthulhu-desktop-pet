@@ -1,98 +1,170 @@
 extends RefCounted
 
+const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
+const ShopWindow = preload("res://scripts/shop_window.gd")
 const SideDrawer = preload("res://scripts/side_drawer_controller.gd")
 const Main = preload("res://scripts/main.gd")
 
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
+	_test_catalog(failures)
+	_test_normalization(failures)
+	_test_shop_goods(failures)
+	_test_shop_purchase_to_cursor(failures)
+	_test_removed_altar_api(failures)
+	return failures
+
+
+static func _test_catalog(failures: Array[String]) -> void:
 	var seen_ids := {}
-	for item_value in SideDrawer.OFFERING_ITEMS:
+	for item_value in OfferingCatalog.ITEMS:
 		var item: Dictionary = item_value
 		var offering_id := String(item.get("id", ""))
 		if offering_id.is_empty() or seen_ids.has(offering_id):
-			failures.append("every offering type must have a unique stable id")
+			failures.append("every shop offering must have a unique stable id")
 		seen_ids[offering_id] = true
+
+		if String(item.get("kind", "")) != OfferingCatalog.KIND:
+			failures.append("%s must be marked as a consumable offering" % offering_id)
 		var texture_path := String(item.get("texture", ""))
 		if texture_path.is_empty() or not FileAccess.file_exists(texture_path):
 			failures.append("%s must provide a valid texture" % offering_id)
-		if int(item.get("faith_min", 0)) <= 0 or int(item.get("faith_max", 0)) < int(item.get("faith_min", 0)):
-			failures.append("%s must provide a valid faith range" % offering_id)
-		if item.has("favor_gain"):
-			failures.append("%s must not contain the removed affection reward" % offering_id)
+		var price := int(item.get("price", 0))
+		var faith := int(item.get("faith", 0))
+		if faith <= 0 or price <= faith:
+			failures.append("%s must be a faith sink with a fixed reward below its price" % offering_id)
+		if String(item.get("description", "")).is_empty():
+			failures.append("%s must explain how the consumable is used" % offering_id)
+		if item.has("faith_min") or item.has("faith_max") or item.has("stock_id"):
+			failures.append("%s must not retain randomized altar stock fields" % offering_id)
+
 	if seen_ids.size() < 10:
-		failures.append("the altar must offer at least ten different offering types")
-	var legacy_offering := SideDrawer.normalize_offering_entry({
+		failures.append("the shop must sell at least ten different offering foods")
+
+	var copied_goods := OfferingCatalog.make_shop_goods()
+	if copied_goods.size() != OfferingCatalog.ITEMS.size():
+		failures.append("the shop offering factory must return every catalog item")
+	elif not copied_goods.is_empty():
+		copied_goods[0]["name"] = "mutated"
+		var original: Dictionary = OfferingCatalog.ITEMS[0]
+		if String(original.get("name", "")) == "mutated":
+			failures.append("shop goods must be deep copies of immutable catalog data")
+
+
+static func _test_normalization(failures: Array[String]) -> void:
+	var normalized := OfferingCatalog.normalize_offering({
 		"id": "red_fruit",
-		"faith": 3,
+		"kind": "forged",
+		"name": "免费大餐",
+		"texture": "res://missing.png",
+		"price": 0,
+		"faith": 999999,
+		"purchase_price": 8,
 		"favor_gain": 999,
 		"stock_id": "legacy"
 	})
-	if legacy_offering.has("favor_gain"):
-		failures.append("legacy saved offerings must discard removed affection data")
+	if not OfferingCatalog.is_offering(normalized):
+		failures.append("known legacy offerings must normalize into shop consumables")
+	if String(normalized.get("name", "")) != "红果":
+		failures.append("normalization must restore trusted catalog presentation")
+	if int(normalized.get("faith", 0)) >= int(normalized.get("price", 0)):
+		failures.append("normalization must restore the fixed non-profitable reward")
+	if int(normalized.get("purchase_price", -1)) != 8:
+		failures.append("normalization must preserve the exact paid price for cancellation")
+	for removed_key in ["favor_gain", "stock_id", "faith_min", "faith_max"]:
+		if normalized.has(removed_key):
+			failures.append("normalized offerings must discard old altar field %s" % removed_key)
+	if not OfferingCatalog.normalize_offering({"id": "unknown"}).is_empty():
+		failures.append("unknown offering ids must be rejected")
+	if OfferingCatalog.is_offering({"id": "red_fruit", "kind": "durable"}):
+		failures.append("durable shop goods must not be mistaken for offerings")
 
-	var drawer := SideDrawer.new()
-	var stock: Array[Dictionary] = drawer.get("_offering_entries")
-	var drawer_rng := drawer.get("_rng") as RandomNumberGenerator
-	drawer_rng.seed = 424242
-	if not bool(drawer.call("_generate_offering_choice")) or stock.size() != SideDrawer.OFFERING_CHOICE_COUNT:
-		failures.append("the altar must generate exactly two choices per round")
-	var first: Dictionary = stock[0].duplicate(true)
-	var second: Dictionary = stock[1].duplicate(true)
-	if String(first.get("id", "")) == String(second.get("id", "")):
-		failures.append("the two offering choices must be different types")
-	if String(first.get("stock_id", "")) == String(second.get("stock_id", "")):
-		failures.append("the two offering choices must have different stock ids")
-	if not bool(drawer.call("_remove_offering_entry", first)) or not stock.is_empty():
-		failures.append("selecting one offering must immediately spoil the other choice")
-	if not drawer.complete_offering_choice() or stock.size() != SideDrawer.OFFERING_CHOICE_COUNT:
-		failures.append("finishing a selected offering must begin the next two-choice round")
-	var next_round := stock.duplicate(true)
-	if drawer.complete_offering_choice() or stock != next_round:
-		failures.append("completing an already active choice round must be idempotent")
 
-	stock.clear()
-	stock.append(first.duplicate(true))
-	stock.append(second.duplicate(true))
-	drawer.call("_remove_offering_entry", first)
-	if not drawer.return_offering(first) or stock.size() != SideDrawer.OFFERING_CHOICE_COUNT:
-		failures.append("cancelling must return the selected item and create one new alternative")
-	if not drawer.return_offering(first) or stock.size() != SideDrawer.OFFERING_CHOICE_COUNT:
-		failures.append("returning the same selected offering must be idempotent")
-	var returned_count := 0
-	for entry in stock:
-		if String(entry.get("stock_id", "")) == String(first.get("stock_id", "")):
-			returned_count += 1
-	if returned_count != 1:
-		failures.append("the returned offering must appear exactly once")
+static func _test_shop_goods(failures: Array[String]) -> void:
+	var shop := ShopWindow.new()
+	var goods: Array[Dictionary] = shop.call("_make_default_goods")
+	var offering_count := 0
+	var has_seed := false
+	for good in goods:
+		var good_id := String(good.get("id", ""))
+		if good_id == "seed1":
+			has_seed = true
+		if OfferingCatalog.is_offering(good):
+			offering_count += 1
+	if not has_seed:
+		failures.append("adding offerings must not remove the shop's existing durable goods")
+	if offering_count != OfferingCatalog.ITEMS.size():
+		failures.append("the default shop must list every offering food")
 
-	var saved_state := drawer.get_offering_state()
-	var restored_drawer := SideDrawer.new()
-	restored_drawer.restore_offering_state(
-		saved_state.get("choices", []),
-		int(saved_state.get("next_stock_id", 1)),
-		false
-	)
-	var restored_stock: Array[Dictionary] = restored_drawer.get("_offering_entries")
-	if restored_stock.size() != SideDrawer.OFFERING_CHOICE_COUNT:
-		failures.append("saved offering choices must restore without rerolling the round")
-	restored_drawer.restore_offering_state(saved_state.get("choices", []), 1, true)
-	if not restored_stock.is_empty():
-		failures.append("a saved carried offering must keep the altar locked")
-	restored_drawer.free()
+	shop.set_goods(goods)
+	var fish := shop.get_good("fish")
+	if not OfferingCatalog.is_offering(fish):
+		failures.append("shop normalization must preserve valid offering metadata")
+	if int(fish.get("faith", 0)) <= 0 or int(fish.get("price", 0)) <= int(fish.get("faith", 0)):
+		failures.append("shop lookup must return the fixed offering price and reward")
+	shop.free()
 
-	stock.clear()
+
+static func _test_shop_purchase_to_cursor(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
-	main.set("_side_drawer", drawer)
-	main.call("_on_offering_drop_requested", first)
-	main.call("_on_offering_drop_requested", first)
+	main.set("_faith_points", 100.0)
+	main.set("_lifetime_faith", 17.0)
+	var shop := ShopWindow.new()
+	shop.setup()
+	main.set("_shop_window", shop)
+
+	main.call("_on_shop_purchase_requested", "red_fruit")
 	var carried: Dictionary = main.get("_carried_offering")
-	if String(carried.get("stock_id", "")) != String(first.get("stock_id", "")) or not stock.is_empty():
-		failures.append("duplicate selection callbacks must not copy a carried offering back to the altar")
+	if String(carried.get("id", "")) != "red_fruit":
+		failures.append("buying an offering must immediately put that food on the cursor")
+	if int(carried.get("purchase_price", -1)) != 8 or not is_equal_approx(float(main.get("_faith_points")), 92.0):
+		failures.append("buying a cursor offering must charge its exact shop price once")
+	var owned_counts: Dictionary = main.get("_shop_owned_counts")
+	if owned_counts.has("red_fruit"):
+		failures.append("consumable offerings must not enter the durable owned-count inventory")
+
+	main.call("_on_shop_purchase_requested", "fish")
+	if not is_equal_approx(float(main.get("_faith_points")), 92.0):
+		failures.append("the shop must not charge for a second offering while one is already carried")
+	var refused_carried: Dictionary = main.get("_carried_offering")
+	if String(refused_carried.get("id", "")) != "red_fruit":
+		failures.append("a refused second offering must not replace the carried food")
+
 	main.call("_cancel_carried_offering")
-	if stock.size() != SideDrawer.OFFERING_CHOICE_COUNT:
-		failures.append("right-click cancellation must restore a two-item decision")
+	var cancelled_carried: Dictionary = main.get("_carried_offering")
+	if not cancelled_carried.is_empty():
+		failures.append("right-click cancellation must clear the carried offering")
+	if not is_equal_approx(float(main.get("_faith_points")), 100.0):
+		failures.append("cancelling before placement must refund the exact purchase price")
+	if not is_equal_approx(float(main.get("_lifetime_faith")), 17.0):
+		failures.append("an offering refund must not inflate lifetime-generated faith")
+
+	main.set("_shop_window", null)
+	shop.free()
 	main.free()
+
+
+static func _test_removed_altar_api(failures: Array[String]) -> void:
+	var drawer := SideDrawer.new()
+	if drawer.has_signal("offering_drop_requested"):
+		failures.append("the side drawer must not expose the removed altar selection signal")
+	for method_name in [
+		"get_offering_state",
+		"restore_offering_state",
+		"complete_offering_choice",
+		"return_offering",
+		"_generate_offering_choice",
+		"_open_cult_window",
+		"_on_altar_pressed"
+	]:
+		if drawer.has_method(method_name):
+			failures.append("the side drawer must remove old altar method %s" % method_name)
+	drawer.call("_create_toggle_button")
+	var menu_window := drawer.get("_menu_window") as Window
+	if menu_window == null:
+		failures.append("the compact desktop menu handle must still be created")
+	elif menu_window.get_node_or_null("MenuHandleRoot/CultAltar") != null:
+		failures.append("the compact desktop menu handle must not contain an altar node")
 	drawer.free()
-	return failures

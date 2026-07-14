@@ -12,8 +12,8 @@ static func run() -> Array[String]:
 		failures.append("click-through setup must reject a missing window")
 	var main := Main.new()
 	var target_size: Vector2i = main.call("_get_target_pet_window_size", Rect2i(0, 0, 1920, 1080))
-	if target_size.y != 1080:
-		failures.append("the visual pet window must stop exactly above the taskbar")
+	if target_size.y != 1080 + Main.PET_TASKBAR_OVERLAP_PIXELS:
+		failures.append("the visual pet window must include only the configured taskbar art overlap")
 	main.set("_pet_window_size", target_size)
 	if bool(main.call("_is_offering_drop_zone", Vector2(900.0, 300.0))):
 		failures.append("the upper desktop must remain clickable while carrying an offering")
@@ -23,6 +23,6 @@ static func run() -> Array[String]:
 	main.call("_notification", Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
 	var carried_after_focus: Dictionary = main.get("_carried_offering")
 	if carried_after_focus.is_empty():
-		failures.append("switching away from the altar must not discard a carried offering")
+		failures.append("switching away from the shop must not discard a purchased offering")
 	main.free()
 	return failures

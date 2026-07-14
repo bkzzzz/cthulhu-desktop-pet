@@ -5,17 +5,15 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
-	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5"]
+	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6"]
 	var desktop_scales := {}
 	var behavior_styles := {}
 	var minimum_scale := INF
 	var maximum_scale := 0.0
-	var previous_first_evolution := 0
-	var previous_second_evolution := 0
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
-		failures.append("all five pets must be active")
+		failures.append("all six pets must be active")
 	if PetCatalog.INVENTORY_STARTER_PETS != expected_pets:
-		failures.append("all five pets must be available to inventory")
+		failures.append("all six pets must be available to inventory")
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
@@ -32,6 +30,8 @@ static func run() -> Array[String]:
 		var total_special_chance := (
 			float(definition.get("special_chance", 0.0))
 			+ float(definition.get("air_roam_chance", 0.0))
+			+ float(definition.get("doze_chance", 0.0))
+			+ float(definition.get("hide_chance", 0.0))
 			+ float(definition.get("wall_chance", 0.0))
 		)
 		if total_special_chance > 1.0:
@@ -47,6 +47,16 @@ static func run() -> Array[String]:
 			failures.append("%s walk fallback must contain 12 frames" % pet_id)
 		if float(definition.get("base_fps", 0.0)) <= 0.0:
 			failures.append("%s must produce faith" % pet_id)
+		var rarity_stars := int(definition.get("rarity_stars", 0))
+		if rarity_stars < 1 or rarity_stars > 5:
+			failures.append("%s rarity must be represented by one to five stars" % pet_id)
+		if String(definition.get("age", "")).strip_edges().is_empty():
+			failures.append("%s must provide an age description" % pet_id)
+		if String(definition.get("personality", "")).strip_edges().is_empty():
+			failures.append("%s must provide a personality description" % pet_id)
+		for removed_key in ["evolution_thresholds", "evolution_names", "evolution_multipliers"]:
+			if definition.has(removed_key):
+				failures.append("%s must not retain removed progression field %s" % [pet_id, removed_key])
 		var walk_distance_min := float(definition.get("walk_distance_min", 0.0))
 		var walk_distance_max := float(definition.get("walk_distance_max", 0.0))
 		if walk_distance_min <= 0.0 or walk_distance_max <= walk_distance_min:
@@ -56,17 +66,6 @@ static func run() -> Array[String]:
 			failures.append("%s must define a varied personality emotion profile" % pet_id)
 		if emotion_weights.has("hungry"):
 			failures.append("%s personality must not use the removed hunger emotion" % pet_id)
-		var thresholds: Array = definition.get("evolution_thresholds", [])
-		if thresholds.size() != 2 or int(thresholds[0]) <= 0 or int(thresholds[1]) <= int(thresholds[0]):
-			failures.append("%s must define exactly two increasing evolution thresholds" % pet_id)
-		elif int(thresholds[0]) < previous_first_evolution or int(thresholds[1]) < previous_second_evolution:
-			failures.append("later pets must not evolve sooner or more cheaply than earlier pets")
-		else:
-			previous_first_evolution = int(thresholds[0])
-			previous_second_evolution = int(thresholds[1])
-		var evolution_multipliers: Array = definition.get("evolution_multipliers", [])
-		if evolution_multipliers.size() != 3:
-			failures.append("%s must define base, first, and second evolution output multipliers" % pet_id)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
 	if behavior_styles.size() != expected_pets.size():
@@ -78,10 +77,14 @@ static func run() -> Array[String]:
 	for climbing_pet_id in ["pet1", "pet4", "pet5"]:
 		if float(PetCatalog.get_definition(climbing_pet_id).get("wall_chance", 0.0)) <= 0.0:
 			failures.append("%s must occasionally climb a screen edge" % climbing_pet_id)
-	for ground_pet_id in ["pet3"]:
+		if not bool(PetCatalog.get_definition(climbing_pet_id).get("can_wall_crawl", false)):
+			failures.append("%s wall-crawl chance must be backed by explicit permission" % climbing_pet_id)
+	for ground_pet_id in ["pet2", "pet3", "pet6"]:
 		if float(PetCatalog.get_definition(ground_pet_id).get("wall_chance", 0.0)) > 0.0:
 			failures.append("%s must remain a ground-only pet" % ground_pet_id)
-	for ground_pet_id in ["pet1", "pet3", "pet4", "pet5"]:
+		if bool(PetCatalog.get_definition(ground_pet_id).get("can_wall_crawl", false)):
+			failures.append("%s must explicitly forbid wall crawling" % ground_pet_id)
+	for ground_pet_id in ["pet1", "pet3", "pet4", "pet5", "pet6"]:
 		var offset := float(PetCatalog.get_definition(ground_pet_id).get("ground_offset_y", -99.0))
 		if not is_zero_approx(offset):
 			failures.append("%s must use the shared pixel-exact taskbar foot line" % ground_pet_id)
@@ -96,6 +99,15 @@ static func run() -> Array[String]:
 	var pet3_frames := PetCatalog.build_frames("pet3")
 	_check_frame_count(failures, pet3_frames, "burrow", 12)
 	_check_frame_count(failures, pet3_frames, "emerge", 12)
+	var pet6_definition := PetCatalog.get_definition("pet6")
+	if bool(pet6_definition.get("align_frames_to_floor", true)):
+		failures.append("pet6 must preserve its authored foot line instead of aligning its lower hands")
+	if int(pet6_definition.get("frame_foot_y", 0)) != 232:
+		failures.append("pet6 must use its authored y=232 body/foot contact line")
+	var pet6_frames := PetCatalog.build_frames("pet6")
+	var pet6_idle_frame := pet6_frames.get_frame_texture("idle", 0).get_image()
+	if pet6_idle_frame.get_size() != Vector2i(256, 256):
+		failures.append("pet6's 1024x768 sheets must slice into 256x256 frames")
 	return failures
 
 

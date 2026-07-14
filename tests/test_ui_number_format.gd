@@ -7,34 +7,90 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	if SideDrawer.RATE_SUFFIX != "/s":
 		failures.append("all growth rates must use the /s suffix")
-	if SideDrawer.MENU_WINDOW_SIZE.x < 650:
-		failures.append("the menu handle must leave clear space beside the altar")
+	if SideDrawer.MENU_WINDOW_SIZE.x > int(SideDrawer.MENU_ICON_SIZE.x) + 16:
+		failures.append("the menu handle must not reserve the removed altar's desktop space")
+	if SideDrawer.MENU_WINDOW_SIZE.y > int(SideDrawer.MENU_ICON_SIZE.y) + 16:
+		failures.append("the compact menu window must closely fit the visible banner")
 	if SideDrawer.MENU_TO_DRAWER_GAP > 4:
 		failures.append("the menu handle must sit farther right near the drawer edge")
+	var bookmark_stack_height := (SideDrawer.BOOKMARK_SIZE.y * 5.0) + (SideDrawer.BOOKMARK_SEPARATION * 5.0)
+	if SideDrawer.BOOKMARK_CONTAINER_HEIGHT < bookmark_stack_height:
+		failures.append("all five drawer bookmarks must fit inside the clickable bookmark strip")
 	if FileAccess.file_exists("res://scripts/windows_clickthrough_helper.ps1"):
 		failures.append("desktop input must not depend on an asynchronous clickthrough helper")
 	var formatter := SideDrawer.new()
 	_check(failures, formatter.call("_format_number", 1250.0, false, true), "1.25K")
 	_check(failures, formatter.call("_format_number", 18400.0, false, true), "18.4K")
 	_check(failures, formatter.call("_format_number", 125000.0, false, true), "125K")
-	_check(failures, formatter.call("_get_population_progress_text", {
-		"count": 99,
-		"next_evolution_threshold": 100,
-		"is_max_evolution": false
-	}), "99 / 100")
-	_check(failures, formatter.call("_get_population_progress_text", {
-		"count": 100,
-		"next_evolution_threshold": 1000,
-		"is_max_evolution": false
-	}), "100 / 1.00K")
-	_check(failures, formatter.call("_get_population_progress_text", {
-		"count": 1000,
-		"next_evolution_threshold": 0,
-		"is_max_evolution": true
-	}), "1.00K / MAX")
-	_check(failures, formatter.call("_get_upgrade_cost_text", {"cost": 25, "can_evolve": false}), "消耗 25")
-	_check(failures, formatter.call("_get_upgrade_cost_text", {"can_evolve": true}), "点击进化")
-	_check(failures, formatter.call("_get_upgrade_tooltip_text", {"can_evolve": false}), "点击增加种群")
+	_check(failures, formatter.call("_get_upgrade_level_text", {"level": 7}), "Lv.7")
+	_check(failures, formatter.call("_get_upgrade_level_text", {"upgrade_level": 1250}), "Lv.1.25K")
+	_check(failures, formatter.call("_get_upgrade_growth_text", {
+		"current_fps": 1.25,
+		"next_fps": 2.5
+	}), "增速 1.25/s")
+	_check(failures, formatter.call("_get_upgrade_gain_text", {
+		"current_fps": 1.25,
+		"next_fps": 2.5
+	}), "提升增速 +1.25/s")
+	_check(failures, formatter.call("_get_rarity_stars_text", {"rarity_stars": 3}, {}), "★★★")
+	_check(failures, formatter.call("_get_upgrade_cost_text", {"cost": 25}), "消耗 25")
+	_check(failures, formatter.call("_get_upgrade_tooltip_text", {}), "点击升级宠物，提高信仰增速")
+	_check(failures, formatter.call("_get_upgrade_cost_text", {"is_max_level": true}), "已满级")
+	_check(failures, formatter.call("_get_upgrade_tooltip_text", {"is_max_level": true}), "宠物已满级")
+	var compact_layout: Vector2 = formatter.call("_get_bookmark_layout", 400.0)
+	if compact_layout.x + (SideDrawer.BOOKMARK_CONTAINER_HEIGHT * compact_layout.y) > 400.01:
+		failures.append("all five bookmarks must scale inside a short screen")
+
+	if not formatter.has_method("refresh_pet_upgrades") or formatter.has_method("refresh_pet_upgrade_counts"):
+		failures.append("the drawer must expose only the pure pet-upgrade refresh API")
+	if not formatter.has_signal("pet_upgrade_requested"):
+		failures.append("the drawer must expose the pure pet-upgrade signal")
+	if not formatter.has_signal("pet_rename_requested"):
+		failures.append("the editable detail card must expose pet rename requests")
+	if formatter.has_signal("offering_drop_requested") or formatter.has_method("get_offering_state"):
+		failures.append("the side drawer must not retain altar offering inventory APIs")
+
+	var upgrade_requests: Array[String] = []
+	formatter.pet_upgrade_requested.connect(func(pet_id: String) -> void: upgrade_requests.append(pet_id))
+	formatter.call("_on_pet_upgrade_pressed", "pet2", null)
+	if upgrade_requests != ["pet2"]:
+		failures.append("clicking a pet row must request exactly one pet upgrade")
+
+	formatter.set("_drawer_open", true)
+	formatter.call("_on_drawer_close_bookmark_pressed")
+	if bool(formatter.get("_drawer_open")):
+		failures.append("the independent close bookmark must close the drawer")
+
+	formatter.call("_create_drawer_window")
+	var drawer_root := formatter.get("_drawer_root") as Control
+	var bookmark_container := drawer_root.get_node_or_null("DrawerBookmarks") as VBoxContainer
+	var bookmark_names: Array[String] = []
+	if bookmark_container != null:
+		for child in bookmark_container.get_children():
+			if child is TextureButton:
+				bookmark_names.append(String(child.name))
+	if bookmark_names != ["仓库Bookmark", "商店Bookmark", "抽卡Bookmark", "新闻Bookmark", "收起Bookmark"]:
+		failures.append("drawer bookmarks must keep warehouse/shop/gacha/news/close order")
+
+	var detail_name_edit := formatter.get("_upgrade_detail_name_edit") as LineEdit
+	if detail_name_edit == null or detail_name_edit.max_length != 40:
+		failures.append("pet detail names must be editable and capped at 40 characters")
+	else:
+		var rename_requests: Array[String] = []
+		formatter.pet_rename_requested.connect(
+			func(pet_id: String, custom_name: String) -> void:
+				rename_requests.append("%s:%s" % [pet_id, custom_name])
+		)
+		formatter.set("_upgrade_detail_pet_id", "pet2")
+		detail_name_edit.text = "  新名字  "
+		formatter.call("_commit_upgrade_detail_name")
+		if rename_requests != ["pet2:新名字"]:
+			failures.append("committing the detail name must emit one trimmed rename request")
+
+	formatter.call("_create_toggle_button")
+	var menu_window := formatter.get("_menu_window") as Window
+	if menu_window == null or menu_window.get_node_or_null("MenuHandleRoot/CultAltar") != null:
+		failures.append("the desktop menu handle must not create the removed altar")
 	formatter.free()
 	return failures
 

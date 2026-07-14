@@ -3,20 +3,24 @@
 This folder is split by runtime responsibility:
 
 - `main.gd`: desktop scene orchestration, pet/believer spawning, faith economy, offerings, and window clickthrough.
-- `side_drawer_controller.gd`: menu handle, side drawer, adder UI, upgrade rows, altar/offering window, and drawer visual effects.
-- `desktop_pet_actor.gd`: data-driven movement, multi-height flight, wall crawling, hover, recall, petting, and offering travel.
+- `side_drawer_controller.gd`: compact menu handle, side drawer, adder UI, upgrade rows, editable pet details, and drawer visual effects.
+- `desktop_pet_actor.gd`: data-driven walking, sleeping, hiding/ambushing, flight, optional wall crawling, hover, recall, petting, and offering travel.
 - `believer_actor.gd`: believer spawning, movement, fear response, and exit behavior.
-- `pet_catalog.gd`: pet movement ranges, personality emotion weights, evolution milestones, frame building, and icon processing.
+- `pet_catalog.gd`: pet movement ranges, personality emotion weights, frame building, and icon processing.
 - `inventory_window.gd`: pet storage window, rename/deploy UI, and pet detail panel.
-- `shop_window.gd`: shop window, paged goods grid, hover info, and purchase requests.
-- `domain/pet_progression.gd`: pure faith, batch population growth, safe upgrade costs, and two-stage evolution rules.
+- `shop_window.gd`: shop window, paged durable goods and consumable offerings, hover info, and purchase requests.
+- `news_window.gd`: persistent cult-news archive opened from the side-drawer bookmark.
+- `domain/pet_progression.gd`: pure pet-level faith output and safe upgrade-cost rules.
 - `domain/follower_progression.gd`: pure passive follower growth derived from the current faith growth rate.
+- `domain/news_feed.gd`: deterministic absurd, propagation, faith, and pet-event news rules plus save sanitization.
+- `domain/offering_catalog.gd`: trusted shop-offering definitions and carried-item normalization.
 
 Followers grow automatically from faith production and require no separate player management.
-The altar presents one persistent two-item decision: taking either offering spoils
-the other, and the next pair appears after the chosen offering is placed.
+Clicking a pet row in the side drawer buys one level and raises that pet's faith generation; there is no separate population, leader, or evolution layer.
+The news feed uses concrete, numbered public incidents instead of pet names or abstract omens. Faith-rate milestones broadcast immediately; other absurd, propagation, and real pet-action stories wait for the low-frequency idle-news slot, while the newest 80 reports remain available from the news bookmark.
+Offerings are bought with faith in the shop. A purchased offering replaces the mouse cursor until the player left-clicks the lower desktop to drop it for a pet, or right-clicks to cancel and refund the purchase.
 
-The active desktop roster is defined by `pet_catalog.gd`. Character-specific scale and frame-floor values keep different source sheet sizes aligned to the desktop floor.
+The active desktop roster is defined by `pet_catalog.gd`. Character-specific scale and frame-floor values keep different source sheet sizes aligned to the desktop floor; pet6 keeps its authored foot line on the taskbar edge while its lower hand remains visual and click-through.
 
 Run the headless unit tests from the project directory with:
 

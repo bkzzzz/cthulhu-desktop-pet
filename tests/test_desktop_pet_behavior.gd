@@ -10,8 +10,11 @@ static func run() -> Array[String]:
 		failures.append("pet grabbing must begin on the press frame")
 	_test_catalog_movement_tuning(failures)
 	_test_sleep_transition(failures)
+	_test_generic_doze(failures)
+	_test_hide_then_pop(failures)
 	_test_air_roaming(failures)
 	_test_ground_alignment(failures)
+	_test_pet6_taskbar_alignment_and_wall_rule(failures)
 	_test_wall_alignment_and_descent(failures)
 	_test_grab_offset(failures)
 	_test_burrow_reaction(failures)
@@ -82,6 +85,68 @@ static func _test_sleep_transition(failures: Array[String]) -> void:
 	actor.free()
 
 
+static func _test_generic_doze(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet6", Vector2i(1200, 720), 72.0, 1100.0, 600.0)
+	var sprite := actor.get_node("pet6Sprite") as AnimatedSprite2D
+	actor.call("_start_dozing")
+	if int(actor.get("_behavior")) != DesktopPetActor.Behavior.DOZING:
+		failures.append("generic dozing must use a non-walking behavior state")
+	if sprite.animation != "idle" or sprite.speed_scale >= 1.0:
+		failures.append("pets without sleep art must visibly doze through a slowed idle animation")
+	actor.set("_special_time", 0.0)
+	actor.call("_update_pet", 0.01)
+	if int(actor.get("_behavior")) != DesktopPetActor.Behavior.IDLE:
+		failures.append("generic dozing must return to idle after its configured duration")
+	if not is_equal_approx(sprite.speed_scale, 1.0):
+		failures.append("leaving a doze must restore the normal animation speed")
+	actor.free()
+
+
+static func _test_hide_then_pop(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet6", Vector2i(1200, 744), 72.0, 1100.0, 600.0, 720.0)
+	var sprite := actor.get_node("pet6Sprite") as AnimatedSprite2D
+	var actor_rng := actor.get("_rng") as RandomNumberGenerator
+	actor_rng.seed = 424242
+	actor.call("_start_hiding")
+	if int(actor.get("_behavior")) != DesktopPetActor.Behavior.WALK or not bool(actor.get("_hide_pending")):
+		failures.append("hiding must first walk toward the desktop-icon area")
+	actor.position.x = float(actor.get("_target_x"))
+	actor.call("_update_walking", 0.01)
+	if int(actor.get("_behavior")) != DesktopPetActor.Behavior.HIDDEN or sprite.visible:
+		failures.append("a hiding pet must become invisible instead of continuing its walk loop")
+	actor.call("_update_interaction_area")
+	if actor.get_interaction_rect().size != Vector2.ZERO:
+		failures.append("a hidden pet must not leave an invisible input target")
+
+	actor.set("_special_time", 0.0)
+	actor.call("_update_pet", 0.01)
+	if int(actor.get("_behavior")) != DesktopPetActor.Behavior.POPPING or not sprite.visible:
+		failures.append("a hidden pet must become visible when it suddenly pops out")
+	var pop_start: Vector2 = actor.get("_pop_start_position")
+	var pop_target: Vector2 = actor.get("_pop_target_position")
+	if is_equal_approx(pop_start.x, pop_target.x):
+		failures.append("a pop-out must jump away from its hiding place")
+	actor.call("_update_popping", 10.0)
+	if int(actor.get("_behavior")) != DesktopPetActor.Behavior.IDLE:
+		failures.append("a pop-out must land and resume idle behavior")
+	if not actor.position.is_equal_approx(pop_target):
+		failures.append("a pop-out must finish on its selected grounded target")
+
+	actor.call("_start_hidden")
+	actor.walk_to_offering_x(900.0)
+	if not sprite.visible or bool(actor.get("_hide_pending")):
+		failures.append("an offering target must immediately reveal and interrupt a hiding pet")
+	if int(actor.get("_behavior")) != DesktopPetActor.Behavior.WALK or not bool(actor.get("_forced_target_pending")):
+		failures.append("offering travel must take priority over hide/pop behavior")
+	actor.position.x = 900.0
+	actor.walk_to_offering_x(900.0)
+	if bool(actor.get("_forced_target_pending")):
+		failures.append("an already-near offering must clear forced travel after reporting arrival")
+	actor.free()
+
+
 static func _test_ground_alignment(failures: Array[String]) -> void:
 	for pet_id in ["pet1", "pet3", "pet4", "pet5"]:
 		var actor := DesktopPetActor.new()
@@ -104,6 +169,42 @@ static func _test_ground_alignment(failures: Array[String]) -> void:
 		if interaction_rect.end.y > 720.01:
 			failures.append("%s input proxy must not overlap the taskbar" % pet_id)
 		actor.free()
+
+
+static func _test_pet6_taskbar_alignment_and_wall_rule(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet6", Vector2i(1200, 744), 72.0, 1100.0, 600.0, 720.0)
+	var sprite := actor.get_node("pet6Sprite") as AnimatedSprite2D
+	var definition := PetCatalog.get_definition("pet6")
+	var contact_line := actor.position.y + (
+		(float(definition.get("frame_foot_y", 0)) + 1.0 - float(definition.get("frame_center_y", 0.0)))
+		* float(definition.get("desktop_scale", 1.0))
+	)
+	if absf(contact_line - 720.0) > 0.05:
+		failures.append("pet6's authored feet must stand on the usable taskbar boundary")
+
+	var idle_image := sprite.sprite_frames.get_frame_texture("idle", 0).get_image()
+	var idle_bounds := _get_visible_alpha_bounds(idle_image)
+	var local_visible_bottom := float(idle_bounds.end.y) - (float(idle_image.get_height()) * 0.5)
+	var visible_bottom := actor.position.y + (local_visible_bottom * sprite.scale.y)
+	if visible_bottom <= 720.0 or visible_bottom >= 744.0:
+		failures.append("pet6's lower hand may overlap below its foot line without leaving the visual window")
+	actor.call("_update_interaction_area")
+	if actor.get_interaction_rect().end.y > 720.01:
+		failures.append("pet6's taskbar-overlapping hand must remain click-through")
+
+	if bool(actor.get("_can_wall_crawl")):
+		failures.append("pet6's humanoid body must explicitly forbid wall crawling")
+	actor.call("_start_wall_trip")
+	if bool(actor.get("_wall_pending")) or int(actor.get("_behavior")) in [
+		DesktopPetActor.Behavior.WALL_MOUNT,
+		DesktopPetActor.Behavior.WALL_CRAWL_UP,
+		DesktopPetActor.Behavior.WALL_PAUSE,
+		DesktopPetActor.Behavior.WALL_CRAWL_DOWN,
+		DesktopPetActor.Behavior.WALL_LANDING
+	]:
+		failures.append("pet6 must reject wall trips even when requested directly")
+	actor.free()
 
 
 static func _test_air_roaming(failures: Array[String]) -> void:

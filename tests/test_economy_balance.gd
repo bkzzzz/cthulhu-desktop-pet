@@ -20,7 +20,7 @@ static func run() -> Array[String]:
 
 
 static func _check_opening_curve(failures: Array[String]) -> void:
-	var initial_rate := _raw_faith_rate(_make_starting_counts())
+	var initial_rate := _raw_faith_rate(_make_starting_levels())
 	if initial_rate <= 0.0 or initial_rate >= 1.0:
 		failures.append(
 			"initial faith rate must start between 0 and 1/s, got %.6f/s" % initial_rate
@@ -62,13 +62,13 @@ static func _check_campaign_curve(failures: Array[String]) -> void:
 			]
 		)
 	if not bool(campaign.get("completed", false)):
-		failures.append("campaign simulation must bring every pet population to its target")
+		failures.append("campaign simulation must bring every pet level to its target")
 	if int(campaign.get("steps", MAX_SIMULATION_STEPS)) >= MAX_SIMULATION_STEPS:
 		failures.append("campaign economy simulation did not converge")
 
 
 static func _simulate_for_seconds(duration: float) -> Dictionary:
-	var counts := _make_starting_counts()
+	var levels := _make_starting_levels()
 	var faith := 0.0
 	var generated := 0.0
 	var elapsed := 0.0
@@ -78,10 +78,10 @@ static func _simulate_for_seconds(duration: float) -> Dictionary:
 
 	while elapsed < duration and steps < MAX_SIMULATION_STEPS:
 		steps += 1
-		var raw_rate := _raw_faith_rate(counts)
+		var raw_rate := _raw_faith_rate(levels)
 		var multiplier := 1.0 + total_bonus
 		var total_rate := raw_rate * multiplier
-		var action := _best_value_action(counts, draw_count, raw_rate, multiplier, 0.18)
+		var action := _best_value_action(levels, draw_count, raw_rate, multiplier, 0.18)
 		if action.is_empty() or total_rate <= 0.0:
 			break
 
@@ -103,25 +103,25 @@ static func _simulate_for_seconds(duration: float) -> Dictionary:
 			total_bonus += 0.18
 		else:
 			var pet_id := String(action.get("pet_id", ""))
-			counts[pet_id] = int(counts.get(pet_id, 1)) + 1
+			levels[pet_id] = int(levels.get(pet_id, 1)) + 1
 
 	return {"generated": generated, "steps": steps}
 
 
 static func _simulate_campaign(expected_draw_bonus: float) -> Dictionary:
-	var counts := _make_starting_counts()
+	var levels := _make_starting_levels()
 	var faith := 0.0
 	var elapsed_seconds := 0.0
 	var draw_count := 0
 	var steps := 0
 
-	while not _campaign_complete(counts) and steps < MAX_SIMULATION_STEPS:
+	while not _campaign_complete(levels) and steps < MAX_SIMULATION_STEPS:
 		steps += 1
-		var raw_rate := _raw_faith_rate(counts)
+		var raw_rate := _raw_faith_rate(levels)
 		var multiplier := 1.0 + (expected_draw_bonus * float(draw_count))
 		var total_rate := raw_rate * multiplier
 		var action := _best_value_action(
-			counts,
+			levels,
 			draw_count,
 			raw_rate,
 			multiplier,
@@ -139,19 +139,19 @@ static func _simulate_campaign(expected_draw_bonus: float) -> Dictionary:
 			draw_count += 1
 		else:
 			var pet_id := String(action.get("pet_id", ""))
-			counts[pet_id] = int(counts.get(pet_id, 1)) + 1
+			levels[pet_id] = int(levels.get(pet_id, 1)) + 1
 
 	return {
-		"completed": _campaign_complete(counts),
+		"completed": _campaign_complete(levels),
 		"elapsed_hours": elapsed_seconds / 3600.0,
 		"draw_count": draw_count,
-		"counts": counts,
+		"levels": levels,
 		"steps": steps
 	}
 
 
 static func _best_value_action(
-	counts: Dictionary,
+	levels: Dictionary,
 	draw_count: int,
 	raw_rate: float,
 	multiplier: float,
@@ -162,15 +162,15 @@ static func _best_value_action(
 
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
-		var count := int(counts.get(pet_id, 1))
-		if count >= GachaProgression.CAMPAIGN_PET_COUNT_TARGET:
+		var level := int(levels.get(pet_id, 1))
+		if level >= GachaProgression.CAMPAIGN_PET_LEVEL_TARGET:
 			continue
 
 		var pet_data := PetCatalog.get_definition(pet_id)
-		var current_rate := PetProgression.faith_per_second(pet_data, count)
-		var next_rate := PetProgression.faith_per_second(pet_data, count + 1)
+		var current_rate := PetProgression.faith_per_second(pet_data, level)
+		var next_rate := PetProgression.faith_per_second(pet_data, level + 1)
 		var rate_gain := (next_rate - current_rate) * multiplier
-		var cost := PetProgression.upgrade_cost(pet_data, {"count": count})
+		var cost := PetProgression.upgrade_cost(pet_data, {"upgrade_level": level})
 		var payback := float(cost) / maxf(rate_gain, 0.0000001)
 		if payback < best_payback:
 			best_payback = payback
@@ -218,26 +218,26 @@ static func _expected_bonus_per_draw_with_pity() -> float:
 	) / expected_cycle_length
 
 
-static func _make_starting_counts() -> Dictionary:
-	var counts := {}
+static func _make_starting_levels() -> Dictionary:
+	var levels := {}
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
-		counts[String(pet_id_value)] = 1
-	return counts
+		levels[String(pet_id_value)] = 1
+	return levels
 
 
-static func _raw_faith_rate(counts: Dictionary) -> float:
+static func _raw_faith_rate(levels: Dictionary) -> float:
 	var total_rate := 0.0
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		total_rate += PetProgression.faith_per_second(
 			PetCatalog.get_definition(pet_id),
-			int(counts.get(pet_id, 1))
+			int(levels.get(pet_id, 1))
 		)
 	return total_rate
 
 
-static func _campaign_complete(counts: Dictionary) -> bool:
+static func _campaign_complete(levels: Dictionary) -> bool:
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
-		if int(counts.get(String(pet_id_value), 0)) < GachaProgression.CAMPAIGN_PET_COUNT_TARGET:
+		if int(levels.get(String(pet_id_value), 0)) < GachaProgression.CAMPAIGN_PET_LEVEL_TARGET:
 			return false
 	return true

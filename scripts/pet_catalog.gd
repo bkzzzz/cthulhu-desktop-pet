@@ -1,7 +1,7 @@
 extends RefCounted
 
-const ACTIVE_DESKTOP_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5"]
-const INVENTORY_STARTER_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5"]
+const ACTIVE_DESKTOP_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6"]
+const INVENTORY_STARTER_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6"]
 
 const DEFINITIONS := {
 	"pet1": {
@@ -9,6 +9,9 @@ const DEFINITIONS := {
 		"name": "腐生眷族",
 		"species": "异形眷族",
 		"description": "伏地蠕行的腐生眷族，擅长稳定积累信仰。",
+		"rarity_stars": 1,
+		"age": "3岁",
+		"personality": "精力旺盛，听见动静就会飞快换个地方。",
 		"desktop_scale": 0.92,
 		"behavior": "skitterer",
 		"walk_speed": 72.0,
@@ -18,7 +21,14 @@ const DEFINITIONS := {
 		"idle_time_min": 0.35,
 		"idle_time_max": 1.6,
 		"special_chance": 0.0,
+		"doze_chance": 0.10,
+		"hide_chance": 0.15,
+		"doze_time_min": 5.0,
+		"doze_time_max": 11.0,
+		"hide_time_min": 3.0,
+		"hide_time_max": 8.0,
 		"wall_chance": 0.25,
+		"can_wall_crawl": true,
 		"frame_center_y": 64.0,
 		"frame_foot_y": 105,
 		"ground_offset_y": 0.0,
@@ -26,9 +36,6 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 34.0,
 		"emotion_weights": {"happy": 0.34, "suprised": 0.40, "confused": 0.18, "sleepy": 0.08},
 		"petting_emotion_weights": {"happy": 0.38, "suprised": 0.42, "confused": 0.16, "sleepy": 0.04},
-		"evolution_thresholds": [100, 1000],
-		"evolution_names": ["腐芽蜕变", "腐生领主"],
-		"evolution_multipliers": [1.0, 1.55, 2.45],
 		"upgrade_cost_base": 1,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.0025,
@@ -42,6 +49,9 @@ const DEFINITIONS := {
 		"name": "深渊凝视",
 		"species": "深渊眷族",
 		"description": "睁开巨眼的深渊眷族，以凝视汇聚更强的信仰。",
+		"rarity_stars": 2,
+		"age": "8岁",
+		"personality": "困倦而温吞，经常飘到半空后原地睡着。",
 		"desktop_scale": 0.62,
 		"behavior": "sleepy_floater",
 		"walk_speed": 24.0,
@@ -51,7 +61,10 @@ const DEFINITIONS := {
 		"idle_time_min": 0.7,
 		"idle_time_max": 2.2,
 		"special_chance": 0.64,
+		"doze_chance": 0.0,
+		"hide_chance": 0.0,
 		"air_roam_chance": 0.30,
+		"can_wall_crawl": false,
 		"air_roam_legs_min": 2,
 		"air_roam_legs_max": 5,
 		"float_bob_amplitude": 30.0,
@@ -65,9 +78,6 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 22.0,
 		"emotion_weights": {"sleepy": 0.70, "confused": 0.13, "happy": 0.10, "suprised": 0.07},
 		"petting_emotion_weights": {"sleepy": 0.68, "happy": 0.16, "confused": 0.12, "suprised": 0.04},
-		"evolution_thresholds": [200, 2000],
-		"evolution_names": ["深渊梦眼", "永眠凝视者"],
-		"evolution_multipliers": [1.0, 1.60, 2.55],
 		"upgrade_cost_base": 2,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.00875,
@@ -83,6 +93,9 @@ const DEFINITIONS := {
 		"name": "掘地幼兽",
 		"species": "穴居眷族",
 		"description": "喜欢钻入阴影的穴居幼兽，会从地底收集散落的信仰。",
+		"rarity_stars": 2,
+		"age": "5岁",
+		"personality": "好奇又怕生，喜欢钻走再从意想不到的地方冒头。",
 		"desktop_scale": 1.08,
 		"behavior": "burrower",
 		"walk_speed": 46.0,
@@ -92,6 +105,13 @@ const DEFINITIONS := {
 		"idle_time_min": 0.4,
 		"idle_time_max": 1.45,
 		"special_chance": 0.72,
+		"doze_chance": 0.10,
+		"hide_chance": 0.06,
+		"doze_time_min": 6.0,
+		"doze_time_max": 13.0,
+		"hide_time_min": 2.5,
+		"hide_time_max": 6.0,
+		"can_wall_crawl": false,
 		"special_time_min": 1.3,
 		"special_time_max": 3.6,
 		"frame_center_y": 64.0,
@@ -101,9 +121,6 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 32.0,
 		"emotion_weights": {"confused": 0.44, "suprised": 0.28, "happy": 0.20, "sleepy": 0.08},
 		"petting_emotion_weights": {"confused": 0.48, "suprised": 0.27, "happy": 0.20, "sleepy": 0.05},
-		"evolution_thresholds": [500, 5000],
-		"evolution_names": ["掘影兽", "地渊吞噬者"],
-		"evolution_multipliers": [1.0, 1.65, 2.65],
 		"upgrade_cost_base": 11,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.0375,
@@ -118,6 +135,9 @@ const DEFINITIONS := {
 		"name": "星海蠕兽",
 		"species": "星海眷族",
 		"description": "从群星间漂来的柔软眷族，步伐迟缓却能放大低语。",
+		"rarity_stars": 3,
+		"age": "12岁",
+		"personality": "安静且爱观察，能盯着同一个图标看上很久。",
 		"desktop_scale": 0.78,
 		"behavior": "watcher",
 		"walk_speed": 16.0,
@@ -127,7 +147,14 @@ const DEFINITIONS := {
 		"idle_time_min": 5.0,
 		"idle_time_max": 11.0,
 		"special_chance": 0.0,
+		"doze_chance": 0.28,
+		"hide_chance": 0.17,
+		"doze_time_min": 9.0,
+		"doze_time_max": 22.0,
+		"hide_time_min": 5.0,
+		"hide_time_max": 13.0,
 		"wall_chance": 0.35,
+		"can_wall_crawl": true,
 		"frame_center_y": 64.0,
 		"frame_foot_y": 108,
 		"ground_offset_y": 0.0,
@@ -135,9 +162,6 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 46.0,
 		"emotion_weights": {"happy": 0.42, "sleepy": 0.30, "confused": 0.18, "suprised": 0.10},
 		"petting_emotion_weights": {"happy": 0.46, "sleepy": 0.28, "confused": 0.18, "suprised": 0.08},
-		"evolution_thresholds": [1000, 10000],
-		"evolution_names": ["星潮蠕兽", "群星牧者"],
-		"evolution_multipliers": [1.0, 1.70, 2.75],
 		"upgrade_cost_base": 55,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.15,
@@ -151,6 +175,9 @@ const DEFINITIONS := {
 		"name": "月影巨口",
 		"species": "噬梦眷族",
 		"description": "吞食噩梦与月光的古怪生灵，饱餐后会散播浓烈的信仰。",
+		"rarity_stars": 4,
+		"age": "19岁",
+		"personality": "胆大又贪玩，尤其喜欢从屏幕边缘突然出现。",
 		"desktop_scale": 1.25,
 		"behavior": "wall_climber",
 		"walk_speed": 27.0,
@@ -160,7 +187,14 @@ const DEFINITIONS := {
 		"idle_time_min": 1.2,
 		"idle_time_max": 3.8,
 		"special_chance": 0.0,
+		"doze_chance": 0.12,
+		"hide_chance": 0.18,
+		"doze_time_min": 7.0,
+		"doze_time_max": 16.0,
+		"hide_time_min": 4.0,
+		"hide_time_max": 10.0,
 		"wall_chance": 0.55,
+		"can_wall_crawl": true,
 		"special_time_min": 1.0,
 		"special_time_max": 4.0,
 		"frame_center_y": 64.0,
@@ -170,9 +204,6 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 28.0,
 		"emotion_weights": {"suprised": 0.42, "happy": 0.28, "confused": 0.20, "sleepy": 0.10},
 		"petting_emotion_weights": {"suprised": 0.48, "happy": 0.27, "confused": 0.19, "sleepy": 0.06},
-		"evolution_thresholds": [2000, 20000],
-		"evolution_names": ["噬梦巨口", "月蚀吞星者"],
-		"evolution_multipliers": [1.0, 1.75, 2.90],
 		"upgrade_cost_base": 300,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.625,
@@ -180,6 +211,53 @@ const DEFINITIONS := {
 		"icon": "res://assets/NewCharacters/pet5/pet5.png",
 		"idle": "res://assets/NewCharacters/pet5/pet5Idle.png",
 		"walk": "res://assets/NewCharacters/pet5/pet5Walk.png"
+	},
+	"pet6": {
+		"id": "pet6",
+		"name": "深海潜伏者",
+		"species": "人形深海眷族",
+		"description": "习惯蹲在桌面角落的人形眷族，安静时像一件被忘掉的旧外套。",
+		"rarity_stars": 5,
+		"age": "约27岁",
+		"personality": "寡言、嗜睡，最喜欢躲在文件夹附近再突然跳出来。",
+		"desktop_scale": 0.58,
+		"behavior": "lurker",
+		"walk_speed": 23.0,
+		"walk_speed_variance": 4.0,
+		"walk_distance_min": 84.0,
+		"walk_distance_max": 260.0,
+		"idle_time_min": 1.8,
+		"idle_time_max": 6.5,
+		"special_chance": 0.0,
+		"doze_chance": 0.24,
+		"hide_chance": 0.48,
+		"doze_time_min": 8.0,
+		"doze_time_max": 19.0,
+		"hide_time_min": 4.0,
+		"hide_time_max": 12.0,
+		"pop_distance_min": 110.0,
+		"pop_distance_max": 250.0,
+		"pop_height_min": 48.0,
+		"pop_height_max": 86.0,
+		"wall_chance": 0.0,
+		"can_wall_crawl": false,
+		"frame_center_y": 128.0,
+		# The body/feet use y=232 as their authored contact line. The long hand
+		# reaches y=236 and is intentionally allowed to extend below that line.
+		"frame_foot_y": 232,
+		"align_frames_to_floor": false,
+		"ground_offset_y": 0.0,
+		"ambient_emotion_interval_min": 16.0,
+		"ambient_emotion_interval_max": 34.0,
+		"emotion_weights": {"sleepy": 0.38, "confused": 0.30, "suprised": 0.22, "happy": 0.10},
+		"petting_emotion_weights": {"confused": 0.36, "sleepy": 0.30, "suprised": 0.22, "happy": 0.12},
+		"upgrade_cost_base": 75,
+		"upgrade_cost_growth": 1.18,
+		"base_fps": 0.125,
+		"power_growth": 1.035,
+		"icon": "res://assets/NewCharacters/pet6/pet6.png",
+		"idle": "res://assets/NewCharacters/pet6/pet6Idle.png",
+		"walk": "res://assets/NewCharacters/pet6/pet6Walk.png"
 	}
 }
 
@@ -244,11 +322,12 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 
 	var pet_data := get_definition(pet_id)
 	var frame_foot_y := int(pet_data.get("frame_foot_y", 102))
-	_add_sheet_animation(frames, "idle", String(pet_data.get("idle", "")), 4.8, frame_foot_y)
-	_add_sheet_animation(frames, "walk", String(pet_data.get("walk", "")), 9.0, frame_foot_y)
-	_add_sheet_animation(frames, "close_eye", String(pet_data.get("closing_eye", "")), 10.0, frame_foot_y, 4, 4, false)
-	_add_sheet_animation(frames, "sleep", String(pet_data.get("sleep", "")), 3.5, frame_foot_y, 4, 2, true, true)
-	_add_sheet_animation(frames, "burrow", String(pet_data.get("burrow", "")), 9.0, frame_foot_y, 4, 3, false)
+	var align_frames_to_floor := bool(pet_data.get("align_frames_to_floor", true))
+	_add_sheet_animation(frames, "idle", String(pet_data.get("idle", "")), 4.8, frame_foot_y, align_frames_to_floor)
+	_add_sheet_animation(frames, "walk", String(pet_data.get("walk", "")), 9.0, frame_foot_y, align_frames_to_floor)
+	_add_sheet_animation(frames, "close_eye", String(pet_data.get("closing_eye", "")), 10.0, frame_foot_y, align_frames_to_floor, 4, 4, false)
+	_add_sheet_animation(frames, "sleep", String(pet_data.get("sleep", "")), 3.5, frame_foot_y, align_frames_to_floor, 4, 2, true, true)
+	_add_sheet_animation(frames, "burrow", String(pet_data.get("burrow", "")), 9.0, frame_foot_y, align_frames_to_floor, 4, 3, false)
 	_add_reversed_animation(frames, "close_eye", "open_eye")
 	_add_reversed_animation(frames, "burrow", "emerge")
 
@@ -306,6 +385,7 @@ static func _add_sheet_animation(
 	sheet_path: String,
 	speed: float,
 	frame_foot_y: int,
+	align_to_floor := true,
 	columns := SHEET_COLUMNS,
 	rows := SHEET_ROWS,
 	loop := true,
@@ -345,7 +425,8 @@ static func _add_sheet_animation(
 			_apply_chroma_key(frame_image, key_color)
 			if skip_empty_frames and _get_visible_bounds(frame_image).size == Vector2i.ZERO:
 				continue
-			frame_image = _align_frame_to_floor(frame_image, frame_foot_y)
+			if align_to_floor:
+				frame_image = _align_frame_to_floor(frame_image, frame_foot_y)
 			frames.add_frame(animation_name, ImageTexture.create_from_image(frame_image))
 
 

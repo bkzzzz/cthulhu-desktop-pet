@@ -2,6 +2,8 @@ extends Window
 
 signal purchase_requested(good_id: String)
 
+const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
+
 const WINDOW_SIZE := Vector2i(1117, 1034)
 const SHOP_TEXTURE := "res://assets/ui/shop/商店ui.png"
 const SEED1_TEXTURE := "res://assets/ui/shop/goods/seed1.png"
@@ -62,6 +64,10 @@ func open_window() -> void:
 		open_tween.parallel().tween_property(_root, "scale", Vector2.ONE, 0.16)
 
 
+func close_window() -> void:
+	_close_window()
+
+
 func set_faith_points(faith_points: int) -> void:
 	_faith_points = maxi(0, faith_points)
 	_refresh_page()
@@ -103,7 +109,7 @@ func set_purchase_result(good_id: String, success: bool, message: String) -> voi
 
 
 func _make_default_goods() -> Array[Dictionary]:
-	return [
+	var goods: Array[Dictionary] = [
 		{
 			"id": "seed1",
 			"name": "异梦种子",
@@ -112,12 +118,16 @@ func _make_default_goods() -> Array[Dictionary]:
 			"price": 25
 		}
 	]
+	goods.append_array(OfferingCatalog.make_shop_goods())
+	return goods
 
 
 func _normalize_good(good: Dictionary) -> Dictionary:
 	var good_id := String(good.get("id", "")).strip_edges()
 	if good_id.is_empty():
 		return {}
+	if String(good.get("kind", "")) == OfferingCatalog.KIND:
+		return OfferingCatalog.normalize_offering(good)
 
 	var normalized_good := good.duplicate(true)
 	normalized_good["id"] = good_id
@@ -381,13 +391,14 @@ func _refresh_page() -> void:
 		var good := _goods[good_index]
 		var price := int(good.get("price", 0))
 		var affordable := _faith_points >= price
+		var offering := OfferingCatalog.is_offering(good)
 		var owned := int(_owned_counts.get(String(good.get("id", "")), 0))
 		icon.texture = load(String(good.get("texture", ""))) as Texture2D
 		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
 		name_label.text = String(good.get("name", "商品"))
 		price_label.text = "价格 %d 信仰" % price
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
-		owned_label.text = "已拥有 %d" % owned
+		owned_label.text = "购买后随鼠标投放" if offering else "已拥有 %d" % owned
 
 
 func _get_page_count() -> int:
@@ -423,10 +434,16 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 
 	_info_name_label.text = String(good.get("name", "商品"))
 	_info_desc_label.text = String(good.get("description", ""))
-	_info_price_label.text = "价格：%d 信仰    已拥有：%d" % [
-		int(good.get("price", 0)),
-		int(_owned_counts.get(String(good.get("id", "")), 0))
-	]
+	if OfferingCatalog.is_offering(good):
+		_info_price_label.text = "价格：%d 信仰    进食返还：%d 信仰" % [
+			int(good.get("price", 0)),
+			int(good.get("faith", 0))
+		]
+	else:
+		_info_price_label.text = "价格：%d 信仰    已拥有：%d" % [
+			int(good.get("price", 0)),
+			int(_owned_counts.get(String(good.get("id", "")), 0))
+		]
 	_info_panel.position = Vector2(
 		clampf(panel_position.x, 24.0, float(WINDOW_SIZE.x) - _info_panel.size.x - 24.0),
 		clampf(panel_position.y, 24.0, float(WINDOW_SIZE.y) - _info_panel.size.y - 24.0)

@@ -4,6 +4,7 @@ signal petted(actor: Node2D)
 signal recall_requested(actor: Node2D)
 signal forced_target_reached(actor: Node2D)
 signal grabbed_changed(actor: Node2D, grabbed: bool)
+signal notable_action(actor: Node2D, action_id: String)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
@@ -28,6 +29,9 @@ const AIR_ROAM_BOTTOM_CLEARANCE := 72.0
 const AIR_ROAM_LEG_PAUSE_MIN := 0.35
 const AIR_ROAM_LEG_PAUSE_MAX := 1.15
 const INPUT_PROXY_PADDING := 10.0
+const DOZE_ANIMATION_SPEED_SCALE := 0.28
+const POP_DURATION_MIN := 0.48
+const POP_DURATION_MAX := 0.82
 
 enum Behavior {
 	IDLE,
@@ -38,6 +42,9 @@ enum Behavior {
 	SLEEP_CLOSING,
 	SLEEPING,
 	SLEEP_OPENING,
+	DOZING,
+	HIDDEN,
+	POPPING,
 	WALL_MOUNT,
 	WALL_CRAWL_UP,
 	WALL_PAUSE,
@@ -55,6 +62,7 @@ var pet_data: Dictionary = {}
 var display_name := ""
 
 var _window_size := Vector2i(820, 420)
+var _stage_ground_y := 420.0
 var _min_x := 120.0
 var _max_x := 720.0
 var _target_x := 0.0
@@ -63,6 +71,7 @@ var _idle_time := 0.0
 var _special_time := 0.0
 var _forced_target_pending := false
 var _wall_pending := false
+var _hide_pending := false
 var _wall_edge := 0
 var _wall_target_y := 0.0
 var _wall_transition_progress := 0.0
@@ -75,13 +84,24 @@ var _behavior_style := "wanderer"
 var _idle_time_min := 0.9
 var _idle_time_max := 4.6
 var _special_chance := 0.0
+var _doze_chance := 0.0
+var _hide_chance := 0.0
 var _wall_chance := 0.0
+var _can_wall_crawl := false
 var _air_roam_chance := 0.0
 var _air_roam_legs_min := 1
 var _air_roam_legs_max := 1
 var _air_roam_legs_remaining := 0
 var _special_time_min := 1.0
 var _special_time_max := 3.0
+var _doze_time_min := 5.0
+var _doze_time_max := 12.0
+var _hide_time_min := 3.0
+var _hide_time_max := 8.0
+var _pop_distance_min := 90.0
+var _pop_distance_max := 220.0
+var _pop_height_min := 40.0
+var _pop_height_max := 80.0
 var _pet_scale := DEFAULT_PET_SCALE
 var _frame_center_y := 64.0
 var _frame_foot_y := 102.0
@@ -95,6 +115,12 @@ var _air_path_target := Vector2.ZERO
 var _air_path_progress := 0.0
 var _air_path_duration := 1.0
 var _sleep_anchor_position := Vector2.ZERO
+var _doze_anchor_position := Vector2.ZERO
+var _pop_start_position := Vector2.ZERO
+var _pop_target_position := Vector2.ZERO
+var _pop_progress := 0.0
+var _pop_duration := 0.65
+var _pop_height := 56.0
 var _idle_turn_time := 0.0
 var _fall_velocity := 0.0
 var _behavior := Behavior.IDLE
@@ -124,11 +150,19 @@ func _ready() -> void:
 	_update_interaction_area()
 
 
-func setup(new_pet_id: String, window_size: Vector2i, min_x: float, max_x: float, start_x: float) -> void:
+func setup(
+	new_pet_id: String,
+	window_size: Vector2i,
+	min_x: float,
+	max_x: float,
+	start_x: float,
+	ground_contact_y := -1.0
+) -> void:
 	pet_id = new_pet_id
 	pet_data = PetCatalog.get_definition(pet_id)
 	display_name = String(pet_data.get("name", pet_id))
 	_window_size = window_size
+	_stage_ground_y = _resolve_stage_ground_y(float(ground_contact_y))
 	_pet_scale = float(pet_data.get("desktop_scale", DEFAULT_PET_SCALE))
 	_frame_center_y = float(pet_data.get("frame_center_y", 64.0))
 	_frame_foot_y = float(pet_data.get("frame_foot_y", 102.0))
@@ -141,12 +175,25 @@ func setup(new_pet_id: String, window_size: Vector2i, min_x: float, max_x: float
 	_idle_time_min = float(pet_data.get("idle_time_min", 0.9))
 	_idle_time_max = maxf(_idle_time_min, float(pet_data.get("idle_time_max", 4.6)))
 	_special_chance = clampf(float(pet_data.get("special_chance", 0.0)), 0.0, 1.0)
+	_doze_chance = clampf(float(pet_data.get("doze_chance", 0.0)), 0.0, 1.0)
+	_hide_chance = clampf(float(pet_data.get("hide_chance", 0.0)), 0.0, 1.0)
 	_wall_chance = clampf(float(pet_data.get("wall_chance", 0.0)), 0.0, 1.0)
+	_can_wall_crawl = bool(pet_data.get("can_wall_crawl", _wall_chance > 0.0))
+	if not _can_wall_crawl:
+		_wall_chance = 0.0
 	_air_roam_chance = clampf(float(pet_data.get("air_roam_chance", 0.0)), 0.0, 1.0)
 	_air_roam_legs_min = maxi(1, int(pet_data.get("air_roam_legs_min", 1)))
 	_air_roam_legs_max = maxi(_air_roam_legs_min, int(pet_data.get("air_roam_legs_max", _air_roam_legs_min)))
 	_special_time_min = float(pet_data.get("special_time_min", 1.0))
 	_special_time_max = maxf(_special_time_min, float(pet_data.get("special_time_max", 3.0)))
+	_doze_time_min = maxf(0.5, float(pet_data.get("doze_time_min", 5.0)))
+	_doze_time_max = maxf(_doze_time_min, float(pet_data.get("doze_time_max", 12.0)))
+	_hide_time_min = maxf(0.5, float(pet_data.get("hide_time_min", 3.0)))
+	_hide_time_max = maxf(_hide_time_min, float(pet_data.get("hide_time_max", 8.0)))
+	_pop_distance_min = maxf(20.0, float(pet_data.get("pop_distance_min", 90.0)))
+	_pop_distance_max = maxf(_pop_distance_min, float(pet_data.get("pop_distance_max", 220.0)))
+	_pop_height_min = maxf(10.0, float(pet_data.get("pop_height_min", 40.0)))
+	_pop_height_max = maxf(_pop_height_min, float(pet_data.get("pop_height_max", 80.0)))
 	var configured_speed := float(pet_data.get("walk_speed", PET_WALK_SPEED))
 	var speed_variance := float(pet_data.get("walk_speed_variance", PET_SPEED_VARIANCE))
 	_base_walk_speed = maxf(1.0, configured_speed + _rng.randf_range(-speed_variance, speed_variance))
@@ -176,11 +223,29 @@ func set_display_name(new_display_name: String) -> void:
 	_refresh_hover_hint_text()
 
 
-func set_window_bounds(window_size: Vector2i, min_x: float, max_x: float) -> void:
+func set_window_bounds(
+	window_size: Vector2i,
+	min_x: float,
+	max_x: float,
+	ground_contact_y := -1.0
+) -> void:
+	var previous_stage_ground_y := _stage_ground_y
 	_window_size = window_size
+	_stage_ground_y = _resolve_stage_ground_y(float(ground_contact_y))
+	var ground_shift := _stage_ground_y - previous_stage_ground_y
+	if not is_zero_approx(ground_shift):
+		position.y += ground_shift
+		_float_anchor_y += ground_shift
+		_sleep_anchor_position.y += ground_shift
+		_doze_anchor_position.y += ground_shift
+		_pop_start_position.y += ground_shift
+		_pop_target_position.y += ground_shift
+		_air_path_start.y += ground_shift
+		_air_path_target.y += ground_shift
 	_set_safe_bounds(min_x, max_x)
 	position.x = clampf(position.x, _get_drag_min_x(), _get_drag_max_x())
 	_target_x = clampf(_target_x, _min_x, _max_x)
+	_pop_target_position.x = clampf(_pop_target_position.x, _min_x, _max_x)
 	if _behavior_style == "sleepy_floater":
 		var air_y_bounds := _get_air_roam_y_bounds()
 		_float_anchor_y = clampf(_float_anchor_y, air_y_bounds.x, _get_rest_y())
@@ -194,6 +259,7 @@ func walk_to_offering_x(target_x: float) -> void:
 	_walk_speed = PET_OFFERING_WALK_SPEED
 	if absf(_target_x - position.x) < 4.0:
 		_walk_speed = _base_walk_speed
+		_forced_target_pending = false
 		_start_idle()
 		forced_target_reached.emit(self)
 		return
@@ -234,24 +300,34 @@ func _react_to_emotion(emotion: String) -> void:
 		return
 	if _forced_target_pending:
 		return
+	if _behavior in [Behavior.HIDDEN, Behavior.POPPING]:
+		return
 
 	match _behavior_style:
 		"sleepy_floater":
 			if emotion == "sleepy" and _behavior not in [Behavior.SLEEP_CLOSING, Behavior.SLEEPING, Behavior.SLEEP_OPENING]:
 				_cancel_special_behavior()
 				_start_sleeping()
+				return
 		"burrower":
 			if emotion == "confused" and _behavior not in [Behavior.BURROW_DOWN, Behavior.UNDERGROUND, Behavior.BURROW_UP]:
 				_cancel_special_behavior()
 				_start_burrowing()
+				return
 		"skitterer":
 			if emotion == "suprised":
 				_cancel_special_behavior()
 				_choose_walk_target()
+				return
 		"wall_climber":
-			if emotion == "suprised" and _behavior not in [Behavior.WALL_MOUNT, Behavior.WALL_CRAWL_UP, Behavior.WALL_PAUSE, Behavior.WALL_CRAWL_DOWN, Behavior.WALL_LANDING]:
+			if _can_wall_crawl and emotion == "suprised" and _behavior not in [Behavior.WALL_MOUNT, Behavior.WALL_CRAWL_UP, Behavior.WALL_PAUSE, Behavior.WALL_CRAWL_DOWN, Behavior.WALL_LANDING]:
 				_cancel_special_behavior()
 				_start_wall_trip()
+				return
+
+	if emotion == "sleepy" and _doze_chance > 0.0 and _behavior != Behavior.DOZING:
+		_cancel_special_behavior()
+		_start_dozing()
 
 
 func _input(event: InputEvent) -> void:
@@ -276,7 +352,7 @@ func _process(delta: float) -> void:
 
 
 func get_interaction_rect() -> Rect2:
-	if _behavior == Behavior.UNDERGROUND:
+	if _behavior in [Behavior.UNDERGROUND, Behavior.HIDDEN]:
 		return Rect2(position, Vector2.ZERO)
 	return _interaction_rect
 
@@ -468,6 +544,14 @@ func _update_pet(delta: float) -> void:
 			_apply_grounded_position(false)
 		Behavior.SLEEP_CLOSING, Behavior.SLEEP_OPENING:
 			_apply_sleep_pose()
+		Behavior.DOZING:
+			_update_dozing(delta)
+		Behavior.HIDDEN:
+			_special_time -= delta
+			if _special_time <= 0.0:
+				_start_popping()
+		Behavior.POPPING:
+			_update_popping(delta)
 		Behavior.WALL_MOUNT:
 			_update_wall_mount(delta)
 		Behavior.WALL_CRAWL_UP:
@@ -497,6 +581,9 @@ func _update_walking(delta: float) -> void:
 	var distance := _target_x - position.x
 	if absf(distance) <= step:
 		position.x = _target_x
+		if _hide_pending:
+			_start_hidden()
+			return
 		if _wall_pending:
 			_start_wall_mount()
 			return
@@ -535,17 +622,32 @@ func _update_idle(delta: float) -> void:
 
 func _choose_next_action() -> void:
 	var special_roll := _rng.randf()
-	if _behavior_style == "burrower" and special_roll < _special_chance:
-		_start_burrowing()
+	var action_threshold := 0.0
+	if _behavior_style == "burrower":
+		action_threshold += _special_chance
+		if special_roll < action_threshold:
+			_start_burrowing()
+			return
+	elif _behavior_style == "sleepy_floater":
+		action_threshold += _special_chance
+		if special_roll < action_threshold:
+			_start_sleeping()
+			return
+		action_threshold += _air_roam_chance
+		if special_roll < action_threshold:
+			_start_air_roam()
+			return
+
+	action_threshold += _doze_chance
+	if special_roll < action_threshold:
+		_start_dozing()
 		return
-	if _behavior_style == "sleepy_floater" and special_roll < _special_chance:
-		_start_sleeping()
+	action_threshold += _hide_chance
+	if special_roll < action_threshold:
+		_start_hiding()
 		return
-	if _behavior_style == "sleepy_floater" and special_roll < _special_chance + _air_roam_chance:
-		_start_air_roam()
-		return
-	var wall_threshold := _special_chance + _air_roam_chance + _wall_chance
-	if special_roll < wall_threshold:
+	action_threshold += _wall_chance if _can_wall_crawl else 0.0
+	if special_roll < action_threshold:
 		_start_wall_trip()
 		return
 	_choose_walk_target()
@@ -580,11 +682,13 @@ func _begin_walk_to_selected_target() -> void:
 
 func _start_idle() -> void:
 	_behavior = Behavior.IDLE
+	_hide_pending = false
 	_idle_anchor_x = clampf(position.x, _min_x, _max_x)
 	position.x = _idle_anchor_x
 	_idle_time = _rng.randf_range(_idle_time_min, _idle_time_max)
 	_idle_turn_time = _rng.randf_range(1.4, 3.4)
 	_sprite.rotation = 0.0
+	_sprite.speed_scale = 1.0
 	_sprite.visible = true
 	_sprite.play("idle")
 	_set_interaction_enabled(true)
@@ -593,6 +697,7 @@ func _start_idle() -> void:
 func _start_burrowing() -> void:
 	_behavior = Behavior.BURROW_DOWN
 	_sprite.play("burrow")
+	notable_action.emit(self, "burrow")
 
 
 func _start_emerging() -> void:
@@ -609,10 +714,88 @@ func _start_sleeping() -> void:
 		_float_anchor_y = position.y
 	_behavior = Behavior.SLEEP_CLOSING
 	_sprite.play("close_eye")
+	notable_action.emit(self, "sleep")
+
+
+func _start_dozing() -> void:
+	_doze_anchor_position = position
+	_behavior = Behavior.DOZING
+	_special_time = _rng.randf_range(_doze_time_min, _doze_time_max)
+	_sprite.rotation = 0.0
+	_sprite.speed_scale = DOZE_ANIMATION_SPEED_SCALE
+	_sprite.play("idle")
+	notable_action.emit(self, "sleep")
+
+
+func _update_dozing(delta: float) -> void:
+	position = _doze_anchor_position + Vector2(0.0, sin(_float_phase * 0.55) * 1.2)
+	_sprite.rotation = sin(_float_phase * 0.36) * 0.018
+	_special_time -= delta
+	if _special_time <= 0.0:
+		_start_idle()
+
+
+func _start_hiding() -> void:
+	_hide_pending = true
+	_wall_pending = false
+	_forced_target_pending = false
+	_target_x = clampf(_min_x + _rng.randf_range(0.0, minf(42.0, (_max_x - _min_x) * 0.08)), _min_x, _max_x)
+	_walk_speed = _base_walk_speed
+	_sprite.rotation = 0.0
+	_sprite.speed_scale = 1.0
+	if absf(_target_x - position.x) < 4.0:
+		_start_hidden()
+		return
+	_behavior = Behavior.WALK
+	_face_direction(_target_x - position.x)
+	_sprite.play("walk")
+
+
+func _start_hidden() -> void:
+	_hide_pending = false
+	_behavior = Behavior.HIDDEN
+	_special_time = _rng.randf_range(_hide_time_min, _hide_time_max)
+	position.y = _get_rest_y()
+	_sprite.visible = false
+	_set_interaction_enabled(false)
+	notable_action.emit(self, "hide")
+
+
+func _start_popping() -> void:
+	_behavior = Behavior.POPPING
+	_pop_progress = 0.0
+	_pop_duration = _rng.randf_range(POP_DURATION_MIN, POP_DURATION_MAX)
+	_pop_height = _rng.randf_range(_pop_height_min, _pop_height_max)
+	_pop_start_position = Vector2(clampf(position.x, _min_x, _max_x), _get_rest_y())
+	var pop_distance := _rng.randf_range(_pop_distance_min, _pop_distance_max)
+	var direction := 1.0 if _pop_start_position.x <= (_min_x + _max_x) * 0.5 else -1.0
+	var target_x := clampf(_pop_start_position.x + (pop_distance * direction), _min_x, _max_x)
+	if absf(target_x - _pop_start_position.x) < minf(40.0, (_max_x - _min_x) * 0.25):
+		target_x = clampf(_pop_start_position.x - (pop_distance * direction), _min_x, _max_x)
+	_pop_target_position = Vector2(target_x, _get_rest_y())
+	position = _pop_start_position
+	_sprite.rotation = 0.0
+	_sprite.speed_scale = 1.0
+	_sprite.visible = true
+	_set_interaction_enabled(true)
+	_face_direction(_pop_target_position.x - position.x)
+	_sprite.play("walk")
+	notable_action.emit(self, "ambush")
+
+
+func _update_popping(delta: float) -> void:
+	_pop_progress = minf(1.0, _pop_progress + (delta / maxf(0.01, _pop_duration)))
+	var eased_progress := smoothstep(0.0, 1.0, _pop_progress)
+	position = _pop_start_position.lerp(_pop_target_position, eased_progress)
+	position.y -= sin(_pop_progress * PI) * _pop_height
+	if _pop_progress >= 1.0:
+		position = _pop_target_position
+		_start_idle()
 
 
 func _start_air_roam() -> void:
 	_air_roam_legs_remaining = _rng.randi_range(_air_roam_legs_min, _air_roam_legs_max)
+	notable_action.emit(self, "air_roam")
 	_start_next_air_roam_leg()
 
 
@@ -701,6 +884,10 @@ func _apply_air_pause_motion() -> void:
 
 
 func _start_wall_trip() -> void:
+	if not _can_wall_crawl:
+		_wall_pending = false
+		_choose_walk_target()
+		return
 	_wall_edge = -1 if _rng.randf() < 0.5 else 1
 	_wall_pending = true
 	_behavior = Behavior.WALK
@@ -712,6 +899,10 @@ func _start_wall_trip() -> void:
 
 
 func _start_wall_mount() -> void:
+	if not _can_wall_crawl:
+		_wall_pending = false
+		_start_idle()
+		return
 	_wall_pending = false
 	_behavior = Behavior.WALL_MOUNT
 	_wall_transition_progress = 0.0
@@ -737,12 +928,17 @@ func _update_wall_mount(delta: float) -> void:
 
 
 func _start_wall_crawl() -> void:
+	if not _can_wall_crawl:
+		_wall_pending = false
+		_start_idle()
+		return
 	_wall_pending = false
 	_behavior = Behavior.WALL_CRAWL_UP
 	position.x = _get_wall_x()
 	_wall_target_y = _rng.randf_range(105.0, maxf(125.0, _get_rest_y() - 170.0))
 	_apply_wall_orientation(true)
 	_sprite.play("walk")
+	notable_action.emit(self, "wall_crawl")
 
 
 func _start_wall_descent() -> void:
@@ -856,13 +1052,18 @@ func _on_animation_finished() -> void:
 
 
 func _cancel_special_behavior() -> void:
+	var restore_ground := _hide_pending or _behavior in [Behavior.DOZING, Behavior.HIDDEN, Behavior.POPPING]
 	_wall_pending = false
+	_hide_pending = false
 	_air_roam_legs_remaining = 0
 	_forced_target_pending = false
 	_sprite.rotation = 0.0
+	_sprite.speed_scale = 1.0
 	_sprite.visible = true
 	_set_interaction_enabled(true)
 	position.x = clampf(position.x, _min_x, _max_x)
+	if restore_ground:
+		position.y = _get_rest_y()
 	if _behavior_style == "sleepy_floater":
 		_float_anchor_y = position.y
 
@@ -1005,7 +1206,7 @@ func _get_wall_approach_x() -> float:
 
 func _update_interaction_area() -> void:
 	_interaction_rect = _get_sprite_input_rect().intersection(
-		Rect2(Vector2.ZERO, Vector2(_window_size))
+		Rect2(Vector2.ZERO, Vector2(float(_window_size.x), clampf(_stage_ground_y, 0.0, float(_window_size.y))))
 	)
 	if _input_window == null or _visual_window == null:
 		return
@@ -1092,7 +1293,7 @@ func _set_interaction_enabled(enabled: bool) -> void:
 func _update_hover_hint(delta: float) -> void:
 	if _hover_hint == null:
 		return
-	if not _hovering or _behavior == Behavior.GRABBED or _behavior == Behavior.UNDERGROUND:
+	if not _hovering or _behavior == Behavior.GRABBED or _behavior in [Behavior.UNDERGROUND, Behavior.HIDDEN] or not _sprite.visible:
 		_hover_hint.visible = false
 		return
 	_hover_time += delta
@@ -1108,7 +1309,13 @@ func _get_rest_y() -> float:
 
 
 func _get_ground_contact_y() -> float:
-	return float(_window_size.y) + _ground_offset_y
+	return _stage_ground_y + _ground_offset_y
+
+
+func _resolve_stage_ground_y(configured_ground_y: float) -> float:
+	if configured_ground_y < 0.0:
+		return float(_window_size.y)
+	return clampf(configured_ground_y, 0.0, float(_window_size.y))
 
 
 func _on_gui_input(event: InputEvent) -> void:

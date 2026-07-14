@@ -3,12 +3,11 @@ extends Node
 signal inventory_requested
 signal shop_requested
 signal gacha_requested
+signal news_requested
 signal quit_requested
-signal pet_count_upgrade_requested(pet_id: String)
-signal pet_evolution_requested(pet_id: String)
+signal pet_upgrade_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
 signal faith_add_requested(amount: int)
-signal offering_drop_requested(offering: Dictionary)
 
 # Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
@@ -22,7 +21,7 @@ const DRAWER_CONTENT_MARGIN_X := 34
 const DRAWER_CONTENT_WIDTH := DRAWER_PANEL_WIDTH - (DRAWER_CONTENT_MARGIN_X * 2)
 const DRAWER_SLIDE_SPEED := 1800.0
 const DRAWER_CONTENT_TOP_MARGIN := 24
-const MENU_WINDOW_SIZE := Vector2i(650, 220)
+const MENU_WINDOW_SIZE := Vector2i(228, 150)
 const MENU_TO_DRAWER_GAP := 2
 const RATE_SUFFIX := "/s"
 const POSITION_RETRY_FRAMES := 90
@@ -30,21 +29,17 @@ const POSITION_RETRY_FRAMES := 90
 # UI assets
 const QUIT_BUTTON_TEXTURE := "res://assets/ui/testElements/Quit.png"
 const MENU_ICON_TEXTURE := "res://assets/ui/newElements/菜单栏呼出.png"
-const ALTAR_TEXTURE := "res://assets/ui/newElements/祭坛.png"
 const DRAWER_BACKGROUND_TEXTURE := "res://assets/ui/newElements/菜单栏2.png"
 const DRAWER_BACKGROUND_BOTTOM_CROP := 570.0
 const ADDER_TEXTURE := "res://assets/ui/newElements/adder.png"
 const GLOW_TEXTURE := "res://assets/ui/newElements/glow.png"
 const UPGRADE_EFFECT_TEXTURE := "res://assets/ui/newElements/upgradeEffect.png"
-const ALTAR_NOTICE_TEXTURE := "res://assets/ui/newElements/感叹号.png"
 const UPGRADE_TEXTURE := "res://assets/ui/testElements/upgrade.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
 const UI_FONT := "res://assets/ui/font/NormalFont.ttf"
 
 # Core UI sizing
 const MENU_ICON_SIZE := Vector2(218.0, 140.0)
-const ALTAR_SIZE := Vector2(320.0, 160.0)
-const CULT_WINDOW_SIZE := Vector2i(460, 560)
 const ADDER_STAGE_HEIGHT := 392.0
 const ADDER_SIZE := Vector2(244.0, 296.0)
 const GLOW_SIZE := Vector2(230.0, 210.0)
@@ -60,25 +55,7 @@ const UPGRADE_SCROLL_TOP_PADDING := 44
 const UPGRADE_SCROLL_BOTTOM_PADDING := 24
 const UPGRADE_SCROLL_MIN_HEIGHT := 320.0
 const UPGRADE_SCROLL_MAX_HEIGHT := 760.0
-const OFFERING_CHOICE_COUNT := 2
-const OFFERING_GRID_COLUMNS := 2
-const OFFERING_SLOT_SIZE := Vector2(196.0, 116.0)
-const OFFERING_ICON_SIZE := Vector2(60.0, 60.0)
-const OFFERING_GAIN_SECONDS := 20.0
-
-# Offering and particle data
-const OFFERING_ITEMS := [
-	{"id": "red_fruit", "name": "红果", "texture": "res://assets/ui/foods/红果.png", "faith_min": 2, "faith_max": 4},
-	{"id": "waffle", "name": "华夫饼", "texture": "res://assets/ui/foods/华夫饼.png", "faith_min": 3, "faith_max": 6},
-	{"id": "chicken", "name": "鸡肉", "texture": "res://assets/ui/foods/鸡肉.png", "faith_min": 4, "faith_max": 8},
-	{"id": "braised_intestine", "name": "九转大肠", "texture": "res://assets/ui/foods/九转大肠.png", "faith_min": 6, "faith_max": 11},
-	{"id": "rice_paste", "name": "米糊", "texture": "res://assets/ui/foods/米糊.png", "faith_min": 2, "faith_max": 5},
-	{"id": "thick_soup", "name": "浓汤", "texture": "res://assets/ui/foods/浓汤.png", "faith_min": 5, "faith_max": 9},
-	{"id": "cheese", "name": "起司", "texture": "res://assets/ui/foods/起司.png", "faith_min": 3, "faith_max": 7},
-	{"id": "blood_cup", "name": "血杯", "texture": "res://assets/ui/foods/血杯.png", "faith_min": 8, "faith_max": 14},
-	{"id": "eyeball_soup", "name": "眼球汤", "texture": "res://assets/ui/foods/眼球汤.png", "faith_min": 10, "faith_max": 16},
-	{"id": "fish", "name": "鱼", "texture": "res://assets/ui/foods/鱼.png", "faith_min": 5, "faith_max": 10}
-]
+# Particle data
 const SYMBOL_EFFECT_TEXTURES := [
 	"res://assets/ui/newElements/符号特效1.png",
 	"res://assets/ui/newElements/符号特效2.png",
@@ -94,16 +71,17 @@ const DRAWER_SYMBOL_SIZE := Vector2(28.0, 40.0)
 const DRAWER_SYMBOL_SPEED_MIN := 18.0
 const DRAWER_SYMBOL_SPEED_MAX := 42.0
 const UPGRADE_EFFECT_SIZE := Vector2(150.0, 142.0)
-const ALTAR_NOTICE_SIZE := Vector2(54.0, 54.0)
 const UPGRADE_DETAIL_HOVER_DELAY := 0.45
 const UPGRADE_DETAIL_HIDE_GRACE := 0.22
-const UPGRADE_DETAIL_SIZE := Vector2i(396, 306)
+const UPGRADE_DETAIL_SIZE := Vector2i(396, 236)
 const UPGRADE_DETAIL_GAP := 14
 const UPGRADE_DETAIL_SCREEN_MARGIN := 24
 const UPGRADE_DETAIL_SAFE_PADDING := 18.0
 const BOOKMARK_SIZE := Vector2(258.0, 82.0)
 const BOOKMARK_CONTAINER_TOP := 106.0
-const BOOKMARK_CONTAINER_HEIGHT := 376.0
+const BOOKMARK_SEPARATION := 12
+const BOOKMARK_CONTAINER_HEIGHT := 470.0
+const BOOKMARK_SCREEN_MARGIN := 8.0
 const BOOKMARK_SAFE_INSET_X := 8.0
 const BOOKMARK_LABEL_POSITION := Vector2(84.0, 0.0)
 const BOOKMARK_LABEL_SIZE := Vector2(124.0, 82.0)
@@ -112,18 +90,9 @@ const BOOKMARK_LABEL_SIZE := Vector2(124.0, 82.0)
 var _menu_window: Window
 var _menu_button: TextureButton
 var _menu_hint: Label
-var _altar_button: TextureButton
-var _altar_hint: Label
-var _altar_notice: TextureRect
-var _altar_notice_tween: Tween
-var _altar_notice_base_position := Vector2.ZERO
-var _altar_notice_jitter_timer := 0.0
-var _cult_window: Window
-var _cult_window_name_edit: LineEdit
-var _cult_faith_label: Label
-var _cult_growth_label: Label
 var _drawer_window: Window
 var _drawer_root: Control
+var _bookmark_container: VBoxContainer
 var _drawer_background: TextureRect
 var _drawer_panel: PanelContainer
 var _drawer_symbol_layer: Control
@@ -131,8 +100,8 @@ var _drawer_symbols: Array[TextureRect] = []
 var _upgrade_detail_panel: PanelContainer
 var _upgrade_detail_window: Window
 var _upgrade_detail_name_edit: LineEdit
-var _upgrade_detail_level_label: Label
-var _upgrade_detail_desc_label: Label
+var _upgrade_detail_rarity_label: Label
+var _upgrade_detail_profile_label: Label
 var _upgrade_detail_stats_label: RichTextLabel
 var _hovered_upgrade_pet_id := ""
 var _hovered_upgrade_button: Control
@@ -142,6 +111,7 @@ var _upgrade_detail_panel_hovered := false
 var _upgrade_detail_pet_id := ""
 var _upgrade_detail_source_button: Control
 var _updating_upgrade_detail_name := false
+var _upgrade_detail_last_committed_name := ""
 var _adder_glow: Sprite2D
 var _adder_button: TextureButton
 var _upgrade_scroller: ScrollContainer
@@ -152,11 +122,11 @@ var _drawer_screen_position := Vector2i.ZERO
 var _drawer_screen_size := Vector2i(DRAWER_WIDTH, 720)
 var _position_retry_frames := 0
 
-# Faith, upgrades, and offerings state
+# Faith and upgrade state
 var _faith_value_label: Label
 var _faith_title_label: Label
 var _faith_growth_value_label: Label
-var _cult_name := "无名教派"
+var _follower_summary_label: Label
 var _faith_count := 0.0
 var _follower_count := 0
 var _faith_growth_rate := 0.0
@@ -164,32 +134,21 @@ var _follower_growth_rate := 0.0
 var _upgrade_entries := []
 var _upgrade_buttons := {}
 var _upgrade_name_labels := {}
-var _upgrade_count_labels := {}
+var _upgrade_level_labels := {}
 var _upgrade_cost_labels := {}
 var _upgrade_bonus_labels := {}
-var _upgrade_next_growth_bonuses := {}
-var _upgrade_total_growth_bonuses := {}
-var _upgrade_bonus_hovered := {}
-var _upgrade_last_counts := {}
+var _upgrade_last_levels := {}
 var _upgrade_affordables := {}
-var _upgrade_actions := {}
 var _ui_theme: Theme
 var _ui_font: Font
 var _upgrade_row_texture: Texture2D
 var _menu_hit_images := {}
-var _offering_grid: Control
-var _offering_status_label: Label
-var _offering_entries: Array[Dictionary] = []
-var _next_offering_stock_id := 1
 var _rng := RandomNumberGenerator.new()
 
 
 # Lifecycle
 func setup() -> void:
 	_rng.randomize()
-	_offering_entries.clear()
-	_next_offering_stock_id = 1
-	_generate_offering_choice()
 	_create_toggle_button()
 	_create_drawer_window()
 	_position_retry_frames = POSITION_RETRY_FRAMES
@@ -208,7 +167,6 @@ func _process(delta: float) -> void:
 	_update_drawer_background_symbols(delta)
 	if _adder_glow != null:
 		_adder_glow.rotation += GLOW_ROTATION_SPEED * delta
-	_update_altar_notice(delta)
 
 
 # Public refresh API
@@ -232,26 +190,24 @@ func refresh_faith(faith_count: float, growth_rate: float) -> void:
 			if needs_refit:
 				_fit_font_to_text(_faith_growth_value_label, _faith_growth_value_label.text, 22, 14, 10)
 
-func refresh_pet_upgrade_counts(entries: Array) -> void:
+func refresh_pet_upgrades(entries: Array) -> void:
 	var next_entries := []
 	for entry_value in entries:
 		var entry: Dictionary = entry_value
 		next_entries.append(entry.duplicate(true))
 		var pet_id := String(entry.get("id", ""))
-		var count_label := _upgrade_count_labels.get(pet_id) as Label
+		var level_label := _upgrade_level_labels.get(pet_id) as Label
 		var name_label := _upgrade_name_labels.get(pet_id) as Label
-		var count := int(entry.get("count", 1))
-		var can_evolve := bool(entry.get("can_evolve", false))
-		_upgrade_actions[pet_id] = "evolve" if can_evolve else "upgrade"
+		var level := _get_upgrade_level(entry)
 		if name_label != null:
 			name_label.text = String(entry.get("name", _get_pet_display_name(pet_id, PetCatalog.get_definition(pet_id))))
 			_fit_font_to_text(name_label, name_label.text, 19, 12, 12)
-		if count_label != null:
-			count_label.text = "种群\n%s" % _get_population_progress_text(entry)
-			_fit_font_to_text(count_label, count_label.text, 25, 18, 6)
-			if _upgrade_last_counts.has(pet_id) and count > int(_upgrade_last_counts.get(pet_id, count)):
-				_pulse_count_label(count_label)
-		_upgrade_last_counts[pet_id] = count
+		if level_label != null:
+			level_label.text = "等级\n%s" % _get_upgrade_level_text(entry)
+			_fit_font_to_text(level_label, level_label.text, 25, 18, 6)
+			if _upgrade_last_levels.has(pet_id) and level > int(_upgrade_last_levels.get(pet_id, level)):
+				_pulse_count_label(level_label)
+		_upgrade_last_levels[pet_id] = level
 
 		var cost_label := _upgrade_cost_labels.get(pet_id) as Label
 		var affordable: bool = entry.get("affordable", false) == true
@@ -268,24 +224,27 @@ func refresh_pet_upgrade_counts(entries: Array) -> void:
 
 		var bonus_label := _upgrade_bonus_labels.get(pet_id) as Label
 		if bonus_label != null:
-			var next_bonus := float(entry.get("next_growth_bonus", 0.0))
-			var total_bonus := float(entry.get("total_growth_bonus", 0.0))
-			_upgrade_next_growth_bonuses[pet_id] = next_bonus
-			_upgrade_total_growth_bonuses[pet_id] = total_bonus
-			_refresh_upgrade_bonus_label(pet_id)
+			bonus_label.text = _get_upgrade_growth_text(entry)
+			_fit_font_to_text(bonus_label, bonus_label.text, 17, 11, 18)
 
 	_upgrade_entries = next_entries
 	if _upgrade_detail_window != null and _upgrade_detail_window.visible and not _upgrade_detail_pet_id.is_empty():
-		var editing_name := _upgrade_detail_name_edit != null and _upgrade_detail_name_edit.has_focus()
-		if not editing_name and _upgrade_detail_source_button != null and is_instance_valid(_upgrade_detail_source_button):
+		if _upgrade_detail_source_button != null and is_instance_valid(_upgrade_detail_source_button):
 			_show_upgrade_detail_panel(_upgrade_detail_pet_id, _upgrade_detail_source_button)
-	_refresh_cult_window()
 
 
 func refresh_followers(follower_count: int, growth_rate: float) -> void:
 	_follower_count = maxi(0, follower_count)
 	_follower_growth_rate = maxf(0.0, growth_rate)
-	_refresh_cult_summary()
+	if _follower_summary_label != null:
+		var next_text := "信众 %s · +%s%s" % [
+			_format_number(float(_follower_count), false),
+			_format_number(_follower_growth_rate, true),
+			RATE_SUFFIX
+		]
+		if _follower_summary_label.text != next_text:
+			_follower_summary_label.text = next_text
+			_fit_font_to_text(_follower_summary_label, next_text, 15, 11, 22)
 
 
 # Menu and drawer windows
@@ -308,51 +267,6 @@ func _create_toggle_button() -> void:
 	menu_root.theme = _get_ui_theme()
 	menu_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_menu_window.add_child(menu_root)
-
-	_altar_button = TextureButton.new()
-	_altar_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	_altar_button.name = "CultAltar"
-	_altar_button.texture_normal = load(ALTAR_TEXTURE) as Texture2D
-	_altar_button.texture_hover = _altar_button.texture_normal
-	_altar_button.texture_pressed = _altar_button.texture_normal
-	_apply_texture_click_mask(_altar_button)
-	_altar_button.ignore_texture_size = true
-	_altar_button.stretch_mode = TextureButton.STRETCH_SCALE
-	_altar_button.size = ALTAR_SIZE
-	_altar_button.position = Vector2(4.0, MENU_WINDOW_SIZE.y - ALTAR_SIZE.y)
-	_altar_button.pivot_offset = ALTAR_SIZE * 0.5
-	_altar_button.mouse_entered.connect(_on_altar_hovered.bind(true))
-	_altar_button.mouse_exited.connect(_on_altar_hovered.bind(false))
-	_altar_button.pressed.connect(_on_altar_pressed)
-	menu_root.add_child(_altar_button)
-
-	_altar_hint = Label.new()
-	_altar_hint.text = "祭坛"
-	_altar_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_altar_hint.position = Vector2(_altar_button.position.x + 74.0, _altar_button.position.y - 26.0)
-	_altar_hint.size = Vector2(172.0, 24.0)
-	_altar_hint.visible = false
-	_altar_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_altar_hint.z_index = 3
-	_altar_hint.add_theme_font_size_override("font_size", 16)
-	_altar_hint.add_theme_color_override("font_color", Color(0.96, 0.86, 0.62, 1.0))
-	_altar_hint.add_theme_color_override("font_outline_color", Color(0.04, 0.02, 0.03, 1.0))
-	_altar_hint.add_theme_constant_override("outline_size", 4)
-	menu_root.add_child(_altar_hint)
-
-	_altar_notice = TextureRect.new()
-	_altar_notice.name = "OfferingNotice"
-	_altar_notice.texture = load(ALTAR_NOTICE_TEXTURE) as Texture2D
-	_altar_notice.size = ALTAR_NOTICE_SIZE
-	_altar_notice.position = _altar_button.position + Vector2(248.0, -22.0)
-	_altar_notice_base_position = _altar_notice.position
-	_altar_notice.pivot_offset = ALTAR_NOTICE_SIZE * 0.5
-	_altar_notice.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_altar_notice.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_altar_notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_altar_notice.z_index = 5
-	menu_root.add_child(_altar_notice)
-	_refresh_altar_notice()
 
 	_menu_button = TextureButton.new()
 	_menu_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -386,14 +300,10 @@ func _create_toggle_button() -> void:
 	_menu_hint.add_theme_constant_override("outline_size", 4)
 	menu_root.add_child(_menu_hint)
 	_menu_window.mouse_passthrough_polygon = PackedVector2Array([
-		Vector2(4.0, 20.0),
-		Vector2(324.0, 20.0),
-		Vector2(324.0, 218.0),
-		Vector2(_menu_button.position.x, 218.0),
-		Vector2(_menu_button.position.x, 0.0),
-		Vector2(float(MENU_WINDOW_SIZE.x), 0.0),
-		Vector2(float(MENU_WINDOW_SIZE.x), float(MENU_WINDOW_SIZE.y)),
-		Vector2(4.0, float(MENU_WINDOW_SIZE.y))
+		_menu_button.position,
+		_menu_button.position + Vector2(_menu_button.size.x, 0.0),
+		_menu_button.position + _menu_button.size,
+		_menu_button.position + Vector2(0.0, _menu_button.size.y)
 	])
 
 
@@ -426,21 +336,22 @@ func _create_drawer_window() -> void:
 	_drawer_background.z_index = 2
 	_drawer_root.add_child(_drawer_background)
 
-	var bookmarks := VBoxContainer.new()
-	bookmarks.name = "DrawerBookmarks"
-	bookmarks.position = Vector2(BOOKMARK_SAFE_INSET_X, BOOKMARK_CONTAINER_TOP)
-	bookmarks.size = Vector2(BOOKMARK_SIZE.x, BOOKMARK_CONTAINER_HEIGHT)
-	bookmarks.z_index = 1
-	bookmarks.add_theme_constant_override("separation", 12)
-	_drawer_root.add_child(bookmarks)
+	_bookmark_container = VBoxContainer.new()
+	_bookmark_container.name = "DrawerBookmarks"
+	_bookmark_container.position = Vector2(BOOKMARK_SAFE_INSET_X, BOOKMARK_CONTAINER_TOP)
+	_bookmark_container.size = Vector2(BOOKMARK_SIZE.x, BOOKMARK_CONTAINER_HEIGHT)
+	_bookmark_container.z_index = 1
+	_bookmark_container.add_theme_constant_override("separation", BOOKMARK_SEPARATION)
+	_drawer_root.add_child(_bookmark_container)
 
-	bookmarks.add_child(_make_bookmark_button("仓库", _on_inventory_bookmark_pressed))
-	bookmarks.add_child(_make_bookmark_button("商店", _on_shop_bookmark_pressed))
-	bookmarks.add_child(_make_bookmark_button("抽卡", _on_gacha_bookmark_pressed))
-	bookmarks.add_child(_make_bookmark_button("收起", _on_drawer_close_bookmark_pressed))
+	_bookmark_container.add_child(_make_bookmark_button("仓库", _on_inventory_bookmark_pressed))
+	_bookmark_container.add_child(_make_bookmark_button("商店", _on_shop_bookmark_pressed))
+	_bookmark_container.add_child(_make_bookmark_button("抽卡", _on_gacha_bookmark_pressed))
+	_bookmark_container.add_child(_make_bookmark_button("新闻", _on_news_bookmark_pressed))
+	_bookmark_container.add_child(_make_bookmark_button("收起", _on_drawer_close_bookmark_pressed))
 	var bookmark_spacer := Control.new()
 	bookmark_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	bookmarks.add_child(bookmark_spacer)
+	_bookmark_container.add_child(bookmark_spacer)
 
 	_drawer_panel = PanelContainer.new()
 	_drawer_panel.name = "SideDrawer"
@@ -610,43 +521,46 @@ func _create_upgrade_detail_panel() -> void:
 	content.add_child(header)
 
 	_upgrade_detail_name_edit = LineEdit.new()
-	_upgrade_detail_name_edit.placeholder_text = "领袖名字"
+	_upgrade_detail_name_edit.placeholder_text = "宠物名字"
+	_upgrade_detail_name_edit.max_length = 40
 	_upgrade_detail_name_edit.custom_minimum_size = Vector2(232.0, 34.0)
 	_upgrade_detail_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_upgrade_detail_name_edit.add_theme_stylebox_override("normal", _make_upgrade_detail_name_style(false))
-	_upgrade_detail_name_edit.add_theme_stylebox_override("focus", _make_upgrade_detail_name_style(true))
+	_upgrade_detail_name_edit.tooltip_text = "输入新名字，按回车或点击别处保存"
+	_upgrade_detail_name_edit.add_theme_stylebox_override("normal", _make_line_edit_style(false))
+	_upgrade_detail_name_edit.add_theme_stylebox_override("focus", _make_line_edit_style(true))
 	_upgrade_detail_name_edit.add_theme_font_size_override("font_size", 18)
 	_upgrade_detail_name_edit.add_theme_color_override("font_color", Color(0.96, 0.86, 0.62, 1.0))
 	_upgrade_detail_name_edit.add_theme_color_override("font_placeholder_color", Color(0.56, 0.54, 0.43, 0.86))
 	_upgrade_detail_name_edit.add_theme_color_override("font_selected_color", Color(0.02, 0.03, 0.02, 1.0))
 	_upgrade_detail_name_edit.add_theme_color_override("selection_color", Color(0.66, 0.72, 0.44, 0.82))
 	_upgrade_detail_name_edit.add_theme_color_override("caret_color", Color(0.96, 0.88, 0.62, 1.0))
-	_upgrade_detail_name_edit.text_changed.connect(_on_upgrade_detail_name_changed)
+	_upgrade_detail_name_edit.text_submitted.connect(_on_upgrade_detail_name_submitted)
+	_upgrade_detail_name_edit.focus_exited.connect(_on_upgrade_detail_name_focus_exited)
 	header.add_child(_upgrade_detail_name_edit)
 
-	_upgrade_detail_level_label = Label.new()
-	_upgrade_detail_level_label.text = "种群 1 / --"
-	_upgrade_detail_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_upgrade_detail_level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_upgrade_detail_level_label.custom_minimum_size = Vector2(120.0, 34.0)
-	_upgrade_detail_level_label.add_theme_font_size_override("font_size", 16)
-	_upgrade_detail_level_label.add_theme_color_override("font_color", Color(0.82, 0.96, 0.66, 1.0))
-	_upgrade_detail_level_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	_upgrade_detail_level_label.add_theme_constant_override("outline_size", 3)
-	header.add_child(_upgrade_detail_level_label)
+	_upgrade_detail_rarity_label = Label.new()
+	_upgrade_detail_rarity_label.text = "★"
+	_upgrade_detail_rarity_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_upgrade_detail_rarity_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_upgrade_detail_rarity_label.custom_minimum_size = Vector2(120.0, 34.0)
+	_upgrade_detail_rarity_label.add_theme_font_size_override("font_size", 18)
+	_upgrade_detail_rarity_label.add_theme_color_override("font_color", Color(0.96, 0.8, 0.34, 1.0))
+	_upgrade_detail_rarity_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
+	_upgrade_detail_rarity_label.add_theme_constant_override("outline_size", 3)
+	header.add_child(_upgrade_detail_rarity_label)
 
-	_upgrade_detail_desc_label = Label.new()
-	_upgrade_detail_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_upgrade_detail_desc_label.custom_minimum_size = Vector2(358.0, 38.0)
-	_upgrade_detail_desc_label.add_theme_font_size_override("font_size", 14)
-	_upgrade_detail_desc_label.add_theme_color_override("font_color", Color(0.78, 0.76, 0.62, 1.0))
-	content.add_child(_upgrade_detail_desc_label)
+	_upgrade_detail_profile_label = Label.new()
+	_upgrade_detail_profile_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_upgrade_detail_profile_label.custom_minimum_size = Vector2(358.0, 62.0)
+	_upgrade_detail_profile_label.add_theme_font_size_override("font_size", 14)
+	_upgrade_detail_profile_label.add_theme_color_override("font_color", Color(0.78, 0.76, 0.62, 1.0))
+	content.add_child(_upgrade_detail_profile_label)
 
 	_upgrade_detail_stats_label = RichTextLabel.new()
 	_upgrade_detail_stats_label.bbcode_enabled = true
 	_upgrade_detail_stats_label.fit_content = true
 	_upgrade_detail_stats_label.scroll_active = false
-	_upgrade_detail_stats_label.custom_minimum_size = Vector2(362.0, 116.0)
+	_upgrade_detail_stats_label.custom_minimum_size = Vector2(362.0, 48.0)
 	_upgrade_detail_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_upgrade_detail_stats_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_upgrade_detail_stats_label.add_theme_font_size_override("normal_font_size", 15)
@@ -711,6 +625,25 @@ func _make_faith_adder_stage() -> Control:
 	_faith_title_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	_faith_title_label.add_theme_constant_override("outline_size", 3)
 	stage.add_child(_faith_title_label)
+
+	_follower_summary_label = Label.new()
+	_follower_summary_label.name = "FollowerSummary"
+	_follower_summary_label.text = "信众 %s · +%s%s" % [
+		_format_number(float(_follower_count), false),
+		_format_number(_follower_growth_rate, true),
+		RATE_SUFFIX
+	]
+	_follower_summary_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_follower_summary_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_follower_summary_label.position = Vector2(0.0, 343.0)
+	_follower_summary_label.size = Vector2(DRAWER_CONTENT_WIDTH, 21.0)
+	_follower_summary_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_follower_summary_label.add_theme_font_size_override("font_size", 15)
+	_follower_summary_label.add_theme_color_override("font_color", Color(0.76, 0.76, 0.62, 1.0))
+	_follower_summary_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
+	_follower_summary_label.add_theme_constant_override("outline_size", 2)
+	stage.add_child(_follower_summary_label)
+	_fit_font_to_text(_follower_summary_label, _follower_summary_label.text, 15, 11, 22)
 
 	_faith_growth_value_label = Label.new()
 	_faith_growth_value_label.name = "FaithGrowthValue"
@@ -782,17 +715,13 @@ func _make_upgrade_column() -> Control:
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_theme_constant_override("separation", UPGRADE_ROW_GAP)
 
-	_upgrade_count_labels.clear()
+	_upgrade_level_labels.clear()
 	_upgrade_name_labels.clear()
 	_upgrade_cost_labels.clear()
 	_upgrade_bonus_labels.clear()
-	_upgrade_next_growth_bonuses.clear()
-	_upgrade_total_growth_bonuses.clear()
-	_upgrade_bonus_hovered.clear()
 	_upgrade_buttons.clear()
-	_upgrade_last_counts.clear()
+	_upgrade_last_levels.clear()
 	_upgrade_affordables.clear()
-	_upgrade_actions.clear()
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		column.add_child(_make_pet_upgrade_row(String(pet_id_value)))
 	for index in UPGRADE_LOCKED_ROWS:
@@ -805,7 +734,7 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	var pet_data := PetCatalog.get_definition(pet_id)
 	var button := TextureButton.new()
 	button.name = "%sUpgrade" % pet_id
-	_configure_upgrade_row_button(button, "点击增加种群", true)
+	_configure_upgrade_row_button(button, "点击升级宠物，提高信仰增速", true)
 	_set_upgrade_row_affordable(button, false)
 	button.mouse_entered.connect(_on_interactive_control_hovered.bind(button, true))
 	button.mouse_exited.connect(_on_interactive_control_hovered.bind(button, false))
@@ -840,39 +769,31 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	_upgrade_cost_labels[pet_id] = cost_label
 
 	var bonus_label := Label.new()
-	bonus_label.text = "+0.00/s"
+	bonus_label.text = "增速 0.00/s"
 	bonus_label.position = Vector2(108, 74)
 	bonus_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 30)
 	bonus_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bonus_label.add_theme_font_size_override("font_size", 20)
+	bonus_label.add_theme_font_size_override("font_size", 17)
 	bonus_label.add_theme_color_override("font_color", Color(0.64, 0.82, 0.74, 1.0))
 	bonus_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	bonus_label.add_theme_constant_override("outline_size", 3)
 	button.add_child(bonus_label)
 	_upgrade_bonus_labels[pet_id] = bonus_label
 
-	var count_label := Label.new()
-	var initial_thresholds_value: Variant = pet_data.get("evolution_thresholds", [])
-	var initial_threshold := 0
-	if initial_thresholds_value is Array and not initial_thresholds_value.is_empty():
-		initial_threshold = maxi(0, int(initial_thresholds_value[0]))
-	count_label.text = "种群\n%s" % _get_population_progress_text({
-		"count": 1,
-		"next_evolution_threshold": initial_threshold,
-		"is_max_evolution": initial_threshold <= 0
-	})
-	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	count_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
-	count_label.size = Vector2(118, 60)
-	count_label.pivot_offset = count_label.size * 0.5
-	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	count_label.add_theme_font_size_override("font_size", 25)
-	count_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
-	count_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	count_label.add_theme_constant_override("outline_size", 4)
-	button.add_child(count_label)
-	_upgrade_count_labels[pet_id] = count_label
+	var level_label := Label.new()
+	level_label.text = "等级\nLv.1"
+	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
+	level_label.size = Vector2(118, 60)
+	level_label.pivot_offset = level_label.size * 0.5
+	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	level_label.add_theme_font_size_override("font_size", 25)
+	level_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
+	level_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
+	level_label.add_theme_constant_override("outline_size", 4)
+	button.add_child(level_label)
+	_upgrade_level_labels[pet_id] = level_label
 
 	return button
 
@@ -903,7 +824,7 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	slot.add_child(question)
 
 	var name_label := Label.new()
-	name_label.text = "未知领袖 %02d" % display_index
+	name_label.text = "未知宠物 %02d" % display_index
 	name_label.position = Vector2(106, 22)
 	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 242.0, 30)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -920,16 +841,16 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	desc_label.add_theme_color_override("font_color", Color(0.68, 0.72, 0.69, 1.0))
 	button.add_child(desc_label)
 
-	var count_label := Label.new()
-	count_label.text = "种群\n-- / --"
-	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	count_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
-	count_label.size = Vector2(118, 60)
-	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	count_label.add_theme_font_size_override("font_size", 22)
-	count_label.add_theme_color_override("font_color", Color(0.74, 0.78, 0.75, 1.0))
-	button.add_child(count_label)
+	var level_label := Label.new()
+	level_label.text = "等级\n--"
+	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
+	level_label.size = Vector2(118, 60)
+	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	level_label.add_theme_font_size_override("font_size", 22)
+	level_label.add_theme_color_override("font_color", Color(0.74, 0.78, 0.75, 1.0))
+	button.add_child(level_label)
 
 	return button
 
@@ -968,591 +889,6 @@ func _make_upgrade_profile_box_style() -> StyleBoxFlat:
 	style.set_border_width_all(0)
 	style.set_corner_radius_all(6)
 	return style
-
-
-func _refresh_altar_notice() -> void:
-	if _altar_notice == null:
-		return
-
-	var has_offering := not _offering_entries.is_empty()
-	_altar_notice.visible = has_offering
-	if has_offering and _altar_notice_jitter_timer <= 0.0:
-		_altar_notice_jitter_timer = _rng.randf_range(0.4, 1.0)
-	else:
-		_altar_notice.position = _altar_notice_base_position
-		_altar_notice.rotation = 0.0
-
-
-func _update_altar_notice(delta: float) -> void:
-	if _altar_notice == null or not _altar_notice.visible:
-		return
-
-	_altar_notice_jitter_timer -= delta
-	if _altar_notice_jitter_timer > 0.0:
-		return
-
-	_play_altar_notice_jitter()
-	_altar_notice_jitter_timer = _rng.randf_range(1.2, 2.6)
-
-
-func _play_altar_notice_jitter() -> void:
-	if _altar_notice == null:
-		return
-
-	if _altar_notice_tween != null and is_instance_valid(_altar_notice_tween):
-		_altar_notice_tween.kill()
-
-	_altar_notice.position = _altar_notice_base_position
-	_altar_notice.rotation = 0.0
-	_altar_notice_tween = create_tween()
-	_altar_notice_tween.set_trans(Tween.TRANS_SINE)
-	_altar_notice_tween.set_ease(Tween.EASE_IN_OUT)
-	_altar_notice_tween.tween_property(_altar_notice, "position", _altar_notice_base_position + Vector2(-3.0, -2.0), 0.05)
-	_altar_notice_tween.parallel().tween_property(_altar_notice, "rotation", deg_to_rad(-8.0), 0.05)
-	_altar_notice_tween.tween_property(_altar_notice, "position", _altar_notice_base_position + Vector2(4.0, 1.0), 0.06)
-	_altar_notice_tween.parallel().tween_property(_altar_notice, "rotation", deg_to_rad(9.0), 0.06)
-	_altar_notice_tween.tween_property(_altar_notice, "position", _altar_notice_base_position, 0.08)
-	_altar_notice_tween.parallel().tween_property(_altar_notice, "rotation", 0.0, 0.08)
-
-
-# Cult and offering window
-func _create_cult_window() -> void:
-	_cult_window = Window.new()
-	_cult_window.name = "CultCompositionWindow"
-	_cult_window.title = "祭坛"
-	_cult_window.size = CULT_WINDOW_SIZE
-	_cult_window.borderless = true
-	_cult_window.always_on_top = false
-	_cult_window.unresizable = true
-	_cult_window.transparent = true
-	_cult_window.transparent_bg = true
-	_cult_window.visible = false
-	_cult_window.close_requested.connect(_close_cult_window)
-	add_child(_cult_window)
-
-	var root := Control.new()
-	root.name = "CultCompositionRoot"
-	root.theme = _get_ui_theme()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_cult_window.add_child(root)
-
-	var frame := PanelContainer.new()
-	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	frame.add_theme_stylebox_override("panel", _make_cult_window_style())
-	root.add_child(frame)
-
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 22)
-	margin.add_theme_constant_override("margin_top", 22)
-	margin.add_theme_constant_override("margin_right", 22)
-	margin.add_theme_constant_override("margin_bottom", 20)
-	frame.add_child(margin)
-
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 10)
-	margin.add_child(content)
-
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 8)
-	content.add_child(header)
-
-	var title := Label.new()
-	title.text = "祭坛"
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.add_theme_font_size_override("font_size", 24)
-	title.add_theme_color_override("font_color", Color(0.96, 0.88, 0.66, 1.0))
-	title.add_theme_color_override("font_outline_color", Color(0.03, 0.02, 0.03, 1.0))
-	title.add_theme_constant_override("outline_size", 4)
-	header.add_child(title)
-
-	var close_button := Button.new()
-	close_button.text = "X"
-	close_button.custom_minimum_size = Vector2(34, 30)
-	close_button.pressed.connect(_close_cult_window)
-	header.add_child(close_button)
-
-	var name_row := HBoxContainer.new()
-	name_row.add_theme_constant_override("separation", 8)
-	content.add_child(name_row)
-
-	var name_label := Label.new()
-	name_label.text = "教派"
-	name_label.custom_minimum_size = Vector2(48, 30)
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_label.add_theme_font_size_override("font_size", 16)
-	name_label.add_theme_color_override("font_color", Color(0.64, 0.82, 0.74, 1.0))
-	name_row.add_child(name_label)
-
-	_cult_window_name_edit = LineEdit.new()
-	_cult_window_name_edit.text = _cult_name
-	_cult_window_name_edit.placeholder_text = "教派名字"
-	_cult_window_name_edit.custom_minimum_size = Vector2(286, 30)
-	_cult_window_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cult_window_name_edit.add_theme_stylebox_override("normal", _make_line_edit_style(false))
-	_cult_window_name_edit.add_theme_stylebox_override("focus", _make_line_edit_style(true))
-	_cult_window_name_edit.add_theme_color_override("font_color", Color(0.92, 0.88, 0.7, 1.0))
-	_cult_window_name_edit.add_theme_color_override("caret_color", Color(0.96, 0.9, 0.68, 1.0))
-	_cult_window_name_edit.add_theme_font_size_override("font_size", 16)
-	_cult_window_name_edit.text_changed.connect(_on_cult_name_changed)
-	name_row.add_child(_cult_window_name_edit)
-
-	var summary := HBoxContainer.new()
-	summary.add_theme_constant_override("separation", 10)
-	content.add_child(summary)
-
-	_cult_faith_label = Label.new()
-	_cult_faith_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cult_faith_label.add_theme_font_size_override("font_size", 16)
-	_cult_faith_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
-	summary.add_child(_cult_faith_label)
-
-	_cult_growth_label = Label.new()
-	_cult_growth_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_cult_growth_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cult_growth_label.add_theme_font_size_override("font_size", 16)
-	_cult_growth_label.add_theme_color_override("font_color", Color(0.64, 0.82, 0.74, 1.0))
-	summary.add_child(_cult_growth_label)
-
-	var section_label := Label.new()
-	section_label.text = "教众数量"
-	section_label.add_theme_font_size_override("font_size", 18)
-	section_label.add_theme_color_override("font_color", Color(0.96, 0.88, 0.66, 1.0))
-	content.add_child(section_label)
-
-	var count_note := Label.new()
-	count_note.text = "教众会随信仰增长自动增加。贡品每轮二选一，未选择的会腐坏。"
-	count_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	count_note.custom_minimum_size = Vector2(410, 42)
-	count_note.add_theme_font_size_override("font_size", 14)
-	count_note.add_theme_color_override("font_color", Color(0.64, 0.82, 0.74, 1.0))
-	content.add_child(count_note)
-
-	var offering_header := HBoxContainer.new()
-	offering_header.add_theme_constant_override("separation", 10)
-	content.add_child(offering_header)
-
-	var offering_title := Label.new()
-	offering_title.text = "贡品二选一"
-	offering_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	offering_title.add_theme_font_size_override("font_size", 18)
-	offering_title.add_theme_color_override("font_color", Color(0.96, 0.88, 0.66, 1.0))
-	offering_header.add_child(offering_title)
-
-	var offering_grid := GridContainer.new()
-	offering_grid.columns = OFFERING_GRID_COLUMNS
-	offering_grid.add_theme_constant_override("h_separation", 8)
-	offering_grid.add_theme_constant_override("v_separation", 8)
-	_offering_grid = offering_grid
-	_offering_grid.custom_minimum_size = Vector2(410, 204)
-	_offering_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_child(_offering_grid)
-
-	_fit_font_to_text(_cult_window_name_edit, _cult_window_name_edit.text, 16, 10, 10)
-	_refresh_cult_summary()
-	_refresh_cult_window(true)
-
-
-func _make_cult_composition_row(entry: Dictionary) -> TextureButton:
-	var pet_id := String(entry.get("id", ""))
-	var pet_data := PetCatalog.get_definition(pet_id)
-	var affordable: bool = entry.get("affordable", false) == true
-	var row := TextureButton.new()
-	row.name = "%sCultRow" % pet_id
-	_configure_upgrade_row_button(
-		row,
-		_get_upgrade_tooltip_text(entry),
-		false
-	)
-	_set_upgrade_row_affordable(row, affordable)
-	row.mouse_entered.connect(_animate_control_hover.bind(row, true))
-	row.mouse_exited.connect(_animate_control_hover.bind(row, false))
-	row.pressed.connect(_on_pet_upgrade_pressed.bind(pet_id, row))
-
-	row.add_child(_make_upgrade_profile_box(pet_data))
-
-	var name_label := Label.new()
-	name_label.text = String(entry.get("name", pet_data.get("name", pet_id)))
-	name_label.position = Vector2(106, 22)
-	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 242.0, 30)
-	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	name_label.add_theme_font_size_override("font_size", 19)
-	name_label.add_theme_color_override("font_color", Color(0.94, 0.88, 0.64, 1.0))
-	name_label.add_theme_color_override("font_outline_color", Color(0.03, 0.02, 0.03, 1.0))
-	name_label.add_theme_constant_override("outline_size", 3)
-	row.add_child(name_label)
-	_fit_font_to_text(name_label, name_label.text, 19, 12, 12)
-
-	var level_label := Label.new()
-	level_label.text = "种群\n%s" % _get_population_progress_text(entry)
-	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
-	level_label.size = Vector2(118, 60)
-	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	level_label.add_theme_font_size_override("font_size", 20)
-	level_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
-	level_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	level_label.add_theme_constant_override("outline_size", 4)
-	row.add_child(level_label)
-	_fit_font_to_text(level_label, level_label.text, 20, 14, 6)
-
-	var cost_label := Label.new()
-	cost_label.text = _get_upgrade_cost_text(entry)
-	cost_label.position = Vector2(108, 66)
-	cost_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 24)
-	cost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cost_label.add_theme_font_size_override("font_size", 14)
-	_fit_font_to_text(cost_label, cost_label.text, 14, 10, 6)
-	cost_label.add_theme_color_override("font_color", Color(0.78, 0.94, 0.76, 1.0) if affordable else Color(0.9, 0.48, 0.42, 1.0))
-	row.add_child(cost_label)
-
-	return row
-
-
-static func normalize_offering_entry(raw_entry: Dictionary) -> Dictionary:
-	var offering_id := String(raw_entry.get("id", ""))
-	if offering_id.is_empty():
-		return {}
-	var definition: Dictionary = {}
-	for item_value in OFFERING_ITEMS:
-		var item: Dictionary = item_value
-		if String(item.get("id", "")) == offering_id:
-			definition = item
-			break
-	if definition.is_empty():
-		return {}
-
-	var normalized := definition.duplicate(true)
-	var faith_min := maxi(1, int(definition.get("faith_min", 1)))
-	var faith_max := maxi(faith_min, int(definition.get("faith_max", faith_min)))
-	normalized["faith"] = clampi(int(raw_entry.get("faith", faith_min)), faith_min, faith_max)
-	normalized["stock_id"] = String(raw_entry.get("stock_id", "")).strip_edges().left(80)
-	return normalized
-
-
-func get_offering_state() -> Dictionary:
-	return {
-		"choices": _offering_entries.duplicate(true),
-		"next_stock_id": _next_offering_stock_id
-	}
-
-
-func restore_offering_state(raw_choices: Array, next_stock_id: int, has_carried_offering: bool) -> void:
-	_offering_entries.clear()
-	_next_offering_stock_id = maxi(1, next_stock_id)
-	if not has_carried_offering:
-		for raw_value in raw_choices:
-			if not raw_value is Dictionary:
-				continue
-			var entry := normalize_offering_entry(raw_value)
-			if entry.is_empty() or _has_offering_type(String(entry.get("id", ""))):
-				continue
-			var stock_id := String(entry.get("stock_id", ""))
-			if stock_id.is_empty() or _has_offering_stock_id(stock_id):
-				entry["stock_id"] = _make_offering_stock_id(String(entry.get("id", "offering")))
-			_offering_entries.append(entry)
-			if _offering_entries.size() >= OFFERING_CHOICE_COUNT:
-				break
-		while _offering_entries.size() < OFFERING_CHOICE_COUNT:
-			if not _append_random_offering():
-				break
-	_refresh_cult_window(true)
-	_refresh_altar_notice()
-
-
-func complete_offering_choice() -> bool:
-	if not _offering_entries.is_empty():
-		return false
-	var generated := _generate_offering_choice()
-	_refresh_cult_window(true)
-	_refresh_altar_notice()
-	return generated
-
-
-func return_offering(offering: Dictionary) -> bool:
-	if offering.is_empty():
-		return false
-	var restored := normalize_offering_entry(offering)
-	if restored.is_empty():
-		return false
-	var returned_stock_id := String(restored.get("stock_id", ""))
-	if not returned_stock_id.is_empty() and _has_offering_stock_id(returned_stock_id):
-		return true
-	if String(restored["stock_id"]).is_empty():
-		restored["stock_id"] = _make_offering_stock_id(String(restored.get("id", "offering")))
-
-	# The unchosen item from the old round remains spoiled. A cancellation
-	# starts a fresh decision around the returned item instead of undoing it.
-	_offering_entries.clear()
-	_offering_entries.push_front(restored)
-	while _offering_entries.size() < OFFERING_CHOICE_COUNT:
-		if not _append_random_offering():
-			break
-	_refresh_cult_window(true)
-	_refresh_altar_notice()
-	return true
-
-
-func _generate_offering_choice() -> bool:
-	_offering_entries.clear()
-	for _index in OFFERING_CHOICE_COUNT:
-		if not _append_random_offering():
-			break
-	return _offering_entries.size() == OFFERING_CHOICE_COUNT
-
-
-func _make_random_offering() -> Dictionary:
-	var available_items: Array[Dictionary] = []
-	for item_value in OFFERING_ITEMS:
-		var item: Dictionary = item_value
-		if not _has_offering_type(String(item.get("id", ""))):
-			available_items.append(item)
-	if available_items.is_empty():
-		for item_value in OFFERING_ITEMS:
-			available_items.append(item_value)
-	if available_items.is_empty():
-		return {}
-
-	var entry: Dictionary = available_items[_rng.randi_range(0, available_items.size() - 1)].duplicate(true)
-	var faith_min := maxi(1, int(entry.get("faith_min", 1)))
-	var faith_max := maxi(faith_min, int(entry.get("faith_max", faith_min)))
-	entry["faith"] = _rng.randi_range(faith_min, faith_max)
-	entry["stock_id"] = _make_offering_stock_id(String(entry.get("id", "offering")))
-	return entry
-
-
-func _append_random_offering() -> bool:
-	if _offering_entries.size() >= OFFERING_CHOICE_COUNT:
-		return false
-	var offering := _make_random_offering()
-	if offering.is_empty():
-		return false
-	_offering_entries.append(offering)
-	return true
-
-
-func _has_offering_type(offering_id: String) -> bool:
-	if offering_id.is_empty():
-		return false
-	for entry in _offering_entries:
-		if String(entry.get("id", "")) == offering_id:
-			return true
-	return false
-
-
-func _has_offering_stock_id(stock_id: String) -> bool:
-	if stock_id.is_empty():
-		return false
-	for entry in _offering_entries:
-		if String(entry.get("stock_id", "")) == stock_id:
-			return true
-	return false
-
-
-func _make_offering_stock_id(offering_id: String) -> String:
-	while true:
-		var stock_id := "%s:%d" % [offering_id, _next_offering_stock_id]
-		_next_offering_stock_id += 1
-		if not _has_offering_stock_id(stock_id):
-			return stock_id
-	return ""
-
-
-func _get_offering_estimated_gain(entry: Dictionary) -> int:
-	var base_gain := maxi(1, int(entry.get("faith", 1)))
-	var scaled_gain := int(round(_faith_growth_rate * OFFERING_GAIN_SECONDS))
-	return maxi(base_gain, scaled_gain)
-
-
-func _refresh_offering_grid() -> void:
-	if _offering_grid == null:
-		return
-
-	_offering_status_label = null
-	for child in _offering_grid.get_children():
-		_offering_grid.remove_child(child)
-		child.queue_free()
-
-	if _offering_entries.is_empty():
-		_offering_grid.add_child(_make_empty_offering_label())
-		return
-
-	for entry in _offering_entries:
-		_offering_grid.add_child(_make_offering_slot(entry))
-
-
-func _make_empty_offering_label() -> Label:
-	var label := Label.new()
-	_offering_status_label = label
-	label.text = "本轮贡品已选定\n投放后出现下一组"
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.custom_minimum_size = Vector2(410, 88)
-	label.add_theme_font_size_override("font_size", 15)
-	label.add_theme_color_override("font_color", Color(0.64, 0.82, 0.74, 1.0))
-	label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	label.add_theme_constant_override("outline_size", 2)
-	return label
-
-
-func _make_offering_slot(entry: Dictionary) -> Control:
-	var slot := PanelContainer.new()
-	slot.name = "%sOffering" % String(entry.get("name", "Unknown"))
-	slot.custom_minimum_size = OFFERING_SLOT_SIZE
-	slot.mouse_filter = Control.MOUSE_FILTER_STOP
-	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	slot.tooltip_text = "选择 %s，另一件将腐坏\n信仰 +%d" % [
-		String(entry.get("name", "贡品")),
-		_get_offering_estimated_gain(entry)
-	]
-	slot.add_theme_stylebox_override("panel", _make_offering_slot_style())
-	slot.gui_input.connect(_on_offering_slot_gui_input.bind(entry, slot))
-
-	var stack := VBoxContainer.new()
-	stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	stack.alignment = BoxContainer.ALIGNMENT_CENTER
-	stack.add_theme_constant_override("separation", 2)
-	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slot.add_child(stack)
-
-	var center := CenterContainer.new()
-	center.custom_minimum_size = Vector2(OFFERING_SLOT_SIZE.x, OFFERING_ICON_SIZE.y)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stack.add_child(center)
-
-	var icon := TextureRect.new()
-	icon.texture = load(String(entry.get("texture", ""))) as Texture2D
-	icon.custom_minimum_size = OFFERING_ICON_SIZE
-	icon.size = OFFERING_ICON_SIZE
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	center.add_child(icon)
-
-	var label := Label.new()
-	label.text = "%s\n信仰 +%d" % [
-		String(entry.get("name", "贡品")),
-		_get_offering_estimated_gain(entry)
-	]
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.add_theme_font_size_override("font_size", 11)
-	label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
-	label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	label.add_theme_constant_override("outline_size", 2)
-	stack.add_child(label)
-	_fit_font_to_text(label, label.text, 11, 8, 4)
-
-	return slot
-
-
-func _make_offering_slot_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.028, 0.026, 0.62)
-	style.border_color = Color(0.54, 0.66, 0.48, 0.68)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(6)
-	style.content_margin_left = 6
-	style.content_margin_right = 6
-	style.content_margin_top = 6
-	style.content_margin_bottom = 6
-	return style
-
-
-func _on_offering_slot_gui_input(event: InputEvent, entry: Dictionary, slot: Control) -> void:
-	if event is InputEventMouseButton:
-		var mouse_event := event as InputEventMouseButton
-		if mouse_event.button_index != MOUSE_BUTTON_LEFT or not mouse_event.pressed:
-			return
-
-		if not _remove_offering_entry(entry):
-			return
-		offering_drop_requested.emit(entry.duplicate(true))
-		_animate_control_press(slot)
-		slot.accept_event()
-		_refresh_cult_window(true)
-		_refresh_altar_notice()
-		_close_cult_window()
-
-
-func _remove_offering_entry(entry: Dictionary) -> bool:
-	var stock_id := String(entry.get("stock_id", ""))
-	var offering_id := String(entry.get("id", ""))
-	for index in _offering_entries.size():
-		var candidate := _offering_entries[index]
-		if not stock_id.is_empty() and String(candidate.get("stock_id", "")) == stock_id:
-			_offering_entries.clear()
-			return true
-		if stock_id.is_empty() and not offering_id.is_empty() and String(candidate.get("id", "")) == offering_id:
-			_offering_entries.clear()
-			return true
-	return false
-
-
-func _open_cult_window() -> void:
-	if _cult_window == null:
-		_create_cult_window()
-
-	_place_cult_window()
-	_refresh_cult_summary()
-	_cult_window.visible = true
-	_refresh_cult_window(true)
-
-
-func _close_cult_window() -> void:
-	if _cult_window != null:
-		_cult_window.visible = false
-
-
-func _place_cult_window() -> void:
-	if _cult_window == null or _menu_window == null:
-		return
-
-	var screen_rect := _get_current_screen_rect()
-	var x := _menu_window.position.x - CULT_WINDOW_SIZE.x - 12
-	var max_x := screen_rect.position.x + screen_rect.size.x - CULT_WINDOW_SIZE.x
-	if x < screen_rect.position.x:
-		x = _menu_window.position.x + 4
-	x = maxi(screen_rect.position.x, mini(x, max_x))
-
-	var y := _menu_window.position.y - CULT_WINDOW_SIZE.y - 8
-	if y < screen_rect.position.y:
-		y = screen_rect.position.y + 20
-
-	_cult_window.position = Vector2i(x, y)
-
-
-func _refresh_cult_window(force := false) -> void:
-	if _cult_window == null or _offering_grid == null:
-		return
-	if not force and not _cult_window.visible:
-		return
-
-	if force or _offering_grid.get_child_count() == 0:
-		_refresh_offering_grid()
-
-	_refresh_cult_summary()
-
-
-func _refresh_cult_summary() -> void:
-	if _cult_faith_label != null:
-		_cult_faith_label.text = "教众数量 %d" % _follower_count
-		_fit_font_to_text(_cult_faith_label, _cult_faith_label.text, 16, 11, 12)
-
-	if _cult_growth_label != null:
-		_cult_growth_label.text = "教众增长 +%.2f%s" % [_follower_growth_rate, RATE_SUFFIX]
-		_fit_font_to_text(_cult_growth_label, _cult_growth_label.text, 16, 11, 12)
-
-
-func _on_cult_name_changed(new_text: String) -> void:
-	_cult_name = new_text
-	if _cult_window_name_edit != null and _cult_window_name_edit.text != new_text:
-		_cult_window_name_edit.text = new_text
-
-	if _cult_window_name_edit != null:
-		_fit_font_to_text(_cult_window_name_edit, _cult_window_name_edit.text, 16, 10, 16)
 
 
 # Formatting and style helpers
@@ -1656,29 +992,6 @@ func _make_upgrade_detail_style() -> StyleBoxFlat:
 	return style
 
 
-func _make_upgrade_detail_name_style(focused: bool) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.034, 0.038, 0.032, 0.78)
-	style.border_color = Color(0.72, 0.7, 0.46, 0.92) if focused else Color(0.42, 0.46, 0.32, 0.78)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(5)
-	style.content_margin_left = 8
-	style.content_margin_right = 8
-	return style
-
-
-func _make_cult_window_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.025, 0.034, 0.035, 0.94)
-	style.border_color = Color(0.46, 0.62, 0.52, 0.86)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(8)
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.42)
-	style.shadow_size = 12
-	style.shadow_offset = Vector2(0, 4)
-	return style
-
-
 func _make_panel_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.0, 0.0, 0.0, 0.0)
@@ -1744,8 +1057,6 @@ func _set_upgrade_row_affordable(button: TextureButton, affordable: bool) -> voi
 
 # Upgrade hover detail
 func _on_upgrade_row_hovered(pet_id: String, button: Control, hovered: bool) -> void:
-	_upgrade_bonus_hovered[pet_id] = hovered
-	_refresh_upgrade_bonus_label(pet_id)
 	if hovered:
 		_hovered_upgrade_pet_id = pet_id
 		_hovered_upgrade_button = button
@@ -1799,10 +1110,30 @@ func _on_upgrade_detail_panel_hovered(hovered: bool) -> void:
 		_upgrade_detail_hide_timer = UPGRADE_DETAIL_HIDE_GRACE
 
 
-func _on_upgrade_detail_name_changed(new_text: String) -> void:
-	if _updating_upgrade_detail_name or _upgrade_detail_pet_id.is_empty():
+func _on_upgrade_detail_name_submitted(_submitted_text: String) -> void:
+	_commit_upgrade_detail_name()
+
+
+func _on_upgrade_detail_name_focus_exited() -> void:
+	_commit_upgrade_detail_name()
+
+
+func _commit_upgrade_detail_name() -> void:
+	if _updating_upgrade_detail_name or _upgrade_detail_name_edit == null:
 		return
-	pet_rename_requested.emit(_upgrade_detail_pet_id, new_text.strip_edges())
+	if _upgrade_detail_pet_id.is_empty():
+		return
+
+	var custom_name := _upgrade_detail_name_edit.text.strip_edges().left(40)
+	if _upgrade_detail_name_edit.text != custom_name:
+		_updating_upgrade_detail_name = true
+		_upgrade_detail_name_edit.text = custom_name
+		_updating_upgrade_detail_name = false
+	if custom_name == _upgrade_detail_last_committed_name:
+		return
+
+	_upgrade_detail_last_committed_name = custom_name
+	pet_rename_requested.emit(_upgrade_detail_pet_id, custom_name)
 
 
 func _is_mouse_in_upgrade_detail_safe_zone() -> bool:
@@ -1836,31 +1167,89 @@ func _get_upgrade_detail_source_screen_rect() -> Rect2:
 	return Rect2(source_position, _upgrade_detail_source_button.size)
 
 
-func _refresh_upgrade_bonus_label(pet_id: String) -> void:
-	var label := _upgrade_bonus_labels.get(pet_id) as Label
-	if label == null:
-		return
-
-	var total_bonus := float(_upgrade_total_growth_bonuses.get(pet_id, 0.0))
-	label.text = "+%.2f/s" % total_bonus
-	_fit_font_to_text(label, label.text, 20, 12, 7)
+func _get_upgrade_level(entry: Dictionary) -> int:
+	return maxi(1, int(entry.get("level", entry.get("upgrade_level", 1))))
 
 
-func _get_population_progress_text(entry: Dictionary) -> String:
-	var count_text := _format_number(float(maxi(1, int(entry.get("count", 1)))), false)
-	var threshold := maxi(0, int(entry.get("next_evolution_threshold", 0)))
-	if bool(entry.get("is_max_evolution", false)) or threshold <= 0:
-		return "%s / MAX" % count_text
-	return "%s / %s" % [count_text, _format_number(float(threshold), false)]
+func _get_upgrade_level_text(entry: Dictionary) -> String:
+	return "Lv.%s" % _format_number(float(_get_upgrade_level(entry)), false)
+
+
+func _get_current_growth_rate(entry: Dictionary) -> float:
+	return maxf(0.0, float(entry.get(
+		"current_fps",
+		entry.get("current_growth_rate", entry.get("current_rate", 0.0))
+	)))
+
+
+func _get_next_growth_rate(entry: Dictionary) -> float:
+	var current_rate := _get_current_growth_rate(entry)
+	var fallback_rate := current_rate + maxf(0.0, float(entry.get("next_growth_bonus", 0.0)))
+	return maxf(current_rate, float(entry.get(
+		"next_fps",
+		entry.get("next_growth_rate", entry.get("next_rate", fallback_rate))
+	)))
+
+
+func _get_upgrade_growth_text(entry: Dictionary) -> String:
+	return "增速 %s%s" % [
+		_format_number(_get_current_growth_rate(entry), true),
+		RATE_SUFFIX
+	]
+
+
+func _get_upgrade_gain(entry: Dictionary) -> float:
+	if entry.has("next_growth_bonus"):
+		return maxf(0.0, float(entry.get("next_growth_bonus", 0.0)))
+	return maxf(0.0, _get_next_growth_rate(entry) - _get_current_growth_rate(entry))
+
+
+func _get_upgrade_gain_text(entry: Dictionary) -> String:
+	return "提升增速 +%s%s" % [
+		_format_number(_get_upgrade_gain(entry), true),
+		RATE_SUFFIX
+	]
+
+
+func _get_rarity_stars(entry: Dictionary, pet_data: Dictionary) -> int:
+	return clampi(int(entry.get(
+		"rarity_stars",
+		pet_data.get("rarity_stars", pet_data.get("stars", 1))
+	)), 1, 5)
+
+
+func _get_rarity_stars_text(entry: Dictionary, pet_data := {}) -> String:
+	var stars := ""
+	for _index in _get_rarity_stars(entry, pet_data):
+		stars += "★"
+	return stars
+
+
+func _get_pet_profile_text(entry: Dictionary, pet_data: Dictionary) -> String:
+	var age_text := String(entry.get(
+		"age_text",
+		entry.get("age", pet_data.get("age_text", pet_data.get("age", "不详")))
+	)).strip_edges()
+	var personality := String(entry.get(
+		"personality",
+		pet_data.get("personality", "尚待观察")
+	)).strip_edges()
+	if age_text.is_empty():
+		age_text = "不详"
+	if personality.is_empty():
+		personality = "尚待观察"
+	return "年龄：%s\n性格：%s" % [age_text, personality]
 
 
 func _get_upgrade_tooltip_text(entry: Dictionary) -> String:
-	return "点击进化" if bool(entry.get("can_evolve", false)) else "点击增加种群"
+	if bool(entry.get("is_max_level", false)):
+		return "宠物已满级"
+	return "点击升级宠物，提高信仰增速"
 
 
 func _get_upgrade_cost_text(entry: Dictionary) -> String:
-	if bool(entry.get("can_evolve", false)):
-		return "点击进化"
+	if bool(entry.get("is_max_level", false)):
+		return "已满级"
 	return "消耗 %s" % _format_number(float(entry.get("cost", 0.0)))
 
 
@@ -1885,31 +1274,18 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 			break
 
 	var display_name := String(entry.get("name", _get_pet_display_name(pet_id, pet_data)))
-	var cost := float(entry.get("cost", 0.0))
-	var can_evolve := bool(entry.get("can_evolve", false))
-	var is_max_evolution := bool(entry.get("is_max_evolution", false))
-	var affordable: bool = _upgrade_affordables.get(pet_id, false) == true
-	var current_fps := maxf(0.0, float(entry.get("current_fps", 0.0)))
-
-	if _upgrade_detail_name_edit != null:
+	var switching_pet := _upgrade_detail_pet_id != pet_id
+	if _upgrade_detail_name_edit != null and (switching_pet or not _upgrade_detail_name_edit.has_focus()):
 		_updating_upgrade_detail_name = true
-		_upgrade_detail_name_edit.text = display_name
+		_upgrade_detail_name_edit.text = display_name.left(40)
+		_upgrade_detail_last_committed_name = _upgrade_detail_name_edit.text
 		_updating_upgrade_detail_name = false
-	if _upgrade_detail_level_label != null:
-		_upgrade_detail_level_label.text = "种群 %s" % _get_population_progress_text(entry)
-	_upgrade_detail_desc_label.text = String(entry.get("description", pet_data.get("description", "")))
-	var evolution_status := "[color=#c7d86b]进化已完成[/color]" if is_max_evolution else "进化进度 %s" % _get_population_progress_text(entry)
-	if can_evolve:
-		evolution_status = "[color=#e8bd62]已达到进化条件[/color]"
-	var cost_status := "进化不消耗信仰" if can_evolve else "升级消耗 %s 信仰" % _format_number(cost)
-	var action_status := "[color=#e8bd62]点击升级栏进化[/color]" if can_evolve else ("[color=#c7d86b]点击升级栏增加种群[/color]" if affordable else "[color=#e88a66]信仰不足[/color]")
-	_upgrade_detail_stats_label.text = "当前产出 %s%s\n%s\n%s\n%s" % [
-		_format_number(current_fps, true),
-		RATE_SUFFIX,
-		evolution_status,
-		cost_status,
-		action_status
-	]
+	if _upgrade_detail_rarity_label != null:
+		_upgrade_detail_rarity_label.text = _get_rarity_stars_text(entry, pet_data)
+	if _upgrade_detail_profile_label != null:
+		_upgrade_detail_profile_label.text = _get_pet_profile_text(entry, pet_data)
+	if _upgrade_detail_stats_label != null:
+		_upgrade_detail_stats_label.text = "[color=#b9dc8a]%s[/color]" % _get_upgrade_gain_text(entry)
 
 	_upgrade_detail_pet_id = pet_id
 	_upgrade_detail_source_button = button
@@ -1940,6 +1316,7 @@ func _hide_upgrade_detail_panel(pet_id := "") -> void:
 		return
 	if not pet_id.is_empty() and (_hovered_upgrade_pet_id == pet_id or _upgrade_detail_panel_hovered):
 		return
+	_commit_upgrade_detail_name()
 	_upgrade_detail_window.visible = false
 	_upgrade_detail_pet_id = ""
 	_upgrade_detail_source_button = null
@@ -1948,6 +1325,7 @@ func _hide_upgrade_detail_panel(pet_id := "") -> void:
 	_upgrade_detail_hover_time = 0.0
 	_upgrade_detail_panel_hovered = false
 	_updating_upgrade_detail_name = false
+	_upgrade_detail_last_committed_name = ""
 	_upgrade_detail_hide_timer = 0.0
 
 
@@ -2245,8 +1623,13 @@ func _refresh_drawer_geometry(keep_current_slide := true) -> void:
 	var window_bottom := float(_drawer_screen_size.y)
 	var panel_left := minf(float(DRAWER_BOOKMARK_WIDTH - 10), window_right)
 	var bookmark_left := minf(float(BOOKMARK_SAFE_INSET_X), panel_left)
-	var bookmark_top := minf(BOOKMARK_CONTAINER_TOP, window_bottom)
-	var bookmark_bottom := minf(BOOKMARK_CONTAINER_TOP + BOOKMARK_CONTAINER_HEIGHT, window_bottom)
+	var bookmark_layout := _get_bookmark_layout(window_bottom)
+	var bookmark_top := bookmark_layout.x
+	var bookmark_scale := bookmark_layout.y
+	var bookmark_bottom := minf(bookmark_top + (BOOKMARK_CONTAINER_HEIGHT * bookmark_scale), window_bottom)
+	if _bookmark_container != null:
+		_bookmark_container.position = Vector2(BOOKMARK_SAFE_INSET_X, bookmark_top)
+		_bookmark_container.scale = Vector2.ONE * bookmark_scale
 	_drawer_window.mouse_passthrough_polygon = PackedVector2Array([
 		Vector2(panel_left, 0.0),
 		Vector2(window_right, 0.0),
@@ -2270,15 +1653,25 @@ func _refresh_drawer_geometry(keep_current_slide := true) -> void:
 		_drawer_root.position = Vector2.ZERO
 
 	_place_menu_window()
-	if _cult_window != null and _cult_window.visible:
-		_place_cult_window()
-
 	_drawer_target_x = _drawer_screen_position.x if _drawer_open else _drawer_closed_x
 	if keep_current_slide:
 		return
 
 	var x := _drawer_screen_position.x if _drawer_open else _drawer_closed_x
 	_drawer_window.position = Vector2i(x, _drawer_screen_position.y)
+
+
+static func _get_bookmark_layout(window_height: float) -> Vector2:
+	var safe_height := maxf(0.0, window_height)
+	if safe_height <= 0.0:
+		return Vector2.ZERO
+	var margin := minf(BOOKMARK_SCREEN_MARGIN, safe_height * 0.5)
+	var top := minf(
+		BOOKMARK_CONTAINER_TOP,
+		maxf(margin, safe_height - BOOKMARK_CONTAINER_HEIGHT - margin)
+	)
+	var scale := clampf((safe_height - top - margin) / BOOKMARK_CONTAINER_HEIGHT, 0.0, 1.0)
+	return Vector2(top, scale)
 
 
 func _update_drawer_slide(delta: float) -> void:
@@ -2345,32 +1738,10 @@ func _on_menu_button_hovered(hovered: bool) -> void:
 		_menu_hint.visible = hovered
 
 
-func _on_altar_hovered(hovered: bool) -> void:
-	if _altar_button == null:
-		return
-	_animate_control_hover(_altar_button, hovered)
-	if _altar_hint != null:
-		_altar_hint.visible = hovered
-
-
-func _on_altar_pressed() -> void:
-	if _altar_button != null:
-		_animate_control_press(_altar_button)
-
-	if _cult_window != null and _cult_window.visible:
-		_close_cult_window()
-		return
-
-	_open_cult_window()
-
-
 # Button signal handlers
 func _on_pet_upgrade_pressed(pet_id: String, button: Control) -> void:
 	var affordable: bool = _upgrade_affordables.get(pet_id, false) == true
-	if String(_upgrade_actions.get(pet_id, "upgrade")) == "evolve":
-		pet_evolution_requested.emit(pet_id)
-	else:
-		pet_count_upgrade_requested.emit(pet_id)
+	pet_upgrade_requested.emit(pet_id)
 	if button != null:
 		_animate_control_press(button)
 		if affordable:
@@ -2392,7 +1763,13 @@ func _on_gacha_bookmark_pressed() -> void:
 	gacha_requested.emit()
 
 
+func _on_news_bookmark_pressed() -> void:
+	_hide_upgrade_detail_panel()
+	news_requested.emit()
+
+
 func _on_drawer_close_bookmark_pressed() -> void:
+	_hide_upgrade_detail_panel()
 	if _drawer_open:
 		_toggle_drawer()
 

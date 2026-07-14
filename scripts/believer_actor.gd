@@ -36,6 +36,7 @@ enum BelieverState {
 }
 
 var _window_size := Vector2i(820, 420)
+var _ground_contact_y := 420.0
 var _state := BelieverState.WALK_IN
 var _target_x := 0.0
 var _idle_time := 0.0
@@ -50,9 +51,10 @@ var _notice_tween: Tween
 static var _cached_frames: SpriteFrames
 
 
-func setup(window_size: Vector2i, spawn_from_left: bool) -> void:
+func setup(window_size: Vector2i, spawn_from_left: bool, ground_contact_y := -1.0) -> void:
 	_rng.randomize()
 	_window_size = window_size
+	_ground_contact_y = float(window_size.y) if ground_contact_y < 0.0 else ground_contact_y
 	z_index = 70
 	_create_sprite()
 	_create_notice()
@@ -66,9 +68,10 @@ func setup(window_size: Vector2i, spawn_from_left: bool) -> void:
 	_sprite.play("walk")
 
 
-func setup_visible(window_size: Vector2i) -> void:
+func setup_visible(window_size: Vector2i, ground_contact_y := -1.0) -> void:
 	_rng.randomize()
 	_window_size = window_size
+	_ground_contact_y = float(window_size.y) if ground_contact_y < 0.0 else ground_contact_y
 	z_index = 70
 	_create_sprite()
 	_create_notice()
@@ -105,8 +108,9 @@ func set_threat_positions(threat_positions: Array) -> void:
 		_try_start_run_away(false)
 
 
-func set_window_size(window_size: Vector2i) -> void:
+func set_window_size(window_size: Vector2i, ground_contact_y := -1.0) -> void:
 	_window_size = window_size
+	_ground_contact_y = float(window_size.y) if ground_contact_y < 0.0 else ground_contact_y
 	if _state == BelieverState.IDLE or _state == BelieverState.CENTER_WALK:
 		position.x = clampf(position.x, _get_center_min_x(), _get_center_max_x())
 
@@ -320,7 +324,7 @@ func _hide_notice() -> void:
 
 
 func _get_rest_y() -> float:
-	return float(_window_size.y - 1) - ((float(SHEET_FRAME_FOOT_Y) - SHEET_FRAME_CENTER_Y) * BELIEVER_SCALE)
+	return _ground_contact_y - 1.0 - ((float(SHEET_FRAME_FOOT_Y) - SHEET_FRAME_CENTER_Y) * BELIEVER_SCALE)
 
 
 static func _build_frames() -> SpriteFrames:
