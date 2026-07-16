@@ -6,7 +6,6 @@ const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 
 const WINDOW_SIZE := Vector2i(1117, 1034)
 const SHOP_TEXTURE := "res://assets/ui/shop/商店ui.png"
-const SEED1_TEXTURE := "res://assets/ui/shop/goods/seed1.png"
 const CROSS_TEXTURE := "res://assets/ui/inventory/cross.png"
 const ARROW_TEXTURE := "res://assets/ui/inventory/arrow.png"
 
@@ -109,17 +108,7 @@ func set_purchase_result(good_id: String, success: bool, message: String) -> voi
 
 
 func _make_default_goods() -> Array[Dictionary]:
-	var goods: Array[Dictionary] = [
-		{
-			"id": "seed1",
-			"name": "异梦种子",
-			"description": "一颗潮湿的奇异种子。先买来存着，之后可以接入花园、献祭或养成系统。",
-			"texture": SEED1_TEXTURE,
-			"price": 25
-		}
-	]
-	goods.append_array(OfferingCatalog.make_shop_goods())
-	return goods
+	return OfferingCatalog.make_shop_goods()
 
 
 func _normalize_good(good: Dictionary) -> Dictionary:
@@ -398,7 +387,14 @@ func _refresh_page() -> void:
 		name_label.text = String(good.get("name", "商品"))
 		price_label.text = "价格 %d 信仰" % price
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
-		owned_label.text = "购买后随鼠标投放" if offering else "已拥有 %d" % owned
+		owned_label.text = (
+			"%d秒 · ×%s" % [
+				int(round(float(good.get("duration_seconds", 60.0)))),
+				_format_multiplier(float(good.get("multiplier", 1.0)))
+			]
+			if offering
+			else "已拥有 %d" % owned
+		)
 
 
 func _get_page_count() -> int:
@@ -435,9 +431,10 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	_info_name_label.text = String(good.get("name", "商品"))
 	_info_desc_label.text = String(good.get("description", ""))
 	if OfferingCatalog.is_offering(good):
-		_info_price_label.text = "价格：%d 信仰    进食返还：%d 信仰" % [
+		_info_price_label.text = "价格：%d 信仰    加速：%d秒 ×%s" % [
 			int(good.get("price", 0)),
-			int(good.get("faith", 0))
+			int(round(float(good.get("duration_seconds", 60.0)))),
+			_format_multiplier(float(good.get("multiplier", 1.0)))
 		]
 	else:
 		_info_price_label.text = "价格：%d 信仰    已拥有：%d" % [
@@ -449,6 +446,15 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 		clampf(panel_position.y, 24.0, float(WINDOW_SIZE.y) - _info_panel.size.y - 24.0)
 	)
 	_info_panel.visible = true
+
+
+static func _format_multiplier(value: float) -> String:
+	var text := String.num(maxf(1.0, value), 2)
+	while text.contains(".") and text.ends_with("0"):
+		text = text.left(text.length() - 1)
+	if text.ends_with("."):
+		text = text.left(text.length() - 1)
+	return text
 
 
 func _hide_info_panel() -> void:

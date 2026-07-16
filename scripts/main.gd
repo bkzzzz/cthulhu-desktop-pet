@@ -28,7 +28,6 @@ const POSITION_RETRY_FRAMES := 90
 const OFFERING_CURSOR_SIZE := Vector2i(52, 52)
 const OFFERING_DROP_SCALE := 0.36
 const OFFERING_FEED_TIMEOUT_SECONDS := 12.0
-const OFFERING_DROP_ZONE_HEIGHT := 420.0
 const OFFERING_GROUND_MARGIN := 2.0
 const SAFE_CANVAS_MARGIN := 12.0
 const EMOTION_CONFUSED_TEXTURE := "res://assets/ui/emotions/confused.png"
@@ -49,8 +48,9 @@ const BELIEVER_SPAWN_MIN_SECONDS := 8.0
 const BELIEVER_SPAWN_MAX_SECONDS := 18.0
 const BELIEVER_FORCE_SPAWN_SECONDS := 60.0
 const UI_REFRESH_INTERVAL := 0.25
+const MANUAL_CLICK_RATE_SECONDS := 0.25
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 6
+const SAVE_VERSION := 7
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const AUTOSAVE_INTERVAL_SECONDS := 30.0
 const OFFLINE_PROGRESS_MAX_SECONDS := 12.0 * 60.0 * 60.0
@@ -81,6 +81,7 @@ var _offering_cursor_active := false
 var _offering_input_window: Window
 var _offering_input_area: Control
 var _pending_offering_feeds: Dictionary = {}
+var _pet_offering_buffs: Dictionary = {}
 var _position_retry_frames := 0
 var _pet_window_size := PET_WINDOW_BASE_SIZE
 var _rng := RandomNumberGenerator.new()
@@ -149,7 +150,7 @@ func _ready() -> void:
 	if _news_feed.get_history().is_empty():
 		_publish_news({
 			"category": "公告",
-			"headline": "《深潮晚报》恢复播报。首批17名调查员已放弃原属身份，污染区边界仍在向外扩张。"
+			"headline": "《教团简报》开始播报：首批17名信众已在旧城区建立公开聚会点，招募仍在继续。"
 		}, false, false)
 	_next_news_at = _get_news_runtime_seconds() + NEWS_INITIAL_AMBIENT_DELAY
 	_refresh_pet_stats(true)
@@ -168,6 +169,7 @@ func _process(delta: float) -> void:
 		_position_retry_frames -= 1
 		_place_pet_window()
 
+	_update_pet_offering_buffs()
 	_update_faith(delta)
 	_update_followers(delta)
 	_update_news(delta)
@@ -543,7 +545,7 @@ func _is_offering_drop_zone(window_position: Vector2) -> bool:
 	return (
 		window_position.x >= 0.0
 		and window_position.x <= float(_pet_window_size.x)
-		and window_position.y >= usable_bottom - OFFERING_DROP_ZONE_HEIGHT
+		and window_position.y >= 0.0
 		and window_position.y <= usable_bottom
 	)
 
@@ -584,6 +586,8 @@ func _is_pet_pixel_hit(pet: Node2D, window_position: Vector2) -> bool:
 
 
 func _get_window_mouse_position(window: Window) -> Vector2:
+	if window == null:
+		return Vector2(_pet_window_size) * 0.5
 	var global_mouse := DisplayServer.mouse_get_position()
 	var window_position := window.position
 	return Vector2(global_mouse.x - window_position.x, global_mouse.y - window_position.y)
@@ -612,7 +616,10 @@ func _create_offering_input_window() -> void:
 	_offering_input_window.unresizable = true
 	_offering_input_window.always_on_top = false
 	_offering_input_window.min_size = Vector2i.ZERO
-	_offering_input_window.size = Vector2i(_pet_window_size.x, int(OFFERING_DROP_ZONE_HEIGHT))
+	_offering_input_window.size = Vector2i(
+		_pet_window_size.x,
+		_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS
+	)
 	_offering_input_window.visible = false
 	add_child(_offering_input_window)
 
@@ -629,9 +636,8 @@ func _update_offering_input_window() -> void:
 	if _offering_input_window == null:
 		return
 	var usable_bottom := _pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS
-	var zone_height := mini(int(OFFERING_DROP_ZONE_HEIGHT), usable_bottom)
-	_offering_input_window.position = get_window().position + Vector2i(0, usable_bottom - zone_height)
-	_offering_input_window.size = Vector2i(_pet_window_size.x, zone_height)
+	_offering_input_window.position = get_window().position
+	_offering_input_window.size = Vector2i(_pet_window_size.x, usable_bottom)
 	_offering_input_window.visible = not _carried_offering.is_empty()
 
 
@@ -1127,6 +1133,9 @@ func _load_game() -> void:
 	_follower_count = maxf(0.0, float(save.get_value("economy", "followers", 0.0)))
 	_selected_pet_id = String(save.get_value("pets", "selected_pet_id", ""))
 	_pet_states = _sanitize_loaded_pet_states(save.get_value("pets", "states", {}))
+	_pet_offering_buffs = _sanitize_loaded_offering_buffs(
+		save.get_value("offerings", "active_buffs", {})
+	)
 	_shop_owned_counts = _sanitize_owned_counts(save.get_value("shop", "owned_counts", {}))
 	_gacha_draw_count = clampi(int(save.get_value("gacha", "draw_count", 0)), 0, 1000000)
 	_gacha_pity_count = clampi(int(save.get_value("gacha", "pity_count", 0)), 0, 11)
@@ -1180,6 +1189,7 @@ func _save_game() -> void:
 	save.set_value("news", "follower_tier", news_state.get("follower_tier", 0))
 	save.set_value("news", "recent_templates", news_state.get("recent_templates", []))
 	save.set_value("shop", "carried_offering", _carried_offering.duplicate(true))
+	save.set_value("offerings", "active_buffs", _pet_offering_buffs.duplicate(true))
 	var save_error := save.save(SAVE_PATH)
 	if save_error != OK:
 		push_warning("Could not save game data: %s" % error_string(save_error))
@@ -1262,6 +1272,32 @@ func _sanitize_owned_counts(raw_value: Variant) -> Dictionary:
 	return sanitized
 
 
+func _sanitize_loaded_offering_buffs(raw_value: Variant) -> Dictionary:
+	var sanitized := {}
+	if not raw_value is Dictionary:
+		return sanitized
+	var now := _get_now_seconds()
+	var raw_buffs: Dictionary = raw_value
+	for pet_id_value in raw_buffs:
+		var pet_id := String(pet_id_value)
+		if not PetCatalog.DEFINITIONS.has(pet_id):
+			continue
+		var buff_value: Variant = raw_buffs[pet_id_value]
+		if not buff_value is Dictionary:
+			continue
+		var buff: Dictionary = buff_value
+		var multiplier := clampf(float(buff.get("multiplier", 1.0)), 1.0, 100.0)
+		var expires_at := clampf(float(buff.get("expires_at", 0.0)), 0.0, now + 3600.0)
+		if multiplier <= 1.0 or expires_at <= now:
+			continue
+		sanitized[pet_id] = {
+			"multiplier": multiplier,
+			"expires_at": expires_at,
+			"offering_name": String(buff.get("offering_name", "贡品")).strip_edges().left(40)
+		}
+	return sanitized
+
+
 func _sanitize_gacha_history(raw_value: Variant) -> Array[Dictionary]:
 	var sanitized: Array[Dictionary] = []
 	if not raw_value is Array:
@@ -1341,11 +1377,16 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 		var pet_data := PetCatalog.get_definition(pet_id)
 		var is_max_level := level >= PetProgression.MAX_LEVEL
 		var cost := 0 if is_max_level else _get_upgrade_cost(pet_id)
-		var current_fps := _get_pet_faith_per_second(pet_id, level) * _get_total_faith_multiplier()
+		var offering_multiplier := _get_pet_offering_multiplier(pet_id)
+		var current_fps := (
+			_get_pet_faith_per_second(pet_id, level)
+			* offering_multiplier
+			* _get_total_faith_multiplier()
+		)
 		var next_fps := _get_pet_faith_per_second(
 			pet_id,
 			mini(PetProgression.MAX_LEVEL, level + 1)
-		) * _get_total_faith_multiplier()
+		) * offering_multiplier * _get_total_faith_multiplier()
 		entries.append({
 			"id": pet_id,
 			"name": _get_pet_display_name(pet_id),
@@ -1360,6 +1401,8 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			"next_fps": next_fps,
 			"next_growth_bonus": maxf(0.0, next_fps - current_fps),
 			"total_growth_bonus": current_fps,
+			"offering_multiplier": offering_multiplier,
+			"offering_seconds_remaining": _get_pet_offering_seconds_remaining(pet_id),
 			"affordable": not is_max_level and int(floor(_faith_points)) >= cost
 		})
 
@@ -1377,7 +1420,10 @@ func _get_faith_growth_rate() -> float:
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var state := _get_pet_state(pet_id)
-		total_fps += _get_pet_faith_per_second(pet_id, PetProgression.progression_level(state))
+		total_fps += (
+			_get_pet_faith_per_second(pet_id, PetProgression.progression_level(state))
+			* _get_pet_offering_multiplier(pet_id)
+		)
 
 	return total_fps * _get_total_faith_multiplier()
 
@@ -1388,6 +1434,40 @@ func _get_follower_growth_rate() -> float:
 
 func _get_pet_faith_per_second(pet_id: String, level: int) -> float:
 	return PetProgression.faith_per_second(PetCatalog.get_definition(pet_id), level)
+
+
+func _get_pet_offering_multiplier(pet_id: String, now := -1.0) -> float:
+	var buff_value: Variant = _pet_offering_buffs.get(pet_id, {})
+	if not buff_value is Dictionary:
+		return 1.0
+	var buff: Dictionary = buff_value
+	var current_time := _get_now_seconds() if now < 0.0 else now
+	if float(buff.get("expires_at", 0.0)) <= current_time:
+		return 1.0
+	return maxf(1.0, float(buff.get("multiplier", 1.0)))
+
+
+func _get_pet_offering_seconds_remaining(pet_id: String, now := -1.0) -> float:
+	var buff_value: Variant = _pet_offering_buffs.get(pet_id, {})
+	if not buff_value is Dictionary:
+		return 0.0
+	var current_time := _get_now_seconds() if now < 0.0 else now
+	return maxf(0.0, float((buff_value as Dictionary).get("expires_at", 0.0)) - current_time)
+
+
+func _update_pet_offering_buffs() -> void:
+	if _pet_offering_buffs.is_empty():
+		return
+	var now := _get_now_seconds()
+	var changed := false
+	for pet_id_value in _pet_offering_buffs.keys().duplicate():
+		var pet_id := String(pet_id_value)
+		if _get_pet_offering_seconds_remaining(pet_id, now) > 0.0:
+			continue
+		_pet_offering_buffs.erase(pet_id)
+		changed = true
+	if changed:
+		_pet_upgrade_stats_dirty = true
 
 
 func _get_total_faith_multiplier() -> float:
@@ -1477,9 +1557,7 @@ func _update_pet_emotions() -> void:
 			continue
 
 		var emotion := PetCatalog.choose_weighted_emotion(pet_id, _rng.randf())
-		var spawned := _spawn_emotion(pet, emotion, Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
-		if spawned and pet.has_method("react_to_emotion"):
-			pet.call("react_to_emotion", emotion)
+		_spawn_emotion(pet, emotion, Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
 		_schedule_next_ambient_emotion(pet_id, now)
 
 
@@ -1586,10 +1664,9 @@ func _finish_pending_offering_for_actor(actor: Node2D) -> void:
 	_pending_offering_feeds.erase(target_key)
 	var pet_id := _get_actor_pet_id(actor)
 	var sprite := feed_data.get("sprite") as Sprite2D
-	var faith_gain := int(feed_data.get("faith_gain", 1))
 	var drop_position: Vector2 = feed_data.get("drop_position", actor.position)
-	var offering_name := String(feed_data.get("offering_name", "贡品"))
-	_finish_offering_consumed(sprite, faith_gain, drop_position, pet_id, offering_name)
+	var offering: Dictionary = feed_data.get("offering", {})
+	_finish_offering_consumed(sprite, offering, drop_position, pet_id)
 
 
 func _on_believer_exited(actor: Node2D) -> void:
@@ -1700,8 +1777,14 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 		_carried_offering = carried
 		_set_offering_cursor(String(_carried_offering.get("texture", "")))
 		_update_offering_input_window()
+		_show_faith_change_popup(_get_window_mouse_position(get_window()), -float(price))
 		_sync_shop_state()
-		_shop_window.call("set_purchase_result", good_id, true, "已拿起：%s，点击桌面底部投放" % String(good.get("name", "贡品")))
+		_shop_window.call(
+			"set_purchase_result",
+			good_id,
+			true,
+			"已拿起：%s，点击桌面任意位置投放，右键取消" % String(good.get("name", "贡品"))
+		)
 		if _shop_window.has_method("close_window"):
 			_shop_window.call("close_window")
 		else:
@@ -1711,6 +1794,7 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 		return
 
 	_faith_points -= float(price)
+	_show_faith_change_popup(_get_window_mouse_position(get_window()), -float(price))
 	_shop_owned_counts[good_id] = int(_shop_owned_counts.get(good_id, 0)) + 1
 	_sync_shop_state()
 	_shop_window.call("set_purchase_result", good_id, true, "购买成功：%s" % String(good.get("name", "商品")))
@@ -1750,6 +1834,7 @@ func _cancel_carried_offering() -> void:
 	var refund := maxi(0, int(cancelled_offering.get("purchase_price", 0)))
 	if refund > 0:
 		_faith_points += float(refund)
+		_show_faith_change_popup(_get_window_mouse_position(get_window()), float(refund))
 		_sync_shop_state()
 		_refresh_pet_stats(true)
 		if _shop_window != null and _shop_window.has_method("set_purchase_result"):
@@ -1774,10 +1859,8 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 	_save_game()
 
 	var texture := load(String(offering.get("texture", ""))) as Texture2D
-	var faith_gain := _get_offering_faith_gain(offering)
-	var offering_name := String(offering.get("name", "贡品"))
 	if texture == null:
-		_finish_offering_consumed(null, faith_gain, window_position, "", offering_name)
+		_finish_offering_consumed(null, offering, window_position, "")
 		return
 
 	var sprite := Sprite2D.new()
@@ -1800,14 +1883,13 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 	var target := _get_offering_target_pet(drop_position.x)
 	if target == null or not is_instance_valid(target):
 		drop_tween.tween_interval(0.18)
-		drop_tween.tween_callback(_finish_offering_consumed.bind(sprite, faith_gain, drop_position, "", offering_name))
+		drop_tween.tween_callback(_finish_offering_consumed.bind(sprite, offering, drop_position, ""))
 		return
 
 	var target_key := str(target.get_instance_id())
 	_pending_offering_feeds[target_key] = {
 		"sprite": sprite,
-		"faith_gain": faith_gain,
-		"offering_name": offering_name,
+		"offering": offering,
 		"drop_position": drop_position,
 		"target": target,
 		"expires_at": _get_now_seconds() + OFFERING_FEED_TIMEOUT_SECONDS,
@@ -1821,11 +1903,7 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 	else:
 		_pending_offering_feeds.erase(target_key)
 		drop_tween.tween_interval(0.42)
-		drop_tween.tween_callback(_finish_offering_consumed.bind(sprite, faith_gain, drop_position, "", offering_name))
-
-
-func _get_offering_faith_gain(offering: Dictionary) -> int:
-	return maxi(0, int(offering.get("faith", 0)))
+		drop_tween.tween_callback(_finish_offering_consumed.bind(sprite, offering, drop_position, ""))
 
 
 func _get_grounded_offering_position(click_x: float, texture: Texture2D, sprite_scale: float) -> Vector2:
@@ -1863,12 +1941,11 @@ func _send_pet_to_offering(target: Node2D, target_key: String, target_x: float) 
 
 	_pending_offering_feeds.erase(target_key)
 	var sprite := feed_data.get("sprite") as Sprite2D
-	var faith_gain := int(feed_data.get("faith_gain", 1))
 	var drop_position: Vector2 = feed_data.get("drop_position", Vector2(_pet_window_size.x * 0.5, _pet_window_size.y * 0.5))
 	var actor := feed_data.get("target") as Node2D
 	var pet_id := _get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
-	var offering_name := String(feed_data.get("offering_name", "贡品"))
-	_finish_offering_consumed(sprite, faith_gain, drop_position, pet_id, offering_name)
+	var offering: Dictionary = feed_data.get("offering", {})
+	_finish_offering_consumed(sprite, offering, drop_position, pet_id)
 
 
 func _update_pending_offerings() -> void:
@@ -1887,11 +1964,10 @@ func _update_pending_offerings() -> void:
 
 		_pending_offering_feeds.erase(target_key)
 		var sprite := feed_data.get("sprite") as Sprite2D
-		var faith_gain := int(feed_data.get("faith_gain", 1))
 		var drop_position: Vector2 = feed_data.get("drop_position", Vector2(_pet_window_size) * 0.5)
 		var pet_id := _get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
-		var offering_name := String(feed_data.get("offering_name", "贡品"))
-		_finish_offering_consumed(sprite, faith_gain, drop_position, pet_id, offering_name)
+		var offering: Dictionary = feed_data.get("offering", {})
+		_finish_offering_consumed(sprite, offering, drop_position, pet_id)
 
 
 func _mark_offering_landed(target_key: String) -> void:
@@ -1929,12 +2005,12 @@ func _consume_pending_offering(target_key: String) -> void:
 
 	_pending_offering_feeds.erase(target_key)
 	var sprite := feed_data.get("sprite") as Sprite2D
-	var faith_gain := int(feed_data.get("faith_gain", 1))
 	var drop_position: Vector2 = feed_data.get("drop_position", Vector2(_pet_window_size.x * 0.5, _pet_window_size.y * 0.5))
 	var actor := feed_data.get("target") as Node2D
-	var offering_name := String(feed_data.get("offering_name", "贡品"))
+	var offering: Dictionary = feed_data.get("offering", {})
 	if sprite == null or not is_instance_valid(sprite):
-		_finish_offering_consumed(null, faith_gain, drop_position, "", offering_name)
+		var fallback_pet_id := _get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
+		_finish_offering_consumed(null, offering, drop_position, fallback_pet_id)
 		return
 
 	var actor_position := actor.position if actor != null and is_instance_valid(actor) else drop_position
@@ -1946,21 +2022,22 @@ func _consume_pending_offering(target_key: String) -> void:
 	tween.tween_property(sprite, "position", eat_position, 0.18)
 	tween.parallel().tween_property(sprite, "scale", Vector2.ONE * 0.12, 0.18)
 	tween.parallel().tween_property(sprite, "modulate", Color(1.0, 1.0, 1.0, 0.0), 0.18)
-	tween.tween_callback(_finish_offering_consumed.bind(sprite, faith_gain, eat_position, pet_id, offering_name))
+	tween.tween_callback(_finish_offering_consumed.bind(sprite, offering, eat_position, pet_id))
 
 
 func _finish_offering_consumed(
 	sprite: Sprite2D,
-	faith_gain: int,
+	offering: Dictionary,
 	popup_position: Vector2,
-	pet_id := "",
-	offering_name := "贡品"
+	pet_id := ""
 ) -> void:
 	if sprite != null and is_instance_valid(sprite):
 		sprite.queue_free()
 
 	if not pet_id.is_empty():
+		_apply_pet_offering_buff(pet_id, offering)
 		_react_pet_to_offering(pet_id)
+		var offering_name := String(offering.get("name", "贡品"))
 		_try_queue_news_event(
 			"offering",
 			{"item_name": offering_name},
@@ -1968,10 +2045,26 @@ func _finish_offering_consumed(
 			24.0,
 			0.72
 		)
-	_grant_faith(float(faith_gain))
+		_show_offering_buff_popup(popup_position, pet_id, offering)
+	else:
+		_show_status_popup(popup_position, "没有宠物接取贡品", Color(1.0, 0.68, 0.48, 1.0))
 	_refresh_pet_stats(true)
-	_show_faith_gain_popup(popup_position, faith_gain)
 	_save_game()
+
+
+func _apply_pet_offering_buff(pet_id: String, offering: Dictionary) -> void:
+	if pet_id.is_empty() or not PetCatalog.DEFINITIONS.has(pet_id):
+		return
+	var multiplier := clampf(float(offering.get("multiplier", 1.0)), 1.0, 100.0)
+	var duration_seconds := clampf(float(offering.get("duration_seconds", 60.0)), 1.0, 3600.0)
+	if multiplier <= 1.0:
+		return
+	_pet_offering_buffs[pet_id] = {
+		"multiplier": multiplier,
+		"expires_at": _get_now_seconds() + duration_seconds,
+		"offering_name": String(offering.get("name", "贡品")).strip_edges().left(40)
+	}
+	_pet_upgrade_stats_dirty = true
 
 
 func _react_pet_to_offering(pet_id: String) -> void:
@@ -1990,17 +2083,45 @@ func _get_desktop_pet_by_id(pet_id: String) -> Node2D:
 	return null
 
 
-func _show_faith_gain_popup(anchor: Vector2, faith_gain: int) -> void:
+func _show_offering_buff_popup(anchor: Vector2, pet_id: String, offering: Dictionary) -> void:
+	var multiplier := maxf(1.0, float(offering.get("multiplier", 1.0)))
+	var duration_seconds := maxi(1, int(round(float(offering.get("duration_seconds", 60.0)))))
+	_show_status_popup(
+		anchor,
+		"%s  ×%s · %d秒" % [
+			_get_pet_display_name(pet_id),
+			_format_multiplier(multiplier),
+			duration_seconds
+		],
+		Color(0.88, 1.0, 0.64, 1.0)
+	)
+
+
+func _show_faith_change_popup(anchor: Vector2, amount: float) -> void:
+	if is_zero_approx(amount):
+		return
+	var prefix := "+" if amount > 0.0 else "-"
+	var color := Color(0.88, 1.0, 0.78, 1.0) if amount > 0.0 else Color(1.0, 0.58, 0.46, 1.0)
+	_show_status_popup(
+		anchor,
+		"%s%s 信仰" % [prefix, _format_faith_amount(absf(amount))],
+		color
+	)
+
+
+func _show_status_popup(anchor: Vector2, text_value: String, color: Color) -> void:
+	if not is_inside_tree():
+		return
 	var label := Label.new()
-	label.text = "+%d 信仰" % faith_gain
+	label.text = text_value
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.size = Vector2(116.0, 30.0)
-	label.position = _get_safe_control_position(anchor + Vector2(-58.0, -96.0), label.size, SAFE_CANVAS_MARGIN)
+	label.size = Vector2(280.0, 34.0)
+	label.position = _get_safe_control_position(anchor + Vector2(-140.0, -96.0), label.size, SAFE_CANVAS_MARGIN)
 	label.z_index = 360
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", 20)
-	label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
+	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	label.add_theme_constant_override("outline_size", 4)
 	add_child(label)
@@ -2011,6 +2132,34 @@ func _show_faith_gain_popup(anchor: Vector2, faith_gain: int) -> void:
 	tween.tween_property(label, "position", _get_safe_control_position(label.position + Vector2(0.0, -28.0), label.size, SAFE_CANVAS_MARGIN), 0.58)
 	tween.parallel().tween_property(label, "modulate", Color(1.0, 1.0, 1.0, 0.0), 0.58)
 	tween.tween_callback(Callable(label, "queue_free"))
+
+
+static func _format_multiplier(value: float) -> String:
+	var text := String.num(maxf(1.0, value), 2)
+	while text.contains(".") and text.ends_with("0"):
+		text = text.left(text.length() - 1)
+	if text.ends_with("."):
+		text = text.left(text.length() - 1)
+	return text
+
+
+static func _format_faith_amount(value: float) -> String:
+	var safe_value := maxf(0.0, value) if is_finite(value) else 0.0
+	if safe_value >= 1.0e18:
+		return "%.2e" % safe_value
+	var units := [
+		{"threshold": 1.0e15, "suffix": "Qa"},
+		{"threshold": 1.0e12, "suffix": "T"},
+		{"threshold": 1.0e9, "suffix": "B"},
+		{"threshold": 1.0e6, "suffix": "M"},
+		{"threshold": 1.0e3, "suffix": "K"}
+	]
+	for unit in units:
+		var threshold := float(unit.get("threshold", 1.0))
+		if safe_value >= threshold:
+			var scaled := safe_value / threshold
+			return "%.0f%s" % [scaled, String(unit.get("suffix", ""))] if scaled >= 100.0 else "%.1f%s" % [scaled, String(unit.get("suffix", ""))]
+	return "%.0f" % safe_value if safe_value >= 10.0 else String.num(safe_value, 2)
 
 
 func _get_safe_control_position(raw_position: Vector2, size: Vector2, margin: float) -> Vector2:
@@ -2054,9 +2203,18 @@ func _on_pet_upgrade_requested(pet_id: String) -> void:
 
 
 func _on_faith_add_requested(amount: int) -> void:
-	_grant_faith(float(maxi(1, amount)))
+	var faith_gain := _get_manual_faith_click_gain(amount)
+	_grant_faith(faith_gain)
+	_show_faith_change_popup(_get_window_mouse_position(get_window()), faith_gain)
 	_refresh_pet_stats(true)
 	_save_game()
+
+
+func _get_manual_faith_click_gain(base_amount := 1) -> float:
+	var passive_scaled_gain := _get_faith_growth_rate() * MANUAL_CLICK_RATE_SECONDS
+	if not is_finite(passive_scaled_gain):
+		passive_scaled_gain = 0.0
+	return maxf(float(maxi(1, base_amount)), passive_scaled_gain)
 
 
 func _on_quit_requested() -> void:

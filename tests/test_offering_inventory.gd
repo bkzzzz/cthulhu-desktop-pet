@@ -12,12 +12,15 @@ static func run() -> Array[String]:
 	_test_normalization(failures)
 	_test_shop_goods(failures)
 	_test_shop_purchase_to_cursor(failures)
+	_test_pet_specific_timed_buff(failures)
 	_test_removed_altar_api(failures)
 	return failures
 
 
 static func _test_catalog(failures: Array[String]) -> void:
 	var seen_ids := {}
+	var previous_price := 0
+	var previous_multiplier := 1.0
 	for item_value in OfferingCatalog.ITEMS:
 		var item: Dictionary = item_value
 		var offering_id := String(item.get("id", ""))
@@ -31,9 +34,18 @@ static func _test_catalog(failures: Array[String]) -> void:
 		if texture_path.is_empty() or not FileAccess.file_exists(texture_path):
 			failures.append("%s must provide a valid texture" % offering_id)
 		var price := int(item.get("price", 0))
-		var faith := int(item.get("faith", 0))
-		if faith <= 0 or price <= faith:
-			failures.append("%s must be a faith sink with a fixed reward below its price" % offering_id)
+		var multiplier := float(item.get("multiplier", 1.0))
+		var duration_seconds := float(item.get("duration_seconds", 0.0))
+		if price < 500 or price <= previous_price:
+			failures.append("%s must be part of the strictly increasing expensive offering price curve" % offering_id)
+		if multiplier <= 1.0 or multiplier <= previous_multiplier:
+			failures.append("%s must grant a larger production multiplier than cheaper food" % offering_id)
+		if duration_seconds < 45.0 or duration_seconds > 75.0:
+			failures.append("%s boost duration must stay around one minute" % offering_id)
+		if item.has("faith"):
+			failures.append("%s must not retain the removed instant faith refund" % offering_id)
+		previous_price = price
+		previous_multiplier = multiplier
 		if String(item.get("description", "")).is_empty():
 			failures.append("%s must explain how the consumable is used" % offering_id)
 		if item.has("faith_min") or item.has("faith_max") or item.has("stock_id"):
@@ -60,6 +72,8 @@ static func _test_normalization(failures: Array[String]) -> void:
 		"texture": "res://missing.png",
 		"price": 0,
 		"faith": 999999,
+		"multiplier": 999.0,
+		"duration_seconds": 999.0,
 		"purchase_price": 8,
 		"favor_gain": 999,
 		"stock_id": "legacy"
@@ -68,11 +82,13 @@ static func _test_normalization(failures: Array[String]) -> void:
 		failures.append("known legacy offerings must normalize into shop consumables")
 	if String(normalized.get("name", "")) != "红果":
 		failures.append("normalization must restore trusted catalog presentation")
-	if int(normalized.get("faith", 0)) >= int(normalized.get("price", 0)):
-		failures.append("normalization must restore the fixed non-profitable reward")
+	if not is_equal_approx(float(normalized.get("multiplier", 0.0)), 2.0):
+		failures.append("normalization must restore the trusted production multiplier")
+	if not is_equal_approx(float(normalized.get("duration_seconds", 0.0)), 60.0):
+		failures.append("normalization must restore the trusted one-minute duration")
 	if int(normalized.get("purchase_price", -1)) != 8:
 		failures.append("normalization must preserve the exact paid price for cancellation")
-	for removed_key in ["favor_gain", "stock_id", "faith_min", "faith_max"]:
+	for removed_key in ["faith", "favor_gain", "stock_id", "faith_min", "faith_max"]:
 		if normalized.has(removed_key):
 			failures.append("normalized offerings must discard old altar field %s" % removed_key)
 	if not OfferingCatalog.normalize_offering({"id": "unknown"}).is_empty():
@@ -85,15 +101,12 @@ static func _test_shop_goods(failures: Array[String]) -> void:
 	var shop := ShopWindow.new()
 	var goods: Array[Dictionary] = shop.call("_make_default_goods")
 	var offering_count := 0
-	var has_seed := false
 	for good in goods:
 		var good_id := String(good.get("id", ""))
 		if good_id == "seed1":
-			has_seed = true
+			failures.append("the dream seed must be removed from the offering shop")
 		if OfferingCatalog.is_offering(good):
 			offering_count += 1
-	if not has_seed:
-		failures.append("adding offerings must not remove the shop's existing durable goods")
 	if offering_count != OfferingCatalog.ITEMS.size():
 		failures.append("the default shop must list every offering food")
 
@@ -101,15 +114,15 @@ static func _test_shop_goods(failures: Array[String]) -> void:
 	var fish := shop.get_good("fish")
 	if not OfferingCatalog.is_offering(fish):
 		failures.append("shop normalization must preserve valid offering metadata")
-	if int(fish.get("faith", 0)) <= 0 or int(fish.get("price", 0)) <= int(fish.get("faith", 0)):
-		failures.append("shop lookup must return the fixed offering price and reward")
+	if float(fish.get("multiplier", 0.0)) <= 1.0 or int(fish.get("price", 0)) < 500:
+		failures.append("shop lookup must preserve the expensive timed boost metadata")
 	shop.free()
 
 
 static func _test_shop_purchase_to_cursor(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
-	main.set("_faith_points", 100.0)
+	main.set("_faith_points", 2000.0)
 	main.set("_lifetime_faith", 17.0)
 	var shop := ShopWindow.new()
 	shop.setup()
@@ -119,14 +132,14 @@ static func _test_shop_purchase_to_cursor(failures: Array[String]) -> void:
 	var carried: Dictionary = main.get("_carried_offering")
 	if String(carried.get("id", "")) != "red_fruit":
 		failures.append("buying an offering must immediately put that food on the cursor")
-	if int(carried.get("purchase_price", -1)) != 8 or not is_equal_approx(float(main.get("_faith_points")), 92.0):
+	if int(carried.get("purchase_price", -1)) != 500 or not is_equal_approx(float(main.get("_faith_points")), 1500.0):
 		failures.append("buying a cursor offering must charge its exact shop price once")
 	var owned_counts: Dictionary = main.get("_shop_owned_counts")
 	if owned_counts.has("red_fruit"):
 		failures.append("consumable offerings must not enter the durable owned-count inventory")
 
 	main.call("_on_shop_purchase_requested", "fish")
-	if not is_equal_approx(float(main.get("_faith_points")), 92.0):
+	if not is_equal_approx(float(main.get("_faith_points")), 1500.0):
 		failures.append("the shop must not charge for a second offering while one is already carried")
 	var refused_carried: Dictionary = main.get("_carried_offering")
 	if String(refused_carried.get("id", "")) != "red_fruit":
@@ -136,13 +149,36 @@ static func _test_shop_purchase_to_cursor(failures: Array[String]) -> void:
 	var cancelled_carried: Dictionary = main.get("_carried_offering")
 	if not cancelled_carried.is_empty():
 		failures.append("right-click cancellation must clear the carried offering")
-	if not is_equal_approx(float(main.get("_faith_points")), 100.0):
+	if not is_equal_approx(float(main.get("_faith_points")), 2000.0):
 		failures.append("cancelling before placement must refund the exact purchase price")
 	if not is_equal_approx(float(main.get("_lifetime_faith")), 17.0):
 		failures.append("an offering refund must not inflate lifetime-generated faith")
 
 	main.set("_shop_window", null)
 	shop.free()
+	main.free()
+
+
+static func _test_pet_specific_timed_buff(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	var base_rate: float = main.call("_get_faith_growth_rate")
+	var pet1_rate: float = main.call("_get_pet_faith_per_second", "pet1", 1)
+	var offering: Dictionary = OfferingCatalog.normalize_offering({"id": "red_fruit"})
+	main.call("_apply_pet_offering_buff", "pet1", offering)
+	var boosted_rate: float = main.call("_get_faith_growth_rate")
+	if not is_equal_approx(boosted_rate, base_rate + pet1_rate):
+		failures.append("an offering must multiply only the fed pet's faith production")
+	if not is_equal_approx(float(main.call("_get_pet_offering_multiplier", "pet1")), 2.0):
+		failures.append("feeding must activate the catalog multiplier on the target pet")
+	if not is_equal_approx(float(main.call("_get_pet_offering_multiplier", "pet2")), 1.0):
+		failures.append("feeding one pet must not boost any other pet")
+	var buffs: Dictionary = main.get("_pet_offering_buffs")
+	var pet1_buff: Dictionary = buffs.get("pet1", {})
+	pet1_buff["expires_at"] = float(main.call("_get_now_seconds")) - 1.0
+	main.call("_update_pet_offering_buffs")
+	if not is_equal_approx(float(main.call("_get_faith_growth_rate")), base_rate):
+		failures.append("an expired offering boost must restore the pet's normal production")
 	main.free()
 
 

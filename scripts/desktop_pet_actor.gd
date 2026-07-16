@@ -81,11 +81,13 @@ var _walk_speed := PET_WALK_SPEED
 var _walk_distance_min := 40.0
 var _walk_distance_max := 180.0
 var _behavior_style := "wanderer"
+var _activity_chance := 0.2
 var _idle_time_min := 0.9
 var _idle_time_max := 4.6
 var _special_chance := 0.0
 var _doze_chance := 0.0
 var _hide_chance := 0.0
+var _can_hide := false
 var _wall_chance := 0.0
 var _can_wall_crawl := false
 var _air_roam_chance := 0.0
@@ -172,11 +174,15 @@ func setup(
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ pet_id.hash()
 	_float_phase = _rng.randf_range(0.0, TAU)
 	_behavior_style = String(pet_data.get("behavior", "wanderer"))
+	_activity_chance = clampf(float(pet_data.get("activity_chance", 0.2)), 0.0, 1.0)
 	_idle_time_min = float(pet_data.get("idle_time_min", 0.9))
 	_idle_time_max = maxf(_idle_time_min, float(pet_data.get("idle_time_max", 4.6)))
 	_special_chance = clampf(float(pet_data.get("special_chance", 0.0)), 0.0, 1.0)
 	_doze_chance = clampf(float(pet_data.get("doze_chance", 0.0)), 0.0, 1.0)
 	_hide_chance = clampf(float(pet_data.get("hide_chance", 0.0)), 0.0, 1.0)
+	_can_hide = bool(pet_data.get("can_hide", false))
+	if not _can_hide:
+		_hide_chance = 0.0
 	_wall_chance = clampf(float(pet_data.get("wall_chance", 0.0)), 0.0, 1.0)
 	_can_wall_crawl = bool(pet_data.get("can_wall_crawl", _wall_chance > 0.0))
 	if not _can_wall_crawl:
@@ -614,13 +620,16 @@ func _update_idle(delta: float) -> void:
 		_idle_turn_time -= delta
 		if _idle_turn_time <= 0.0:
 			_face_direction(-1.0 if _rng.randf() < 0.5 else 1.0)
-			_idle_turn_time = _rng.randf_range(1.4, 3.4)
+			_idle_turn_time = _rng.randf_range(12.0, 30.0)
 	_idle_time -= delta
 	if _idle_time <= 0.0:
 		_choose_next_action()
 
 
 func _choose_next_action() -> void:
+	if _rng.randf() >= _activity_chance:
+		_start_idle()
+		return
 	var special_roll := _rng.randf()
 	var action_threshold := 0.0
 	if _behavior_style == "burrower":
@@ -686,7 +695,7 @@ func _start_idle() -> void:
 	_idle_anchor_x = clampf(position.x, _min_x, _max_x)
 	position.x = _idle_anchor_x
 	_idle_time = _rng.randf_range(_idle_time_min, _idle_time_max)
-	_idle_turn_time = _rng.randf_range(1.4, 3.4)
+	_idle_turn_time = _rng.randf_range(12.0, 30.0)
 	_sprite.rotation = 0.0
 	_sprite.speed_scale = 1.0
 	_sprite.visible = true
@@ -736,6 +745,9 @@ func _update_dozing(delta: float) -> void:
 
 
 func _start_hiding() -> void:
+	if not _can_hide:
+		_start_idle()
+		return
 	_hide_pending = true
 	_wall_pending = false
 	_forced_target_pending = false
@@ -790,6 +802,8 @@ func _update_popping(delta: float) -> void:
 	position.y -= sin(_pop_progress * PI) * _pop_height
 	if _pop_progress >= 1.0:
 		position = _pop_target_position
+		if _behavior_style == "sleepy_floater":
+			_float_anchor_y = _pop_target_position.y
 		_start_idle()
 
 

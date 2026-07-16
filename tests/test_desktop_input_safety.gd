@@ -15,10 +15,12 @@ static func run() -> Array[String]:
 	if target_size.y != 1080 + Main.PET_TASKBAR_OVERLAP_PIXELS:
 		failures.append("the visual pet window must include only the configured taskbar art overlap")
 	main.set("_pet_window_size", target_size)
-	if bool(main.call("_is_offering_drop_zone", Vector2(900.0, 300.0))):
-		failures.append("the upper desktop must remain clickable while carrying an offering")
+	if not bool(main.call("_is_offering_drop_zone", Vector2(900.0, 300.0))):
+		failures.append("offerings must be droppable across the upper desktop")
 	if not bool(main.call("_is_offering_drop_zone", Vector2(900.0, 900.0))):
 		failures.append("offerings must remain droppable inside the bottom pet stage")
+	if bool(main.call("_is_offering_drop_zone", Vector2(900.0, 1100.0))):
+		failures.append("the offering overlay must stop at the usable desktop boundary")
 	main.set("_carried_offering", {"id": "focus_regression"})
 	main.call("_notification", Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
 	var carried_after_focus: Dictionary = main.get("_carried_offering")

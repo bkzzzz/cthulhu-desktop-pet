@@ -126,7 +126,6 @@ var _position_retry_frames := 0
 var _faith_value_label: Label
 var _faith_title_label: Label
 var _faith_growth_value_label: Label
-var _follower_summary_label: Label
 var _faith_count := 0.0
 var _follower_count := 0
 var _faith_growth_rate := 0.0
@@ -236,15 +235,6 @@ func refresh_pet_upgrades(entries: Array) -> void:
 func refresh_followers(follower_count: int, growth_rate: float) -> void:
 	_follower_count = maxi(0, follower_count)
 	_follower_growth_rate = maxf(0.0, growth_rate)
-	if _follower_summary_label != null:
-		var next_text := "信众 %s · +%s%s" % [
-			_format_number(float(_follower_count), false),
-			_format_number(_follower_growth_rate, true),
-			RATE_SUFFIX
-		]
-		if _follower_summary_label.text != next_text:
-			_follower_summary_label.text = next_text
-			_fit_font_to_text(_follower_summary_label, next_text, 15, 11, 22)
 
 
 # Menu and drawer windows
@@ -598,8 +588,8 @@ func _make_faith_adder_stage() -> Control:
 	_faith_value_label.text = _format_number(_faith_count, false, true)
 	_faith_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_faith_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 280.0) * 0.5, 286.0)
-	_faith_value_label.size = Vector2(280.0, 58.0)
+	_faith_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 300.0) * 0.5, 282.0)
+	_faith_value_label.size = Vector2(300.0, 72.0)
 	_faith_value_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	_faith_value_label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_faith_value_label.add_theme_font_size_override("font_size", FAITH_COUNTER_VALUE_FONT_MAX)
@@ -617,7 +607,7 @@ func _make_faith_adder_stage() -> Control:
 	_faith_title_label.text = "信仰点数"
 	_faith_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_faith_title_label.position = Vector2((DRAWER_CONTENT_WIDTH - 118.0) * 0.5, 263.0)
+	_faith_title_label.position = Vector2((DRAWER_CONTENT_WIDTH - 118.0) * 0.5, 256.0)
 	_faith_title_label.size = Vector2(118.0, 22.0)
 	_faith_title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_faith_title_label.add_theme_font_size_override("font_size", 17)
@@ -626,32 +616,13 @@ func _make_faith_adder_stage() -> Control:
 	_faith_title_label.add_theme_constant_override("outline_size", 3)
 	stage.add_child(_faith_title_label)
 
-	_follower_summary_label = Label.new()
-	_follower_summary_label.name = "FollowerSummary"
-	_follower_summary_label.text = "信众 %s · +%s%s" % [
-		_format_number(float(_follower_count), false),
-		_format_number(_follower_growth_rate, true),
-		RATE_SUFFIX
-	]
-	_follower_summary_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_follower_summary_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_follower_summary_label.position = Vector2(0.0, 343.0)
-	_follower_summary_label.size = Vector2(DRAWER_CONTENT_WIDTH, 21.0)
-	_follower_summary_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_follower_summary_label.add_theme_font_size_override("font_size", 15)
-	_follower_summary_label.add_theme_color_override("font_color", Color(0.76, 0.76, 0.62, 1.0))
-	_follower_summary_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	_follower_summary_label.add_theme_constant_override("outline_size", 2)
-	stage.add_child(_follower_summary_label)
-	_fit_font_to_text(_follower_summary_label, _follower_summary_label.text, 15, 11, 22)
-
 	_faith_growth_value_label = Label.new()
 	_faith_growth_value_label.name = "FaithGrowthValue"
 	_faith_growth_value_label.text = "+%s%s" % [_format_number(_faith_growth_rate, true), RATE_SUFFIX]
 	_faith_growth_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_growth_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_faith_growth_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 220.0) * 0.5, 365.0)
-	_faith_growth_value_label.size = Vector2(220.0, 24.0)
+	_faith_growth_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 240.0) * 0.5, 360.0)
+	_faith_growth_value_label.size = Vector2(240.0, 28.0)
 	_faith_growth_value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_faith_growth_value_label.add_theme_font_size_override("font_size", 22)
 	_faith_growth_value_label.add_theme_color_override("font_color", Color(0.78, 1.0, 0.7, 1.0))

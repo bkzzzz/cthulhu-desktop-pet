@@ -63,6 +63,14 @@ static func run() -> Array[String]:
 
 	formatter.call("_create_drawer_window")
 	var drawer_root := formatter.get("_drawer_root") as Control
+	if drawer_root.find_child("FollowerSummary", true, false) != null:
+		failures.append("the faith header must not retain the follower summary line")
+	var faith_value := formatter.get("_faith_value_label") as Label
+	var faith_growth := formatter.get("_faith_growth_value_label") as Label
+	if faith_value == null or faith_growth == null:
+		failures.append("the faith header must create both total and growth labels")
+	elif Rect2(faith_value.position, faith_value.size).intersects(Rect2(faith_growth.position, faith_growth.size)):
+		failures.append("the large faith total must not overlap its growth-rate label")
 	var bookmark_container := drawer_root.get_node_or_null("DrawerBookmarks") as VBoxContainer
 	var bookmark_names: Array[String] = []
 	if bookmark_container != null:

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ccxnwtn8r5sxf"
-path="res://.godot/imported/fishingDock.png-e84d5265f6cd45a0b92a045fcef105ce.ctex"
+uid="uid://b4wdhckwhftgq"
+path="res://.godot/imported/pet7Idle.png-f9a2badd5afb963541965b980a1e599e.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/utils/fishing/fishingDock.png"
-dest_files=["res://.godot/imported/fishingDock.png-e84d5265f6cd45a0b92a045fcef105ce.ctex"]
+source_file="res://assets/NewCharacters/pet7/pet7Idle.png"
+dest_files=["res://.godot/imported/pet7Idle.png-f9a2badd5afb963541965b980a1e599e.ctex"]
 
 [params]
 

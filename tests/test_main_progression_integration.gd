@@ -9,6 +9,7 @@ static func run() -> Array[String]:
 	_test_explicit_level_migration(failures)
 	_test_single_level_upgrade(failures)
 	_test_upgrade_entry_simplicity(failures)
+	_test_scaled_manual_click(failures)
 	_test_news_overlay_tuning(failures)
 	_test_versioned_news_tier_migration(failures)
 	return failures
@@ -98,6 +99,24 @@ static func _test_upgrade_entry_simplicity(failures: Array[String]) -> void:
 	for removed_key in ["count", "upgrade_level", "evolution_stage", "next_evolution_threshold", "can_evolve", "leader_age", "leader_name"]:
 		if pet1_entry.has(removed_key):
 			failures.append("pure upgrade entries must not expose removed UI field %s" % removed_key)
+	main.free()
+
+
+static func _test_scaled_manual_click(failures: Array[String]) -> void:
+	var main := _make_main()
+	var opening_gain: float = main.call("_get_manual_faith_click_gain", 1)
+	if opening_gain < 1.0:
+		failures.append("manual faith clicks must always grant at least one faith")
+	for pet_id_value in Main.PetCatalog.ACTIVE_DESKTOP_PETS:
+		var state: Dictionary = main.call("_get_pet_state", String(pet_id_value))
+		state["upgrade_level"] = 200
+	var scaled_gain: float = main.call("_get_manual_faith_click_gain", 1)
+	if scaled_gain <= opening_gain:
+		failures.append("manual faith click gain must grow with passive production")
+	var faith_before := float(main.get("_faith_points"))
+	main.call("_on_faith_add_requested", 1)
+	if not is_equal_approx(float(main.get("_faith_points")), faith_before + scaled_gain):
+		failures.append("one adder click must grant exactly one scaled click reward")
 	main.free()
 
 

@@ -36,6 +36,18 @@ static func run() -> Array[String]:
 		)
 		if total_special_chance > 1.0:
 			failures.append("%s special action chances must not exceed 1" % pet_id)
+		var activity_chance := float(definition.get("activity_chance", 1.0))
+		if activity_chance <= 0.0 or activity_chance > 0.25:
+			failures.append("%s must use a low activity gate so idle remains its primary state" % pet_id)
+		if float(definition.get("idle_time_min", 0.0)) < 8.0:
+			failures.append("%s minimum idle interval must prevent constant movement" % pet_id)
+		var can_hide := bool(definition.get("can_hide", false))
+		if can_hide != (pet_id == "pet2"):
+			failures.append("only pet2 may use the folder hide-and-pop behavior")
+		if pet_id != "pet2" and float(definition.get("hide_chance", 0.0)) > 0.0:
+			failures.append("non-pet2 creatures must keep hide chance disabled")
+		if float(definition.get("ambient_emotion_interval_min", 0.0)) < 120.0:
+			failures.append("%s ambient emotions must be infrequent" % pet_id)
 		for key in ["icon", "idle"]:
 			var path := String(definition.get(key, ""))
 			if path.is_empty() or not FileAccess.file_exists(path):

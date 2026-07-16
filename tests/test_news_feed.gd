@@ -32,7 +32,17 @@ const FORBIDDEN_COPY_FRAGMENTS := [
 	"物业",
 	"保洁员",
 	"工牌",
-	"押金"
+	"押金",
+	"调查员",
+	"圣迹",
+	"圣道",
+	"传教节点",
+	"污染",
+	"理性指数",
+	"归顺",
+	"未启蒙者",
+	"启示",
+	"戒律"
 ]
 
 
@@ -145,7 +155,7 @@ static func _test_direct_copy_contract(failures: Array[String]) -> void:
 		"spread_tier": 4
 	}
 	var numbered_people := RegEx.new()
-	if numbered_people.compile("[0-9]+(\\.[0-9]+)?(万|亿)?(名|人|户|种|群|个|颗|片|支|座|台|艘|架|项|份|道|层|块|%)") != OK:
+	if numbered_people.compile("[0-9]+(\\.[0-9]+)?(万|亿)?(名|人|户|种|群|个|颗|片|支|座|台|艘|架|项|份|道|层|块|场|条|区|%)") != OK:
 		failures.append("direct-news test pattern must compile")
 		return
 
@@ -190,6 +200,8 @@ static func _assert_direct_headline(
 		failures.append("news template %s must never expose a pet display name" % source_id)
 	if headline.contains("{") or headline.contains("}"):
 		failures.append("news template %s must resolve every placeholder" % source_id)
+	if not headline.contains("教团"):
+		failures.append("news template %s must keep the focus on cult expansion or action" % source_id)
 	for fragment in FORBIDDEN_COPY_FRAGMENTS:
 		if headline.contains(String(fragment)):
 			failures.append("news template %s retains abstract copy: %s" % [source_id, fragment])
@@ -208,8 +220,8 @@ static func _test_milestones(failures: Array[String]) -> void:
 			failures.append("faith milestone news must report the highest crossed threshold")
 		if not String(articles[1].get("headline", "")).contains("5000"):
 			failures.append("follower milestone news must report the highest crossed threshold")
-		if not String(articles[0].get("headline", "")).contains("23种"):
-			failures.append("faith milestones must expand from human conversion into biosphere contamination")
+		if not String(articles[0].get("headline", "")).contains("23座物资中心"):
+			failures.append("faith milestones must report a concrete larger-scale cult project")
 		if not String(articles[1].get("headline", "")).contains("4片大陆"):
 			failures.append("follower milestones must expand into planetary-scale conversion")
 		for article in articles:
@@ -305,7 +317,7 @@ static func _test_copy_version_migration(failures: Array[String]) -> void:
 				{
 					"id": 9,
 					"category": "教团",
-					"headline": "12个恒星系传回结构相同的归顺信号",
+					"headline": "教团已在12个恒星系成立当地分会",
 					"created_at": 200.0
 				}
 			],

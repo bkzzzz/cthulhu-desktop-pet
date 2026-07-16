@@ -105,8 +105,8 @@ static func _test_generic_doze(failures: Array[String]) -> void:
 
 static func _test_hide_then_pop(failures: Array[String]) -> void:
 	var actor := DesktopPetActor.new()
-	actor.setup("pet6", Vector2i(1200, 744), 72.0, 1100.0, 600.0, 720.0)
-	var sprite := actor.get_node("pet6Sprite") as AnimatedSprite2D
+	actor.setup("pet2", Vector2i(1200, 744), 72.0, 1100.0, 600.0, 720.0)
+	var sprite := actor.get_node("pet2Sprite") as AnimatedSprite2D
 	var actor_rng := actor.get("_rng") as RandomNumberGenerator
 	actor_rng.seed = 424242
 	actor.call("_start_hiding")
@@ -145,6 +145,14 @@ static func _test_hide_then_pop(failures: Array[String]) -> void:
 	if bool(actor.get("_forced_target_pending")):
 		failures.append("an already-near offering must clear forced travel after reporting arrival")
 	actor.free()
+
+	var non_hider := DesktopPetActor.new()
+	non_hider.setup("pet6", Vector2i(1200, 744), 72.0, 1100.0, 600.0, 720.0)
+	var non_hider_sprite := non_hider.get_node("pet6Sprite") as AnimatedSprite2D
+	non_hider.call("_start_hiding")
+	if int(non_hider.get("_behavior")) != DesktopPetActor.Behavior.IDLE or not non_hider_sprite.visible:
+		failures.append("pets other than pet2 must reject hide-and-pop behavior even when called directly")
+	non_hider.free()
 
 
 static func _test_ground_alignment(failures: Array[String]) -> void:

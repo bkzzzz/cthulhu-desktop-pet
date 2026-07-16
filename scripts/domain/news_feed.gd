@@ -6,7 +6,7 @@ extends RefCounted
 const MAX_HISTORY := 80
 const MAX_HEADLINE_LENGTH := 220
 const RECENT_TEMPLATE_LIMIT := 6
-const NEWS_COPY_VERSION := 2
+const NEWS_COPY_VERSION := 3
 const AMBIENT_INTERVAL_MIN_SECONDS := 240.0
 const AMBIENT_INTERVAL_MAX_SECONDS := 360.0
 
@@ -52,98 +52,98 @@ const PLACES := [
 ]
 
 const LOCAL_TEMPLATES := [
-	{"id": "scope_local_names", "text": "{place}有73名居民注销原姓，统一登记为“见证者”；民政窗口拒绝后，9名工作人员当场加入队伍。"},
-	{"id": "scope_local_hospital", "text": "市医院发现41名患者的心率同步为七拍一循环；3台监护仪被封存，值班医生仍坚持这是巧合。"},
-	{"id": "scope_local_school", "text": "城西学校有9个班级同时删去课本中的“人类”一词；教育局派出的12名调查员已有5名拒绝返回。"},
-	{"id": "scope_local_court", "text": "地方法院收到86份内容完全一致的认罪书，签署者承认自己曾经拥有独立意志；法官宣布延期审理。"},
-	{"id": "scope_local_signal", "text": "本地通信站截获214名用户同时发送同一串坐标；警方抵达后，7名警员主动跪入人群。"},
-	{"id": "scope_local_factory", "text": "北区工厂有58名工人拆除姓名牌，并把全部生产指标改为“等待降临”；管理层尚未恢复控制。"},
-	{"id": "scope_local_registry", "text": "市政档案显示新增312名无出生记录的居民，他们都能准确背出教团戒律；户籍系统已转为离线。"},
-	{"id": "scope_local_station", "text": "中心车站有127名旅客放弃原定目的地，改乘一班不存在的朝圣专列；铁路部门封锁了4座站台。"}
+	{"id": "scope_local_names", "text": "{place}新增73名教团信众；他们租下一间店面作为公开聚会点，并开始招募附近居民。"},
+	{"id": "scope_local_hospital", "text": "41名医护人员加入教团后，在市医院外设立免费餐点，并向来往居民发放入团说明。"},
+	{"id": "scope_local_school", "text": "教团在城西学校附近组织9场公开讲座，已有12名教职员工报名负责下一轮活动。"},
+	{"id": "scope_local_court", "text": "86名教团信众在地方法院门前集会，要求开放更多公共场地供教团使用。"},
+	{"id": "scope_local_signal", "text": "教团买下本地通信站的3个晚间时段，214名志愿者开始轮班播送招募消息。"},
+	{"id": "scope_local_factory", "text": "北区工厂的58名工人组建教团分会，并把一座闲置仓库改成物资中心。"},
+	{"id": "scope_local_registry", "text": "市政登记显示本周新增312名教团成员，他们已在4个社区设立固定联络点。"},
+	{"id": "scope_local_station", "text": "中心车站附近聚集127名教团志愿者，他们包下4辆客车接送新成员参加集会。"}
 ]
 
 const REGIONAL_TEMPLATES := [
-	{"id": "scope_region_roads", "text": "污染区已覆盖12座城镇，连接各地的公路被朝圣车队占据；沿线6支警备队先后倒戈。"},
-	{"id": "scope_region_broadcast", "text": "区域广播网的43名主持人同时宣读归顺声明，信号越过4个省区后仍无法切断。"},
-	{"id": "scope_region_ports", "text": "8座港口拒绝悬挂原属旗帜，19艘货轮在甲板刻下教团徽记后驶向同一片海域。"},
-	{"id": "scope_region_governors", "text": "已有17名地方官员公开承认理性只是暂时症状；3个行政区随即撤销宵禁并改设礼拜时段。"},
-	{"id": "scope_region_maps", "text": "国家测绘局发现26幅新版地图自行将污染区标为首都；14名制图员拒绝更正。"},
-	{"id": "scope_region_army", "text": "边境集结的5支部队在接触污染带后停止推进，其中2800名士兵改称自己为护教军。"},
-	{"id": "scope_region_language", "text": "语言研究所确认7种方言在一周内出现相同祷词，涉及约36万名使用者；传播源仍无法定位。"},
-	{"id": "scope_region_power", "text": "区域电网有31座变电站脱离调度，却持续向教团控制区供电；11名工程师称这是电流的自愿选择。"}
+	{"id": "scope_region_roads", "text": "教团已进入12座城镇，6支运输车队每天沿公路运送成员与活动物资。"},
+	{"id": "scope_region_broadcast", "text": "区域广播网的43名主持人加入教团，招募节目现已覆盖4个省区。"},
+	{"id": "scope_region_ports", "text": "教团在8座港口成立分会，并租用19艘货轮向沿海城市运送人员和物资。"},
+	{"id": "scope_region_governors", "text": "17名地方官员公开支持教团活动，3个行政区随后批准建设大型集会场。"},
+	{"id": "scope_region_maps", "text": "教团公布26条跨城招募路线，14支宣传队将在本月走遍沿线社区。"},
+	{"id": "scope_region_army", "text": "教团组织5支大型建设队，2800名成员正在扩建区域总部和住宿区。"},
+	{"id": "scope_region_language", "text": "教团将宣传材料翻译成7种方言，首批内容已送达约36万名居民。"},
+	{"id": "scope_region_power", "text": "教团接管31座小型发电设施，11名工程师负责保障各地分会的长期供电。"}
 ]
 
 const BIOSPHERE_TEMPLATES := [
-	{"id": "scope_bio_birds", "text": "全球观测站记录到237种候鸟放弃迁徙路线，在高空组成同一枚教团徽记；编队已持续19小时。"},
-	{"id": "scope_bio_ocean", "text": "14个鲸群同时改变航向，沿污染海域排列成朝圣队列；护航舰上的83名船员随后失去敌意。"},
-	{"id": "scope_bio_forest", "text": "3片原始森林的树冠连续7日朝向圣地生长，涉及约1200种植物；植物学界撤回了全部解释。"},
-	{"id": "scope_bio_insects", "text": "至少410种昆虫停止争夺领地，转而在6块大陆筑成统一祭坛结构；农药已完全失效。"},
-	{"id": "scope_bio_predators", "text": "29种大型捕食者在同一夜停止捕猎，并护送朝圣人群穿越荒野；已有17支科考队宣誓归顺。"},
-	{"id": "scope_bio_microbes", "text": "实验室确认63种微生物开始按祷文节律分裂，污染已进入饮水与土壤循环；隔离方案被宣布无效。"},
-	{"id": "scope_bio_domestic", "text": "超过800万只家畜同时面向污染中心伏地，横跨21个国家；当地人类信众数量在当日翻倍。"},
-	{"id": "scope_bio_ecosystem", "text": "7个生态带不再遵循既有食物链，126种生物开始共同供养教团控制区；学界称其为全球性归信。"}
+	{"id": "scope_bio_birds", "text": "教团在6个国家建立237座野生动物救助站，借此招募当地志愿者并扩充分会。"},
+	{"id": "scope_bio_ocean", "text": "14支教团船队开始在沿海城市巡回活动，83名船员负责运送新成员和生活物资。"},
+	{"id": "scope_bio_forest", "text": "教团在3片林区建设长期营地，1200名成员已完成道路、供水和仓库工程。"},
+	{"id": "scope_bio_insects", "text": "教团在6块大陆开设410座农业合作站，以免费种子和食物吸引更多居民加入。"},
+	{"id": "scope_bio_predators", "text": "29支教团护送队开通荒野路线，另有17支建设队沿途建立补给点。"},
+	{"id": "scope_bio_microbes", "text": "教团资助63座净水站，并把免费供水点作为新分会的固定活动地点。"},
+	{"id": "scope_bio_domestic", "text": "教团在21个国家建立大型牧场，超过800万份食品将优先供应新加入的家庭。"},
+	{"id": "scope_bio_ecosystem", "text": "教团控制的7个农业区开始统一调配物资，126支运输队正在向各地分会送货。"}
 ]
 
 const PLANETARY_TEMPLATES := [
-	{"id": "scope_planet_continents", "text": "6块大陆的云层同时形成教团徽记，持续覆盖约43亿人；各国气象机构已停止发布否认声明。"},
-	{"id": "scope_planet_ocean", "text": "全球4大洋的潮汐脱离月球引力，统一朝圣地抬升；31座沿海城市已整体归入教团。"},
-	{"id": "scope_planet_satellites", "text": "3颗近地卫星未经指令调整轨道，并持续向地表广播归顺信号；地面站的64名人员集体宣誓。"},
-	{"id": "scope_planet_nations", "text": "现存193个国家中已有117个撤下国旗，超过52亿人被登记为教众；其余政府进入静默状态。"},
-	{"id": "scope_planet_magnetic", "text": "地磁场出现7条稳定裂隙，所有指南设备开始指向圣地；23支极地科考队已改变效忠对象。"},
-	{"id": "scope_planet_moon", "text": "月面12座观测站同时拍到横跨1600公里的教团印记；各国航天机构确认该结构并非人工建造。"},
-	{"id": "scope_planet_species", "text": "地球已知物种中有86%表现出统一归信行为，剩余14%正在快速消失；生物分类法被正式废止。"},
-	{"id": "scope_planet_reason", "text": "全球理性指数降至原值的3%，仍保持自我认知的约900万人被集中称为“未启蒙者”。"}
+	{"id": "scope_planet_continents", "text": "教团已在6块大陆设立总部，公开活动覆盖约43亿人，全球招募仍在继续。"},
+	{"id": "scope_planet_ocean", "text": "教团的4支远洋船队连接31座沿海城市，每周运送成员、食品和建筑材料。"},
+	{"id": "scope_planet_satellites", "text": "教团租用3颗通信卫星向全球播送节目，64名技术人员负责全天维护。"},
+	{"id": "scope_planet_nations", "text": "教团已在117个国家完成正式登记，全球信众总数超过52亿人。"},
+	{"id": "scope_planet_magnetic", "text": "教团派出23支极地建设队，准备在7条远洋航线的终点建立新分会。"},
+	{"id": "scope_planet_moon", "text": "教团资助12项月面工程，首批1600名成员正在接受长期驻留训练。"},
+	{"id": "scope_planet_species", "text": "教团在86个大型自然保护区设立服务站，14万名志愿者负责日常运营。"},
+	{"id": "scope_planet_reason", "text": "教团完成全球900万名地区负责人的培训，他们将负责下一阶段的城市招募。"}
 ]
 
 const COSMIC_TEMPLATES := [
-	{"id": "scope_cosmic_mars", "text": "火星轨道上的11台探测器同时改写任务目标，开始测绘礼拜场；2支载人计划已申请成为远征教团。"},
-	{"id": "scope_cosmic_stars", "text": "17座射电天文台确认9颗恒星按七拍节律改变亮度，影响范围超过400光年。"},
-	{"id": "scope_cosmic_systems", "text": "12个恒星系传回结构相同的归顺信号，其中8个系统此前从未发现智慧生命。"},
-	{"id": "scope_cosmic_nebula", "text": "3片星云在观测中形成横跨数百光年的教团徽记，约2600颗恒星被遮蔽后重新点亮。"},
-	{"id": "scope_cosmic_species", "text": "银河系内已确认41种智慧生物采用同一套戒律；最远一支教团位于2.7万光年外。"},
-	{"id": "scope_cosmic_galaxies", "text": "本星系群的7座星系出现同步污染，超过900亿颗恒星开始向同一坐标缓慢偏移。"},
-	{"id": "scope_cosmic_laws", "text": "4项基本物理常数出现可测偏差，宇宙学家承认自然法则正在主动服从教团秩序。"},
-	{"id": "scope_cosmic_all", "text": "可观测宇宙的理性残余降至0.0003%，至少86亿个文明已被纳入同一教团；扩张仍未抵达边界。"}
+	{"id": "scope_cosmic_mars", "text": "教团组建2支火星远征队，11台探测器正在为第一座火星分会选择地点。"},
+	{"id": "scope_cosmic_stars", "text": "教团与17座天文台合作，已向9个恒星方向连续发送招募广播。"},
+	{"id": "scope_cosmic_systems", "text": "教团收到来自12个恒星系的回应，其中8个星系已经成立当地分会。"},
+	{"id": "scope_cosmic_nebula", "text": "教团派出3支星际建设队，计划在2600颗恒星附近建立长期补给网络。"},
+	{"id": "scope_cosmic_species", "text": "银河系内已有41个文明建立教团分会，最远的分会位于2.7万光年外。"},
+	{"id": "scope_cosmic_galaxies", "text": "教团的跨星系联络网已连接7座星系，超过900亿名成员参与物资与信息交换。"},
+	{"id": "scope_cosmic_laws", "text": "教团召开4场跨星系大会，各地分会决定统一招募、运输和建设标准。"},
+	{"id": "scope_cosmic_all", "text": "至少86亿个文明已建立教团组织，扩张队伍仍在前往更远的宇宙区域。"}
 ]
 
 const EVENT_TEMPLATES := {
 	"petting": [
-		{"id": "event_contact_conversion", "text": "圣迹接触记录更新后，47名旁观者同时放弃原有信仰；其中12名已成为新的传教节点。"},
-		{"id": "event_contact_memory", "text": "污染半径内有23名市民失去童年记忆，却能完整背诵教团戒律；医学解释被一致驳回。"},
-		{"id": "event_contact_guards", "text": "负责封锁现场的19名警卫同时解除武装，并将3道警戒线改为朝圣通道。"}
+		{"id": "event_contact_conversion", "text": "教团举行公开招募，47名居民加入，其中12人将在邻近街区成立新分会。"},
+		{"id": "event_contact_memory", "text": "23名教团志愿者完成入门培训，随后前往3个社区组织新的宣传活动。"},
+		{"id": "event_contact_guards", "text": "19名场地保安加入教团，并开放3条通道供更多居民参加集会。"}
 	],
 	"burrow": [
-		{"id": "event_ground_fault", "text": "地下监测网出现9条无法测量深度的裂隙，沿线14名工程师已将其标为圣道。"},
-		{"id": "event_ground_conversion", "text": "地层异常扩散至3个街区，61名居民在疏散途中集体改道前往礼拜场。"}
+		{"id": "event_ground_fault", "text": "教团启用9条地下运输路线，14名工程师正在加固沿线仓库和入口。"},
+		{"id": "event_ground_conversion", "text": "教团通过地下通道向3个街区运送物资，61名居民随后报名加入。"}
 	],
 	"sleep": [
-		{"id": "event_silence_city", "text": "污染源保持绝对静默期间，16个街区的居民同时停止交谈；随后新增340名登记教众。"},
-		{"id": "event_silence_reason", "text": "持续静默使11名研究员放弃因果推理，并共同提交了1份归顺声明。"}
+		{"id": "event_silence_city", "text": "教团在16个街区举行夜间静默集会，活动结束后新增340名信众。"},
+		{"id": "event_silence_reason", "text": "11名夜班工作人员加入教团，并共同负责1座通宵开放的聚会点。"}
 	],
 	"air_roam": [
-		{"id": "event_sky_mark", "text": "上空出现持续23分钟的污染投影，18架民航客机偏离航线并组成礼拜阵列。"},
-		{"id": "event_sky_conversion", "text": "空域监测异常后，4座机场共有260名管制人员宣布效忠，区域航线已由教团接管。"}
+		{"id": "event_sky_mark", "text": "教团出动18架宣传飞行器，在城市上空连续23分钟展示招募信息。"},
+		{"id": "event_sky_conversion", "text": "教团在4座机场设立联络处，已有260名工作人员报名协助人员运输。"}
 	],
 	"wall_crawl": [
-		{"id": "event_boundary_failure", "text": "污染边界穿过6层实体墙后仍未衰减，11名检测员已停止使用“封闭空间”这一概念。"},
-		{"id": "event_boundary_conversion", "text": "建筑内部有15名封锁人员从不同楼层同时抵达礼拜场，监控未记录任何通行过程。"}
+		{"id": "event_boundary_failure", "text": "教团在6栋建筑外墙设置大型招募海报，11支小队负责维护和更新内容。"},
+		{"id": "event_boundary_conversion", "text": "15名教团成员完成高层建筑宣传活动，并在不同楼层开设临时咨询点。"}
 	],
 	"hide": [
-		{"id": "event_absence_worship", "text": "圣迹从观测中消失后，17名教众仍准确指出其位置；6台摄影设备只拍到跪拜者。"},
-		{"id": "event_absence_conversion", "text": "观测空白持续13分钟，外围新增94名教众；所有人声称自己刚刚目睹了启示。"}
+		{"id": "event_absence_worship", "text": "教团将物资分散存入6处隐蔽仓库，17名成员负责按时送往各个分会。"},
+		{"id": "event_absence_conversion", "text": "教团在13分钟内完成一次快闪招募，活动结束时新增94名信众。"}
 	],
 	"offering": [
-		{"id": "event_offering_vanish", "text": "贡品“{item}”从封闭供桌上消失后，18名看守者同时宣誓归顺；现场没有留下进食痕迹。"},
-		{"id": "event_offering_replication", "text": "“{item}”被列为圣物后，27座礼拜场在10分钟内复制同一仪式；新增信众超过6300人。"},
-		{"id": "event_offering_conversion", "text": "供奉“{item}”的仪式结束后，14名调查员销毁报告并加入教团；封锁命令已失效。"}
+		{"id": "event_offering_vanish", "text": "教团用“{item}”举办分享餐会，18名到场居民在活动结束后加入。"},
+		{"id": "event_offering_replication", "text": "27座教团分会同时准备“{item}”，10分钟内吸引超过6300名居民参加活动。"},
+		{"id": "event_offering_conversion", "text": "教团完成“{item}”主题招募活动，14名工作人员将负责筹备下一场。"}
 	],
 	"upgrade": [
-		{"id": "event_upgrade_index", "text": "污染指数升至第{level}级，32名监测人员中有21名立即转为教众；其余人员请求撤离。"},
-		{"id": "event_upgrade_radius", "text": "第{level}级扩张完成后，污染半径越过4道封锁线，沿途新增2100名登记信众。"}
+		{"id": "event_upgrade_index", "text": "教团扩建达到第{level}级，32名新成员已分配到各地分会负责招募。"},
+		{"id": "event_upgrade_radius", "text": "教团完成第{level}级扩张，新设4个活动区并新增2100名登记信众。"}
 	],
 	"gacha": [
-		{"id": "event_gacha_relic", "text": "教团获得“{item}”后，27名守卫同时忘记原属机构；该区域已并入圣地。"},
-		{"id": "event_gacha_signal", "text": "“{item}”入库时释放出覆盖18座城镇的信号，超过7万名居民在同一分钟完成归顺。"}
+		{"id": "event_gacha_relic", "text": "教团公开展出“{item}”，27名志愿者负责接待参观者并介绍入团方式。"},
+		{"id": "event_gacha_signal", "text": "教团围绕“{item}”展开宣传，活动覆盖18座城镇并吸引超过7万名居民报名。"}
 	]
 }
 
@@ -313,44 +313,44 @@ static func _make_faith_milestone_headline(threshold: float, tier: int, detail_r
 	var rate_text := format_number(threshold)
 	match get_scope_tier(tier):
 		0:
-			return "信仰产量突破%s/秒；%s新增%d名归顺者，地方封锁首次失效。" % [
+			return "信仰产量突破%s/秒；教团在%s新增%d名成员，并开设新的公开招募点。" % [
 				rate_text,
 				_get_place(detail_roll, tier),
 				18 + (tier * 7)
 			]
 		1:
-			return "信仰产量突破%s/秒；4座城市的共计%d名官员宣布理性审查无效，污染区扩大至区域地图。" % [
+			return "信仰产量突破%s/秒；教团进入4座城市，共有%d名地区负责人开始组织分会。" % [
 				rate_text,
 				36 + (tier * 11)
 			]
 		2:
-			return "信仰产量突破%s/秒；23种动物与7种植物出现统一归信行为，污染首次进入生态循环。" % rate_text
+			return "信仰产量突破%s/秒；教团新建23座物资中心，7支运输队开始跨地区供给分会。" % rate_text
 		3:
-			return "信仰产量突破%s/秒；3颗卫星和6块大陆同时记录到教团印记，全球封锁体系宣告崩溃。" % rate_text
+			return "信仰产量突破%s/秒；教团租用3颗通信卫星，招募节目现已覆盖6块大陆。" % rate_text
 		_:
-			return "信仰产量突破%s/秒；11个恒星系出现同步归顺信号，污染已越过太阳系边界。" % rate_text
+			return "信仰产量突破%s/秒；教团已在11个恒星系成立分会，星际扩张继续进行。" % rate_text
 
 
 static func _make_follower_milestone_headline(threshold: int, tier: int, detail_roll: float) -> String:
 	var follower_text := format_number(float(threshold))
 	match get_scope_tier(tier):
 		0:
-			return "登记信众达到%s人；其中%d名已在%s建立首个公开礼拜场。" % [
+			return "登记信众达到%s人；其中%d名成员已在%s建立首个公开聚会点。" % [
 				follower_text,
 				maxi(1, mini(threshold, 3 + (tier * 4))),
 				_get_place(1.0 - _safe_unit_roll(detail_roll), tier)
 			]
 		1:
-			return "登记信众达到%s人；7座城镇撤除原属标志，超过%d名公务人员转入教团。" % [
+			return "登记信众达到%s人；教团在7座城镇设立分会，超过%d名志愿者负责日常运营。" % [
 				follower_text,
 				24 + (tier * 13)
 			]
 		2:
-			return "登记信众达到%s人；37种动物开始护送朝圣队伍，生物污染扩散至4个生态带。" % follower_text
+			return "登记信众达到%s人；教团组建37支地区服务队，并在4个大型农业区建立补给站。" % follower_text
 		3:
-			return "登记信众达到%s人；4片大陆与2大洋进入持续归信状态，全球理性指数跌破20%%。" % follower_text
+			return "登记信众达到%s人；教团总部已覆盖4片大陆，并开通2条远洋人员运输线。" % follower_text
 		_:
-			return "登记信众达到%s人；9个外星文明采用同一戒律，宇宙教团首次得到实证。" % follower_text
+			return "登记信众达到%s人；9个外星文明成立当地教团分会，并加入统一联络网。" % follower_text
 
 
 func can_emit_event(event_key: String, now: float, cooldown_seconds: float) -> bool:
@@ -468,7 +468,7 @@ func _remember_template(template_id: String) -> void:
 
 func _render_template(template: Dictionary, context: Dictionary, detail_roll: float) -> String:
 	if template.is_empty():
-		return "污染监测网失去23个观测节点；其中18个在断联前发送了同一份归顺声明。"
+		return "教团新增23个地区联络点，其中18个已经开始公开招募和物资发放。"
 	var place := _get_place(detail_roll, int(context.get("spread_tier", 0)))
 	var raw_followers := float(context.get("followers", 0.0))
 	var follower_count := maxi(0, int(floor(raw_followers))) if is_finite(raw_followers) else 0
