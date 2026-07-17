@@ -44,11 +44,25 @@ const EMOTION_MIN_INTERVAL_SECONDS := 2.8
 const EMOTION_HOLD_SECONDS := 3.2
 const GLOBAL_FAITH_MULTIPLIER := 1.0
 const BUFF_FAITH_MULTIPLIER := 1.0
-const BELIEVER_MIN_ACTIVE := 2
-const BELIEVER_MAX_ACTIVE := 4
-const BELIEVER_SPAWN_MIN_SECONDS := 8.0
-const BELIEVER_SPAWN_MAX_SECONDS := 18.0
+const BELIEVER_MIN_ACTIVE := 0
+const BELIEVER_MAX_ACTIVE := 2
+const BELIEVER_SPAWN_MIN_SECONDS := 18.0
+const BELIEVER_SPAWN_MAX_SECONDS := 36.0
 const BELIEVER_FORCE_SPAWN_SECONDS := 60.0
+const BELIEVER_SECOND_SPAWN_CHANCE := 0.30
+const PILGRIMAGE_UNLOCK_RUNTIME_SECONDS := 180.0
+const PILGRIMAGE_INITIAL_DELAY_MIN_SECONDS := 120.0
+const PILGRIMAGE_INITIAL_DELAY_MAX_SECONDS := 240.0
+const PILGRIMAGE_INTERVAL_MIN_SECONDS := 420.0
+const PILGRIMAGE_INTERVAL_MAX_SECONDS := 720.0
+const PILGRIMAGE_DURATION_SECONDS := 32.0
+const PILGRIMAGE_GROUP_MIN := 2
+const PILGRIMAGE_GROUP_MAX := 4
+const PILGRIMAGE_GROUP_MEMBER_MIN := 3
+const PILGRIMAGE_GROUP_MEMBER_MAX := 5
+const PILGRIMAGE_GROUP_SPACING := 54.0
+const PILGRIMAGE_GROUP_EDGE_MARGIN := 190.0
+const PILGRIMAGE_PET_CLEARANCE := 240.0
 const AMBIENT_COIN_DROP_MIN_SECONDS := 32.0
 const AMBIENT_COIN_DROP_MAX_SECONDS := 68.0
 const PET_P_COIN_CHANCE := 0.18
@@ -69,6 +83,8 @@ const NEWS_BROADCAST_QUEUE_LIMIT := 2
 const NEWS_STORY_BACKLOG_LIMIT := 3
 const NEWS_BROADCAST_SIZE := Vector2(700.0, 68.0)
 const NEWS_BROADCAST_FONT_SIZE := 24
+const PILGRIMAGE_BROADCAST_SIZE := Vector2(760.0, 132.0)
+const PILGRIMAGE_BROADCAST_FONT_SIZE := 46
 
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
@@ -105,6 +121,9 @@ var _last_reported_growth_rate := -1.0
 var _pet_upgrade_stats_dirty := true
 var _next_believer_spawn_at := 0.0
 var _last_believer_spawn_at := 0.0
+var _pilgrimage_active := false
+var _pilgrimage_ends_at := 0.0
+var _next_pilgrimage_at := 0.0
 var _inventory_window: Window
 var _shop_window: Window
 var _gacha_window: Window
@@ -130,6 +149,11 @@ var _news_broadcast_label: Label
 var _news_broadcast_queue: Array[Dictionary] = []
 var _news_broadcast_tween: Tween
 var _news_broadcast_active := false
+var _pilgrimage_broadcast_panel: PanelContainer
+var _pilgrimage_broadcast_title: Label
+var _pilgrimage_broadcast_subtitle: Label
+var _pilgrimage_status_label: Label
+var _pilgrimage_broadcast_tween: Tween
 var _news_story_backlog: Array[Dictionary] = []
 var _next_news_at := 0.0
 var _news_milestone_check_timer := 0.0
@@ -158,6 +182,7 @@ func _ready() -> void:
 	_initialize_news_feed()
 	_create_desktop_pets()
 	_create_news_broadcast()
+	_create_pilgrimage_broadcast()
 	_create_offering_input_window()
 	_create_side_drawer()
 	_create_inventory_window()
@@ -176,6 +201,7 @@ func _ready() -> void:
 	_spawn_believer(true)
 	_last_believer_spawn_at = now
 	_schedule_next_believer_spawn(now)
+	_schedule_next_pilgrimage(now, true)
 	_schedule_next_ambient_coin_drop(now)
 	_refresh_coin_display()
 	_apply_language()
@@ -198,6 +224,7 @@ func _process(delta: float) -> void:
 	_update_followers(delta)
 	_update_news(delta)
 	_update_pet_emotions()
+	_update_pilgrimage()
 	_update_believers()
 	_update_pet_hover()
 	_update_offering_input_window()
@@ -280,7 +307,7 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 		max_x,
 		spawn_x,
 		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
-		_pet_activity_range != "full"
+		_get_effective_pet_activity_range() != "full"
 	)
 	_ensure_pet_state(pet_id)
 	if actor.has_method("set_display_name"):
@@ -293,6 +320,8 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	actor.notable_action.connect(_on_pet_notable_action)
 	add_child(actor)
 	_pets.append(actor)
+	if _pilgrimage_active and actor.has_method("set_autonomy_paused"):
+		actor.call("set_autonomy_paused", true)
 	_schedule_next_ambient_emotion(pet_id)
 	if _selected_pet_id.is_empty():
 		_selected_pet_id = pet_id
@@ -309,16 +338,20 @@ func _get_next_pet_start_x() -> float:
 
 
 func _get_pet_stage_min_x() -> float:
-	if _pet_activity_range == "right":
+	if _get_effective_pet_activity_range() == "right":
 		return maxf(PET_STAGE_MARGIN_X, float(_pet_window_size.x) * 0.5 + 24.0)
 	return PET_STAGE_MARGIN_X
 
 
 func _get_pet_stage_max_x() -> float:
 	var full_max := float(_pet_window_size.x) - PET_STAGE_RIGHT_MARGIN
-	if _pet_activity_range == "left":
+	if _get_effective_pet_activity_range() == "left":
 		return maxf(_get_pet_stage_min_x() + 1.0, float(_pet_window_size.x) * 0.5 - 24.0)
 	return maxf(_get_pet_stage_min_x() + 1.0, full_max)
+
+
+func _get_effective_pet_activity_range() -> String:
+	return "full" if _pilgrimage_active else _pet_activity_range
 
 
 # Believers
@@ -328,14 +361,10 @@ func _update_believers() -> void:
 	for believer in _believers:
 		if is_instance_valid(believer) and believer.has_method("set_threat_positions"):
 			believer.call("set_threat_positions", threat_positions)
-
-	var now := _get_now_seconds()
-	if _believers.size() < BELIEVER_MIN_ACTIVE:
-		_spawn_believer(false)
-		_last_believer_spawn_at = now
-		_schedule_next_believer_spawn(now)
+	if _pilgrimage_active:
 		return
 
+	var now := _get_now_seconds()
 	if now < _next_believer_spawn_at:
 		return
 
@@ -343,7 +372,12 @@ func _update_believers() -> void:
 		_schedule_next_believer_spawn(now)
 		return
 
-	_spawn_believer(false)
+	var available_slots := BELIEVER_MAX_ACTIVE - _believers.size()
+	var spawn_count := 1
+	if available_slots >= 2 and _rng.randf() < BELIEVER_SECOND_SPAWN_CHANCE:
+		spawn_count = 2
+	for _spawn_index in mini(spawn_count, available_slots):
+		_spawn_believer(false)
 	_last_believer_spawn_at = now
 	_schedule_next_believer_spawn(now)
 
@@ -365,6 +399,7 @@ func _spawn_believer(visible_on_spawn := false) -> void:
 		believer.call("setup", _pet_window_size, spawn_from_left, ground_contact_y)
 	believer.connect("exited", Callable(self, "_on_believer_exited"))
 	believer.connect("scared_away", Callable(self, "_on_believer_scared_away"))
+	believer.connect("prayed", Callable(self, "_on_believer_prayed"))
 	add_child(believer)
 	_believers.append(believer)
 	if believer.has_method("set_threat_positions"):
@@ -384,6 +419,232 @@ func _get_believer_threat_positions() -> Array[Vector2]:
 			continue
 		positions.append(pet.position)
 	return positions
+
+
+func _schedule_next_pilgrimage(now: float, initial := false) -> void:
+	var delay_min := PILGRIMAGE_INITIAL_DELAY_MIN_SECONDS if initial else PILGRIMAGE_INTERVAL_MIN_SECONDS
+	var delay_max := PILGRIMAGE_INITIAL_DELAY_MAX_SECONDS if initial else PILGRIMAGE_INTERVAL_MAX_SECONDS
+	_next_pilgrimage_at = now + _rng.randf_range(delay_min, delay_max)
+
+
+func _update_pilgrimage() -> void:
+	var now := _get_now_seconds()
+	if _pilgrimage_active:
+		_update_pilgrimage_status(now)
+		if now >= _pilgrimage_ends_at:
+			_finish_pilgrimage(false)
+		elif not _has_pending_pilgrims():
+			_finish_pilgrimage(true)
+		return
+
+	if _total_runtime_seconds < PILGRIMAGE_UNLOCK_RUNTIME_SECONDS:
+		return
+	if _next_pilgrimage_at <= 0.0:
+		_schedule_next_pilgrimage(now, true)
+		return
+	if now >= _next_pilgrimage_at:
+		if _has_valid_desktop_pet():
+			_start_pilgrimage()
+		else:
+			_next_pilgrimage_at = now + 60.0
+
+
+func _start_pilgrimage() -> void:
+	if _pilgrimage_active or not _has_valid_desktop_pet():
+		return
+	for believer in _believers:
+		if is_instance_valid(believer):
+			believer.queue_free()
+	_believers.clear()
+
+	_pilgrimage_active = true
+	_pilgrimage_ends_at = _get_now_seconds() + PILGRIMAGE_DURATION_SECONDS
+	_update_actor_window_bounds()
+	_set_pet_autonomy_paused(true)
+
+	var group_count := clampi(
+		int(round(float(_pet_window_size.x) / 560.0)),
+		PILGRIMAGE_GROUP_MIN,
+		PILGRIMAGE_GROUP_MAX
+	)
+	for group_center in _get_pilgrimage_group_centers(group_count):
+		var member_count := _rng.randi_range(PILGRIMAGE_GROUP_MEMBER_MIN, PILGRIMAGE_GROUP_MEMBER_MAX)
+		for member_index in member_count:
+			var centered_index := float(member_index) - (float(member_count - 1) * 0.5)
+			var spawn_x := group_center + (centered_index * PILGRIMAGE_GROUP_SPACING)
+			spawn_x += _rng.randf_range(-4.0, 4.0)
+			_spawn_pilgrimage_believer(spawn_x)
+
+	var headline := (
+		"PILGRIMAGE: Cultists have gathered across the desktop. Drag a pet to confront them!"
+		if _language == "en"
+		else "朝圣事件：大批教徒已在桌面各处集结，拖动宠物靠近他们！"
+	)
+	_publish_news({"category": "公告", "headline": headline}, true, false)
+	_update_pilgrimage_status(_get_now_seconds())
+	_show_pilgrimage_broadcast(
+		"PILGRIMAGE" if _language == "en" else "朝圣事件",
+		"Drag pets to the cultists before they disperse"
+		if _language == "en"
+		else "拖动宠物接近教徒，在他们散去前完成遭遇"
+	)
+
+
+func _finish_pilgrimage(resolved_early: bool) -> void:
+	if not _pilgrimage_active:
+		return
+	_pilgrimage_active = false
+	_pilgrimage_ends_at = 0.0
+	if _pilgrimage_status_label != null:
+		_pilgrimage_status_label.visible = false
+	for believer in _believers:
+		if (
+			is_instance_valid(believer)
+			and believer.has_method("is_pilgrimage_member")
+			and bool(believer.call("is_pilgrimage_member"))
+			and believer.has_method("leave_quietly")
+		):
+			believer.call("leave_quietly")
+	_set_pet_autonomy_paused(false)
+	_update_actor_window_bounds()
+	var now := _get_now_seconds()
+	_schedule_next_pilgrimage(now)
+	_last_believer_spawn_at = now
+	_schedule_next_believer_spawn(now)
+
+	var title := (
+		"PILGRIMAGE COMPLETE"
+		if resolved_early and _language == "en"
+		else "PILGRIMAGE ENDED"
+		if _language == "en"
+		else "朝圣结束"
+	)
+	var subtitle := (
+		"Every group was confronted"
+		if resolved_early and _language == "en"
+		else "所有教徒小组均已完成遭遇"
+		if resolved_early
+		else "The remaining cultists dispersed"
+		if _language == "en"
+		else "剩余教徒已经散去"
+	)
+	_show_pilgrimage_broadcast(title, subtitle)
+	_publish_news({
+		"category": "公告",
+		"headline": (
+			"The pilgrimage ended after every cultist group was confronted."
+			if resolved_early and _language == "en"
+			else "朝圣结束：所有教徒小组均已完成遭遇。"
+			if resolved_early
+			else "The pilgrimage ended; the remaining cultists dispersed."
+			if _language == "en"
+			else "朝圣结束：剩余教徒已经散去。"
+		)
+	}, false, false)
+
+
+func _spawn_pilgrimage_believer(spawn_x: float) -> void:
+	var believer: Node2D = BelieverActor.new()
+	var ground_contact_y := float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+	believer.call("setup_pilgrim", _pet_window_size, spawn_x, ground_contact_y)
+	believer.connect("exited", Callable(self, "_on_believer_exited"))
+	believer.connect("scared_away", Callable(self, "_on_believer_scared_away"))
+	believer.connect("prayed", Callable(self, "_on_believer_prayed"))
+	add_child(believer)
+	_believers.append(believer)
+
+
+func _get_pilgrimage_group_centers(group_count: int) -> Array[float]:
+	var centers: Array[float] = []
+	var safe_group_count := clampi(group_count, PILGRIMAGE_GROUP_MIN, PILGRIMAGE_GROUP_MAX)
+	var window_width := float(_pet_window_size.x)
+	var edge_margin := minf(PILGRIMAGE_GROUP_EDGE_MARGIN, window_width * 0.24)
+	var min_x := edge_margin
+	var max_x := maxf(min_x + 1.0, window_width - edge_margin)
+	var candidate_count := maxi(12, safe_group_count * 8)
+	var candidates: Array[float] = []
+	for candidate_index in candidate_count:
+		var weight := (float(candidate_index) + 0.5) / float(candidate_count)
+		candidates.append(lerpf(min_x, max_x, weight))
+	var distant_candidates: Array[float] = []
+	for candidate_x in candidates:
+		if _get_nearest_pet_x_distance(candidate_x) >= PILGRIMAGE_PET_CLEARANCE:
+			distant_candidates.append(candidate_x)
+	if distant_candidates.size() >= safe_group_count:
+		candidates = distant_candidates
+
+	for _group_index in safe_group_count:
+		var best_index := 0
+		var best_score := -1.0
+		for candidate_index in candidates.size():
+			var candidate_x := candidates[candidate_index]
+			var score := _get_nearest_pet_x_distance(candidate_x)
+			for selected_x in centers:
+				score = minf(score, absf(candidate_x - selected_x) * 0.82)
+			score += _rng.randf_range(-3.0, 3.0)
+			if score > best_score:
+				best_score = score
+				best_index = candidate_index
+		centers.append(candidates[best_index])
+		candidates.remove_at(best_index)
+	return centers
+
+
+func _get_nearest_pet_x_distance(candidate_x: float) -> float:
+	var nearest_distance := float(_pet_window_size.x)
+	for pet in _pets:
+		if is_instance_valid(pet):
+			nearest_distance = minf(nearest_distance, absf(candidate_x - pet.position.x))
+	return nearest_distance
+
+
+func _has_valid_desktop_pet() -> bool:
+	for pet in _pets:
+		if is_instance_valid(pet):
+			return true
+	return false
+
+
+func _has_pending_pilgrims() -> bool:
+	for believer in _believers:
+		if (
+			is_instance_valid(believer)
+			and believer.has_method("is_pilgrimage_pending")
+			and bool(believer.call("is_pilgrimage_pending"))
+		):
+			return true
+	return false
+
+
+func _get_pending_pilgrim_count() -> int:
+	var pending_count := 0
+	for believer in _believers:
+		if (
+			is_instance_valid(believer)
+			and believer.has_method("is_pilgrimage_pending")
+			and bool(believer.call("is_pilgrimage_pending"))
+		):
+			pending_count += 1
+	return pending_count
+
+
+func _update_pilgrimage_status(now: float) -> void:
+	if _pilgrimage_status_label == null:
+		return
+	var seconds_left := maxi(0, int(ceil(_pilgrimage_ends_at - now)))
+	var pending_count := _get_pending_pilgrim_count()
+	_pilgrimage_status_label.text = (
+		"PILGRIMAGE  %02d:%02d  ·  %d REMAINING"
+		if _language == "en"
+		else "朝圣  %02d:%02d  ·  剩余 %d 人"
+	) % [int(seconds_left / 60), seconds_left % 60, pending_count]
+	_pilgrimage_status_label.visible = _pilgrimage_active
+
+
+func _set_pet_autonomy_paused(paused: bool) -> void:
+	for pet in _pets:
+		if is_instance_valid(pet) and pet.has_method("set_autonomy_paused"):
+			pet.call("set_autonomy_paused", paused)
 
 
 # Coin drops
@@ -450,8 +711,20 @@ func _on_coin_collected(actor: Node2D, coin_type: String, value: int) -> void:
 	_show_coin_change_popup(popup_position, safe_value, coin_type)
 
 
-func _on_believer_scared_away(_actor: Node2D, drop_position: Vector2) -> void:
-	_spawn_coin("D", drop_position)
+func _on_believer_scared_away(_actor: Node2D, _drop_position: Vector2) -> void:
+	# Flight is the no-reward outcome. Only a completed prayer creates coins.
+	pass
+
+
+func _on_believer_prayed(_actor: Node2D, drop_position: Vector2, coin_count: int) -> void:
+	var safe_count := clampi(coin_count, 1, BelieverActor.PILGRIMAGE_PRAY_COIN_MAX)
+	for coin_index in safe_count:
+		var spread_weight := float(coin_index) - (float(safe_count - 1) * 0.5)
+		var coin_position := drop_position + Vector2(
+			spread_weight * 11.0 + _rng.randf_range(-7.0, 7.0),
+			_rng.randf_range(-12.0, 8.0)
+		)
+		_spawn_coin("D", coin_position)
 
 
 # UI windows
@@ -518,6 +791,138 @@ func _make_news_broadcast_style() -> StyleBoxFlat:
 	style.shadow_color = Color(0.0, 0.0, 0.0, 0.0)
 	style.shadow_size = 0
 	return style
+
+
+func _create_pilgrimage_broadcast() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "PilgrimageBroadcastLayer"
+	layer.layer = 450
+	add_child(layer)
+
+	var top_center := CenterContainer.new()
+	top_center.name = "PilgrimageBroadcastAnchor"
+	top_center.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_center.offset_top = 42.0
+	top_center.offset_bottom = 190.0
+	top_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(top_center)
+
+	_pilgrimage_broadcast_panel = PanelContainer.new()
+	_pilgrimage_broadcast_panel.name = "PilgrimageBroadcastPanel"
+	_pilgrimage_broadcast_panel.custom_minimum_size = PILGRIMAGE_BROADCAST_SIZE
+	_pilgrimage_broadcast_panel.pivot_offset = PILGRIMAGE_BROADCAST_SIZE * 0.5
+	_pilgrimage_broadcast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pilgrimage_broadcast_panel.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.012, 0.035, 0.028, 0.94)
+	style.border_color = Color(0.76, 0.84, 0.38, 0.94)
+	style.set_border_width_all(3)
+	style.set_corner_radius_all(12)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.52)
+	style.shadow_size = 12
+	_pilgrimage_broadcast_panel.add_theme_stylebox_override("panel", style)
+	top_center.add_child(_pilgrimage_broadcast_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pilgrimage_broadcast_panel.add_child(margin)
+
+	var text_stack := VBoxContainer.new()
+	text_stack.alignment = BoxContainer.ALIGNMENT_CENTER
+	text_stack.add_theme_constant_override("separation", 2)
+	text_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(text_stack)
+
+	var font := SystemFont.new()
+	font.font_names = PackedStringArray([
+		"Microsoft YaHei UI",
+		"Microsoft YaHei",
+		"PingFang SC",
+		"Noto Sans CJK SC",
+		"Noto Sans SC"
+	])
+	font.font_weight = 800
+
+	var status_anchor := CenterContainer.new()
+	status_anchor.name = "PilgrimageStatusAnchor"
+	status_anchor.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	status_anchor.offset_top = 8.0
+	status_anchor.offset_bottom = 42.0
+	status_anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(status_anchor)
+	_pilgrimage_status_label = Label.new()
+	_pilgrimage_status_label.name = "PilgrimageStatus"
+	_pilgrimage_status_label.custom_minimum_size = Vector2(480.0, 32.0)
+	_pilgrimage_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pilgrimage_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_pilgrimage_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pilgrimage_status_label.visible = false
+	_pilgrimage_status_label.add_theme_font_override("font", font)
+	_pilgrimage_status_label.add_theme_font_size_override("font_size", 19)
+	_pilgrimage_status_label.add_theme_color_override("font_color", Color(0.98, 0.91, 0.46, 1.0))
+	_pilgrimage_status_label.add_theme_color_override("font_outline_color", Color(0.01, 0.02, 0.015, 1.0))
+	_pilgrimage_status_label.add_theme_constant_override("outline_size", 5)
+	status_anchor.add_child(_pilgrimage_status_label)
+
+	_pilgrimage_broadcast_title = Label.new()
+	_pilgrimage_broadcast_title.name = "PilgrimageBroadcastTitle"
+	_pilgrimage_broadcast_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pilgrimage_broadcast_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pilgrimage_broadcast_title.add_theme_font_override("font", font)
+	_pilgrimage_broadcast_title.add_theme_font_size_override("font_size", PILGRIMAGE_BROADCAST_FONT_SIZE)
+	_pilgrimage_broadcast_title.add_theme_color_override("font_color", Color(0.98, 0.91, 0.46, 1.0))
+	_pilgrimage_broadcast_title.add_theme_color_override("font_outline_color", Color(0.01, 0.02, 0.015, 1.0))
+	_pilgrimage_broadcast_title.add_theme_constant_override("outline_size", 4)
+	text_stack.add_child(_pilgrimage_broadcast_title)
+
+	_pilgrimage_broadcast_subtitle = Label.new()
+	_pilgrimage_broadcast_subtitle.name = "PilgrimageBroadcastSubtitle"
+	_pilgrimage_broadcast_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pilgrimage_broadcast_subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pilgrimage_broadcast_subtitle.add_theme_font_override("font", font)
+	_pilgrimage_broadcast_subtitle.add_theme_font_size_override("font_size", 20)
+	_pilgrimage_broadcast_subtitle.add_theme_color_override("font_color", Color(0.88, 0.95, 0.81, 1.0))
+	text_stack.add_child(_pilgrimage_broadcast_subtitle)
+
+
+func _show_pilgrimage_broadcast(title_text: String, subtitle_text: String) -> void:
+	if (
+		_pilgrimage_broadcast_panel == null
+		or _pilgrimage_broadcast_title == null
+		or _pilgrimage_broadcast_subtitle == null
+	):
+		return
+	if _pilgrimage_broadcast_tween != null and is_instance_valid(_pilgrimage_broadcast_tween):
+		_pilgrimage_broadcast_tween.kill()
+	_pilgrimage_broadcast_title.text = title_text
+	_pilgrimage_broadcast_subtitle.text = subtitle_text
+	_pilgrimage_broadcast_panel.visible = true
+	_pilgrimage_broadcast_panel.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	_pilgrimage_broadcast_panel.scale = Vector2(0.82, 0.82)
+	_pilgrimage_broadcast_tween = create_tween()
+	_pilgrimage_broadcast_tween.set_trans(Tween.TRANS_BACK)
+	_pilgrimage_broadcast_tween.set_ease(Tween.EASE_OUT)
+	_pilgrimage_broadcast_tween.tween_property(_pilgrimage_broadcast_panel, "modulate", Color.WHITE, 0.24)
+	_pilgrimage_broadcast_tween.parallel().tween_property(_pilgrimage_broadcast_panel, "scale", Vector2.ONE, 0.30)
+	_pilgrimage_broadcast_tween.tween_interval(4.4)
+	_pilgrimage_broadcast_tween.set_trans(Tween.TRANS_SINE)
+	_pilgrimage_broadcast_tween.tween_property(
+		_pilgrimage_broadcast_panel,
+		"modulate",
+		Color(1.0, 1.0, 1.0, 0.0),
+		0.48
+	)
+	_pilgrimage_broadcast_tween.tween_callback(_hide_pilgrimage_broadcast)
+
+
+func _hide_pilgrimage_broadcast() -> void:
+	if _pilgrimage_broadcast_panel != null:
+		_pilgrimage_broadcast_panel.visible = false
+	_pilgrimage_broadcast_tween = null
 
 
 func _create_side_drawer() -> void:
@@ -607,6 +1012,7 @@ func _get_target_pet_window_size(usable_rect: Rect2i) -> Vector2i:
 func _update_actor_window_bounds() -> void:
 	var min_x := _get_pet_stage_min_x()
 	var max_x := _get_pet_stage_max_x()
+	var restrict_activity := _get_effective_pet_activity_range() != "full"
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("set_window_bounds"):
 			pet.call(
@@ -615,7 +1021,7 @@ func _update_actor_window_bounds() -> void:
 				min_x,
 				max_x,
 				float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
-				_pet_activity_range != "full"
+				restrict_activity
 			)
 
 	for believer in _believers:

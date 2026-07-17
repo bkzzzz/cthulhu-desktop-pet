@@ -4,6 +4,7 @@ const Main = preload("res://scripts/main.gd")
 const CoinDrop = preload("res://scripts/coin_drop.gd")
 const SettingsWindow = preload("res://scripts/settings_window.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
+const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 
 
 static func run() -> Array[String]:
@@ -14,6 +15,10 @@ static func run() -> Array[String]:
 	_test_activity_ranges(failures)
 	_test_settings_runtime(failures)
 	_test_believer_drop_signal(failures)
+	_test_believer_prayer_animation_and_reward(failures)
+	_test_pilgrimage_activity_override(failures)
+	_test_pilgrimage_event_lifecycle(failures)
+	_test_pet_autonomy_pause(failures)
 	return failures
 
 
@@ -101,5 +106,119 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 static func _test_believer_drop_signal(failures: Array[String]) -> void:
 	var believer := BelieverActor.new()
 	if not believer.has_signal("scared_away"):
-		failures.append("believers must expose a distinct scared-away event for D coin drops")
+		failures.append("believers must expose a distinct scared-away event")
+	if not believer.has_signal("prayed"):
+		failures.append("believers must expose a completed-prayer reward event")
 	believer.free()
+
+
+static func _test_believer_prayer_animation_and_reward(failures: Array[String]) -> void:
+	var believer := BelieverActor.new()
+	believer.setup_visible(Vector2i(820, 420), 400.0)
+	var sprite := believer.get_node_or_null("BelieverSprite") as AnimatedSprite2D
+	if (
+		sprite == null
+		or not sprite.sprite_frames.has_animation("pray")
+		or sprite.sprite_frames.get_frame_count("pray") != 16
+		or sprite.sprite_frames.get_animation_loop("pray")
+	):
+		failures.append("the new believer pray sheet must play all 16 frames exactly once")
+
+	var reward_counts: Array[int] = []
+	believer.prayed.connect(func(_actor: Node2D, _position: Vector2, count: int) -> void:
+		reward_counts.append(count)
+	)
+	believer.set("_prayer_chance", 1.0)
+	believer.set("_scare_grace_time", 0.0)
+	believer.set_threat_positions([believer.position])
+	if sprite == null or sprite.animation != "pray":
+		failures.append("a nearby pet must be able to put a believer into the pray state")
+	believer.call("_finish_prayer")
+	if (
+		reward_counts.size() != 1
+		or reward_counts[0] < BelieverActor.NORMAL_PRAY_COIN_MIN
+		or reward_counts[0] > BelieverActor.NORMAL_PRAY_COIN_MAX
+	):
+		failures.append("a completed ordinary prayer must emit one multi-D-coin reward")
+	believer.free()
+
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.call("_on_believer_scared_away", null, Vector2(300.0, 200.0))
+	if not (main.get("_coin_drops") as Array).is_empty():
+		failures.append("a fleeing believer must leave no coins")
+	main.call("_on_believer_prayed", null, Vector2(300.0, 200.0), 6)
+	var drops := main.get("_coin_drops") as Array
+	if drops.size() != 6:
+		failures.append("a prayer reward must create every promised expensive coin")
+	else:
+		for drop in drops:
+			if String(drop.get("coin_type")) != "D":
+				failures.append("prayer rewards must use the expensive D coin")
+				break
+	main.free()
+
+
+static func _test_pilgrimage_activity_override(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_pet_window_size", Vector2i(1920, 1080))
+	main.set("_pet_activity_range", "left")
+	var restricted_max := float(main.call("_get_pet_stage_max_x"))
+	main.set("_pilgrimage_active", true)
+	var pilgrimage_min := float(main.call("_get_pet_stage_min_x"))
+	var pilgrimage_max := float(main.call("_get_pet_stage_max_x"))
+	if not (
+		is_equal_approx(pilgrimage_min, Main.PET_STAGE_MARGIN_X)
+		and is_equal_approx(pilgrimage_max, 1920.0 - Main.PET_STAGE_RIGHT_MARGIN)
+		and pilgrimage_max > restricted_max
+	):
+		failures.append("pilgrimage events must temporarily expand left/right pet ranges to the full desktop")
+	if (
+		Main.BELIEVER_MIN_ACTIVE != 0
+		or Main.BELIEVER_MAX_ACTIVE != 2
+		or Main.PILGRIMAGE_GROUP_MEMBER_MIN != 3
+		or Main.PILGRIMAGE_GROUP_MEMBER_MAX != 5
+	):
+		failures.append("ordinary believers must stay occasional while pilgrimage believers spawn in groups of three to five")
+	if Main.PILGRIMAGE_BROADCAST_FONT_SIZE <= Main.NEWS_BROADCAST_FONT_SIZE:
+		failures.append("pilgrimage news must use a visibly larger breaking-news broadcast")
+	main.free()
+
+
+static func _test_pet_autonomy_pause(failures: Array[String]) -> void:
+	var pet := DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(820, 420), 72.0, 724.0, 400.0, 400.0, false)
+	pet.set_autonomy_paused(true)
+	if not pet.is_autonomy_paused():
+		failures.append("pets must pause autonomous behavior during pilgrimage events")
+	pet.set_autonomy_paused(false)
+	if pet.is_autonomy_paused():
+		failures.append("pets must resume autonomous behavior after pilgrimage events")
+	pet.free()
+
+
+static func _test_pilgrimage_event_lifecycle(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1920, 1080))
+	var pet := Node2D.new()
+	pet.position = Vector2(280.0, 900.0)
+	main.add_child(pet)
+	(main.get("_pets") as Array).append(pet)
+	main.call("_start_pilgrimage")
+	var believers := main.get("_believers") as Array
+	if not bool(main.get("_pilgrimage_active")):
+		failures.append("starting a pilgrimage must activate its timed minigame state")
+	if (
+		believers.size() < Main.PILGRIMAGE_GROUP_MIN * Main.PILGRIMAGE_GROUP_MEMBER_MIN
+		or believers.size() > Main.PILGRIMAGE_GROUP_MAX * Main.PILGRIMAGE_GROUP_MEMBER_MAX
+	):
+		failures.append("a pilgrimage must spawn several three-to-five-member groups")
+	for believer in believers:
+		if not bool(believer.call("is_pilgrimage_member")):
+			failures.append("every believer spawned by the pilgrimage batch must be event-scoped")
+			break
+	main.call("_finish_pilgrimage", false)
+	if bool(main.get("_pilgrimage_active")) or float(main.get("_next_pilgrimage_at")) <= 0.0:
+		failures.append("finishing a pilgrimage must restore normal play and schedule a later event")
+	main.free()

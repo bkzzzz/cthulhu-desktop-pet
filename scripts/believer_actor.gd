@@ -2,14 +2,17 @@ extends Node2D
 
 signal exited(actor: Node2D)
 signal scared_away(actor: Node2D, drop_position: Vector2)
+signal prayed(actor: Node2D, drop_position: Vector2, coin_count: int)
 
 const IDLE_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerIdle1.png"
 const WALK_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerWalk1.png"
 const RUN_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerRun1.png"
+const PRAY_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerPray.png"
 const NOTICE_TEXTURE := "res://assets/TestCharacters/believers/感叹号.png"
 
 const SHEET_COLUMNS := 4
 const SHEET_ROWS := 3
+const PRAY_SHEET_ROWS := 4
 const SHEET_FRAME_CENTER_Y := 64.0
 const SHEET_FRAME_FOOT_Y := 102
 const CHROMA_KEY_TOLERANCE := 0.075
@@ -25,6 +28,14 @@ const ARRIVE_DISTANCE := 4.0
 const SCARE_DISTANCE := 116.0
 const SCARE_GRACE_SECONDS := 3.0
 const IDLE_ANIMATION_SPEED := 3.0
+const PRAY_ANIMATION_SPEED := 8.0
+const PRAY_DURATION_SECONDS := 2.0
+const NORMAL_PRAY_CHANCE := 0.42
+const PILGRIMAGE_PRAY_CHANCE := 0.58
+const NORMAL_PRAY_COIN_MIN := 5
+const NORMAL_PRAY_COIN_MAX := 8
+const PILGRIMAGE_PRAY_COIN_MIN := 8
+const PILGRIMAGE_PRAY_COIN_MAX := 12
 const NATURAL_LEAVE_MIN_SECONDS := 26.0
 const NATURAL_LEAVE_MAX_SECONDS := 52.0
 
@@ -33,7 +44,8 @@ enum BelieverState {
 	IDLE,
 	CENTER_WALK,
 	WALK_OUT,
-	RUN_AWAY
+	RUN_AWAY,
+	PRAY
 }
 
 var _window_size := Vector2i(820, 420)
@@ -43,6 +55,11 @@ var _target_x := 0.0
 var _idle_time := 0.0
 var _natural_leave_time := 0.0
 var _scare_grace_time := 0.0
+var _pray_time := 0.0
+var _prayer_reward_count := 0
+var _prayer_chance := NORMAL_PRAY_CHANCE
+var _pilgrimage_member := false
+var _reaction_resolved := false
 var _run_target_x := 0.0
 var _threat_positions: Array[Vector2] = []
 var _rng := RandomNumberGenerator.new()
@@ -65,6 +82,7 @@ func setup(window_size: Vector2i, spawn_from_left: bool, ground_contact_y := -1.
 	position = Vector2(start_x, _get_rest_y())
 	_target_x = _get_center_target_x()
 	_state = BelieverState.WALK_IN
+	_scare_grace_time = 1.0
 	_face_target(_target_x)
 	_sprite.play("walk")
 
@@ -81,11 +99,27 @@ func setup_visible(window_size: Vector2i, ground_contact_y := -1.0) -> void:
 	position = Vector2(lerpf(_get_center_min_x(), _get_center_max_x(), 0.18), _get_rest_y())
 	_state = BelieverState.IDLE
 	_sprite.flip_h = _rng.randf() < 0.5
-	_start_idle(0.0)
+	_start_idle(0.4)
+
+
+func setup_pilgrim(window_size: Vector2i, spawn_x: float, ground_contact_y := -1.0) -> void:
+	_rng.randomize()
+	_window_size = window_size
+	_ground_contact_y = float(window_size.y) if ground_contact_y < 0.0 else ground_contact_y
+	z_index = 72
+	_create_sprite()
+	_create_notice()
+	_pilgrimage_member = true
+	_prayer_chance = PILGRIMAGE_PRAY_CHANCE
+	_natural_leave_time = 999999.0
+	position = Vector2(clampf(spawn_x, _get_center_min_x(), _get_center_max_x()), _get_rest_y())
+	_sprite.flip_h = _rng.randf() < 0.5
+	_start_idle(0.45)
 
 
 func _process(delta: float) -> void:
 	position.y = _get_rest_y()
+	_scare_grace_time = maxf(0.0, _scare_grace_time - maxf(0.0, delta))
 
 	match _state:
 		BelieverState.WALK_IN:
@@ -98,6 +132,8 @@ func _process(delta: float) -> void:
 			_update_walk_out(delta)
 		BelieverState.RUN_AWAY:
 			_update_run_away(delta)
+		BelieverState.PRAY:
+			_update_pray(delta)
 
 
 func set_threat_positions(threat_positions: Array) -> void:
@@ -105,8 +141,7 @@ func set_threat_positions(threat_positions: Array) -> void:
 	for threat_position_value in threat_positions:
 		if threat_position_value is Vector2:
 			_threat_positions.append(threat_position_value)
-	if _state != BelieverState.WALK_IN:
-		_try_start_run_away(false)
+	_try_start_reaction(false)
 
 
 func set_window_size(window_size: Vector2i, ground_contact_y := -1.0) -> void:
@@ -146,6 +181,8 @@ func _create_notice() -> void:
 
 
 func _update_walk_in(delta: float) -> void:
+	if _try_start_reaction(false):
+		return
 	_move_toward_x(_target_x, WALK_SPEED, delta)
 	if absf(position.x - _target_x) <= ARRIVE_DISTANCE:
 		position.x = _target_x
@@ -154,20 +191,21 @@ func _update_walk_in(delta: float) -> void:
 
 func _update_idle(delta: float) -> void:
 	_idle_time -= delta
-	_scare_grace_time = maxf(0.0, _scare_grace_time - delta)
 
-	if _try_start_run_away(false):
+	if _try_start_reaction(false):
 		return
 
 	if _try_start_natural_leave(delta):
 		return
 
-	if _idle_time <= 0.0:
+	if _idle_time <= 0.0 and _pilgrimage_member:
+		_idle_time = _rng.randf_range(1.2, 3.2)
+	elif _idle_time <= 0.0:
 		_choose_center_walk_target()
 
 
 func _update_center_walk(delta: float) -> void:
-	if _try_start_run_away(false):
+	if _try_start_reaction(false):
 		return
 
 	if _try_start_natural_leave(delta):
@@ -191,6 +229,12 @@ func _update_run_away(delta: float) -> void:
 	if position.x < -OFFSCREEN_PADDING or position.x > float(_window_size.x) + OFFSCREEN_PADDING:
 		exited.emit(self)
 		queue_free()
+
+
+func _update_pray(delta: float) -> void:
+	_pray_time -= maxf(0.0, delta)
+	if _pray_time <= 0.0:
+		_finish_prayer()
 
 
 func _start_idle(grace_time := SCARE_GRACE_SECONDS) -> void:
@@ -235,6 +279,7 @@ func _choose_center_walk_target() -> void:
 
 func _start_run_away(threat_position: Vector2) -> void:
 	_state = BelieverState.RUN_AWAY
+	_reaction_resolved = true
 	var run_left := threat_position.x <= position.x
 	_run_target_x = float(_window_size.x) + OFFSCREEN_PADDING if run_left else -OFFSCREEN_PADDING
 	_face_target(_run_target_x)
@@ -243,8 +288,28 @@ func _start_run_away(threat_position: Vector2) -> void:
 	scared_away.emit(self, position + Vector2(0.0, -54.0))
 
 
-func _try_start_run_away(ignore_grace: bool) -> bool:
-	if _state == BelieverState.RUN_AWAY:
+func _start_praying() -> void:
+	_state = BelieverState.PRAY
+	_reaction_resolved = true
+	_pray_time = PRAY_DURATION_SECONDS
+	_prayer_reward_count = _rng.randi_range(
+		PILGRIMAGE_PRAY_COIN_MIN if _pilgrimage_member else NORMAL_PRAY_COIN_MIN,
+		PILGRIMAGE_PRAY_COIN_MAX if _pilgrimage_member else NORMAL_PRAY_COIN_MAX
+	)
+	_sprite.play("pray")
+
+
+func _finish_prayer() -> void:
+	if _state != BelieverState.PRAY:
+		return
+	var reward_count := maxi(1, _prayer_reward_count)
+	_prayer_reward_count = 0
+	prayed.emit(self, position + Vector2(0.0, -54.0), reward_count)
+	_start_walk_out()
+
+
+func _try_start_reaction(ignore_grace: bool) -> bool:
+	if _reaction_resolved or _state in [BelieverState.RUN_AWAY, BelieverState.PRAY, BelieverState.WALK_OUT]:
 		return false
 	if not ignore_grace and _scare_grace_time > 0.0:
 		return false
@@ -253,8 +318,26 @@ func _try_start_run_away(ignore_grace: bool) -> bool:
 	if not _is_valid_threat_position(threat_position):
 		return false
 
-	_start_run_away(threat_position)
+	if _rng.randf() < _prayer_chance:
+		_start_praying()
+	else:
+		_start_run_away(threat_position)
 	return true
+
+
+func leave_quietly() -> void:
+	if _state in [BelieverState.WALK_OUT, BelieverState.RUN_AWAY]:
+		return
+	_reaction_resolved = true
+	_start_walk_out()
+
+
+func is_pilgrimage_member() -> bool:
+	return _pilgrimage_member
+
+
+func is_pilgrimage_pending() -> bool:
+	return _pilgrimage_member and _state not in [BelieverState.WALK_OUT, BelieverState.RUN_AWAY]
 
 
 func _move_toward_x(target_x: float, speed: float, delta: float) -> void:
@@ -337,14 +420,22 @@ static func _build_frames() -> SpriteFrames:
 	if frames.has_animation("default"):
 		frames.remove_animation("default")
 
-	_add_sheet_animation(frames, "idle", IDLE_TEXTURE, IDLE_ANIMATION_SPEED)
-	_add_sheet_animation(frames, "walk", WALK_TEXTURE, 8.0)
-	_add_sheet_animation(frames, "run", RUN_TEXTURE, 11.0)
+	_add_sheet_animation(frames, "idle", IDLE_TEXTURE, IDLE_ANIMATION_SPEED, SHEET_ROWS, true)
+	_add_sheet_animation(frames, "walk", WALK_TEXTURE, 8.0, SHEET_ROWS, true)
+	_add_sheet_animation(frames, "run", RUN_TEXTURE, 11.0, SHEET_ROWS, true)
+	_add_sheet_animation(frames, "pray", PRAY_TEXTURE, PRAY_ANIMATION_SPEED, PRAY_SHEET_ROWS, false)
 	_cached_frames = frames
 	return _cached_frames
 
 
-static func _add_sheet_animation(frames: SpriteFrames, animation_name: String, sheet_path: String, speed: float) -> void:
+static func _add_sheet_animation(
+	frames: SpriteFrames,
+	animation_name: String,
+	sheet_path: String,
+	speed: float,
+	sheet_rows: int,
+	loop_animation: bool
+) -> void:
 	var sheet_texture := load(sheet_path) as Texture2D
 	if sheet_texture == null:
 		return
@@ -356,17 +447,17 @@ static func _add_sheet_animation(frames: SpriteFrames, animation_name: String, s
 	source_image.convert(Image.FORMAT_RGBA8)
 	var frame_size := Vector2i(
 		int(source_image.get_width() / float(SHEET_COLUMNS)),
-		int(source_image.get_height() / float(SHEET_ROWS))
+		int(source_image.get_height() / float(sheet_rows))
 	)
 	var key_color := source_image.get_pixel(0, 0)
 
 	if not frames.has_animation(animation_name):
 		frames.add_animation(animation_name)
 
-	frames.set_animation_loop(animation_name, true)
+	frames.set_animation_loop(animation_name, loop_animation)
 	frames.set_animation_speed(animation_name, speed)
 
-	for row in SHEET_ROWS:
+	for row in sheet_rows:
 		for column in SHEET_COLUMNS:
 			var frame_image := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
 			var source_rect := Rect2i(Vector2i(column * frame_size.x, row * frame_size.y), frame_size)

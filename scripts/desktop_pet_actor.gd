@@ -136,6 +136,8 @@ var _interaction_area: Control
 var _interaction_rect := Rect2()
 var _interaction_enabled := true
 var _activity_restricted := false
+var _autonomy_paused := false
+var _autonomy_previous_speed_scale := 1.0
 var _hover_hint: Label
 var _hovering := false
 var _hover_time := 0.0
@@ -271,6 +273,26 @@ func set_window_bounds(
 		var air_y_bounds := _get_air_roam_y_bounds()
 		_float_anchor_y = clampf(_float_anchor_y, air_y_bounds.x, _get_rest_y())
 	_update_interaction_area()
+
+
+func set_autonomy_paused(paused: bool) -> void:
+	if _autonomy_paused == paused:
+		return
+	_autonomy_paused = paused
+	if _sprite == null:
+		return
+	if paused:
+		_autonomy_previous_speed_scale = _sprite.speed_scale
+		if _behavior in [Behavior.UNDERGROUND, Behavior.HIDDEN]:
+			_cancel_special_behavior()
+			_start_idle()
+		_sprite.speed_scale = 0.0
+	else:
+		_sprite.speed_scale = maxf(0.01, _autonomy_previous_speed_scale)
+
+
+func is_autonomy_paused() -> bool:
+	return _autonomy_paused
 
 
 func walk_to_offering_x(target_x: float) -> void:
@@ -546,6 +568,10 @@ func _refresh_hover_hint_text() -> void:
 
 func _update_pet(delta: float) -> void:
 	_float_phase += delta * 2.15
+	if _autonomy_paused and _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
+		if _sprite != null:
+			_sprite.speed_scale = 0.0
+		return
 	match _behavior:
 		Behavior.GRABBED:
 			_update_grabbed_position()
