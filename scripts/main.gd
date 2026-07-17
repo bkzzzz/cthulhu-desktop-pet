@@ -21,8 +21,8 @@ const CoinDrop = preload("res://scripts/coin_drop.gd")
 # Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
 const PET_TASKBAR_OVERLAP_PIXELS := 16
-const PET_STAGE_MARGIN_X := 72.0
-const PET_STAGE_RIGHT_MARGIN := 96.0
+const PET_STAGE_MARGIN_X := 0.0
+const PET_STAGE_RIGHT_MARGIN := 0.0
 const PET_STAGE_START_SPACING := 132.0
 const POSITION_RETRY_FRAMES := 90
 
@@ -63,9 +63,17 @@ const PILGRIMAGE_GROUP_MEMBER_MAX := 5
 const PILGRIMAGE_GROUP_SPACING := 54.0
 const PILGRIMAGE_GROUP_EDGE_MARGIN := 190.0
 const PILGRIMAGE_PET_CLEARANCE := 240.0
-const AMBIENT_COIN_DROP_MIN_SECONDS := 32.0
-const AMBIENT_COIN_DROP_MAX_SECONDS := 68.0
 const PET_P_COIN_CHANCE := 0.18
+const PET_AUTO_COIN_INTERVAL_MIN := 12.0
+const PET_AUTO_COIN_INTERVAL_MAX := 62.0
+const PET_AUTO_COIN_PILE_MIN := 4
+const PET_AUTO_COIN_PILE_MAX := 10
+const PET11_ABSORB_INITIAL_MIN_SECONDS := 24.0
+const PET11_ABSORB_INITIAL_MAX_SECONDS := 42.0
+const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
+const PET11_ABSORB_COOLDOWN_MAX_SECONDS := 115.0
+const PET11_ABSORB_HOLD_MIN_SECONDS := 4.0
+const PET11_ABSORB_HOLD_MAX_SECONDS := 7.0
 const UI_REFRESH_INTERVAL := 0.25
 const MANUAL_CLICK_RATE_SECONDS := 0.25
 const SAVE_PATH := "user://cthulu_save.cfg"
@@ -157,7 +165,9 @@ var _pilgrimage_broadcast_tween: Tween
 var _news_story_backlog: Array[Dictionary] = []
 var _next_news_at := 0.0
 var _news_milestone_check_timer := 0.0
-var _next_ambient_coin_drop_at := 0.0
+var _next_pet_coin_drop_at := {}
+var _pet_coin_drop_intervals := {}
+var _next_pet11_absorb_at := 0.0
 var _session_runtime_seconds := 0.0
 var _total_runtime_seconds := 0.0
 var _settings_refresh_timer := 0.0
@@ -224,6 +234,7 @@ func _process(delta: float) -> void:
 	_update_followers(delta)
 	_update_news(delta)
 	_update_pet_emotions()
+	_update_pet11_absorb_ability()
 	_update_pilgrimage()
 	_update_believers()
 	_update_pet_hover()
@@ -320,6 +331,9 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	actor.notable_action.connect(_on_pet_notable_action)
 	add_child(actor)
 	_pets.append(actor)
+	_schedule_pet_coin_drop(actor, _get_now_seconds())
+	if pet_id == "pet11" and _next_pet11_absorb_at <= 0.0:
+		_schedule_next_pet11_absorb(_get_now_seconds(), true)
 	if _pilgrimage_active and actor.has_method("set_autonomy_paused"):
 		actor.call("set_autonomy_paused", true)
 	_schedule_next_ambient_emotion(pet_id)
@@ -467,18 +481,24 @@ func _start_pilgrimage() -> void:
 		PILGRIMAGE_GROUP_MIN,
 		PILGRIMAGE_GROUP_MAX
 	)
+	var group_index := 0
 	for group_center in _get_pilgrimage_group_centers(group_count):
 		var member_count := _rng.randi_range(PILGRIMAGE_GROUP_MEMBER_MIN, PILGRIMAGE_GROUP_MEMBER_MAX)
 		for member_index in member_count:
 			var centered_index := float(member_index) - (float(member_count - 1) * 0.5)
 			var spawn_x := group_center + (centered_index * PILGRIMAGE_GROUP_SPACING)
 			spawn_x += _rng.randf_range(-4.0, 4.0)
-			_spawn_pilgrimage_believer(spawn_x)
+			_spawn_pilgrimage_believer(
+				spawn_x,
+				group_center <= float(_pet_window_size.x) * 0.5,
+				float(group_index) * 0.22 + float(member_index) * 0.08
+			)
+		group_index += 1
 
 	var headline := (
-		"PILGRIMAGE: Cultists have gathered across the desktop. Drag a pet to confront them!"
+		"PILGRIMAGE: Cultists are pouring in from the desktop edges. Drag a pet to confront them!"
 		if _language == "en"
-		else "朝圣事件：大批教徒已在桌面各处集结，拖动宠物靠近他们！"
+		else "朝圣事件：大批教徒正从桌面边缘涌入，拖动宠物靠近他们！"
 	)
 	_publish_news({"category": "公告", "headline": headline}, true, false)
 	_update_pilgrimage_status(_get_now_seconds())
@@ -543,10 +563,21 @@ func _finish_pilgrimage(resolved_early: bool) -> void:
 	}, false, false)
 
 
-func _spawn_pilgrimage_believer(spawn_x: float) -> void:
+func _spawn_pilgrimage_believer(
+	spawn_x: float,
+	spawn_from_left := true,
+	entrance_delay := 0.0
+) -> void:
 	var believer: Node2D = BelieverActor.new()
 	var ground_contact_y := float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
-	believer.call("setup_pilgrim", _pet_window_size, spawn_x, ground_contact_y)
+	believer.call(
+		"setup_pilgrim",
+		_pet_window_size,
+		spawn_x,
+		ground_contact_y,
+		spawn_from_left,
+		entrance_delay
+	)
 	believer.connect("exited", Callable(self, "_on_believer_exited"))
 	believer.connect("scared_away", Callable(self, "_on_believer_scared_away"))
 	believer.connect("prayed", Callable(self, "_on_believer_prayed"))
@@ -647,26 +678,149 @@ func _set_pet_autonomy_paused(paused: bool) -> void:
 			pet.call("set_autonomy_paused", paused)
 
 
+func _schedule_next_pet11_absorb(now: float, initial := false) -> void:
+	var delay_min := PET11_ABSORB_INITIAL_MIN_SECONDS if initial else PET11_ABSORB_COOLDOWN_MIN_SECONDS
+	var delay_max := PET11_ABSORB_INITIAL_MAX_SECONDS if initial else PET11_ABSORB_COOLDOWN_MAX_SECONDS
+	_next_pet11_absorb_at = now + _rng.randf_range(delay_min, delay_max)
+
+
+func _update_pet11_absorb_ability() -> void:
+	if _pilgrimage_active:
+		return
+	var pet11: Node2D
+	for pet in _pets:
+		if is_instance_valid(pet) and _get_actor_pet_id(pet) == "pet11":
+			pet11 = pet
+			break
+	if pet11 == null:
+		_next_pet11_absorb_at = 0.0
+		return
+	if pet11.has_method("is_pointer_captured") and bool(pet11.call("is_pointer_captured")):
+		return
+	if _has_swallowed_pet():
+		return
+	var now := _get_now_seconds()
+	if _next_pet11_absorb_at <= 0.0:
+		_schedule_next_pet11_absorb(now, true)
+		return
+	if now < _next_pet11_absorb_at:
+		return
+
+	var candidates: Array[Node2D] = []
+	for pet in _pets:
+		if not is_instance_valid(pet) or pet == pet11:
+			continue
+		if pet.has_method("can_be_swallowed") and bool(pet.call("can_be_swallowed")):
+			candidates.append(pet)
+	if candidates.is_empty():
+		_next_pet11_absorb_at = now + 20.0
+		return
+	var target := candidates[_rng.randi_range(0, candidates.size() - 1)]
+	var started := bool(target.call(
+		"start_swallowed_by",
+		pet11,
+		_rng.randf_range(PET11_ABSORB_HOLD_MIN_SECONDS, PET11_ABSORB_HOLD_MAX_SECONDS)
+	))
+	if started:
+		_spawn_emotion(pet11, "suprised", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
+	_schedule_next_pet11_absorb(now)
+
+
+func _has_swallowed_pet() -> bool:
+	for pet in _pets:
+		if is_instance_valid(pet) and pet.has_method("is_swallowed") and bool(pet.call("is_swallowed")):
+			return true
+	return false
+
+
 # Coin drops
 func _schedule_next_ambient_coin_drop(now: float) -> void:
-	_next_ambient_coin_drop_at = now + _rng.randf_range(
-		AMBIENT_COIN_DROP_MIN_SECONDS,
-		AMBIENT_COIN_DROP_MAX_SECONDS
-	)
+	for pet in _pets:
+		if is_instance_valid(pet):
+			_schedule_pet_coin_drop(pet, now)
+
+
+func _schedule_pet_coin_drop(actor: Node2D, now: float) -> void:
+	if actor == null or not is_instance_valid(actor):
+		return
+	var pet_id := _get_actor_pet_id(actor)
+	if pet_id.is_empty():
+		return
+	var level := PetProgression.progression_level(_get_pet_state(pet_id))
+	var current_rate := _get_pet_money_value_per_minute(pet_id, level)
+	var base_rate := maxf(0.01, _get_pet_money_value_per_minute(pet_id, 1))
+	var speed_scale := sqrt(maxf(1.0, current_rate / base_rate))
+	var interval_min := clampf(34.0 / speed_scale, PET_AUTO_COIN_INTERVAL_MIN, 40.0)
+	var interval_max := clampf(52.0 / speed_scale, interval_min + 4.0, PET_AUTO_COIN_INTERVAL_MAX)
+	var interval := _rng.randf_range(interval_min, interval_max)
+	var actor_key := str(actor.get_instance_id())
+	_next_pet_coin_drop_at[actor_key] = now + interval
+	_pet_coin_drop_intervals[actor_key] = interval
 
 
 func _update_ambient_coin_drops() -> void:
 	var now := _get_now_seconds()
-	if now < _next_ambient_coin_drop_at:
-		return
-	_schedule_next_ambient_coin_drop(now)
-	var available_pets: Array[Node2D] = []
+	var active_keys := {}
 	for pet in _pets:
-		if is_instance_valid(pet):
-			available_pets.append(pet)
-	if available_pets.is_empty():
+		if not is_instance_valid(pet):
+			continue
+		var actor_key := str(pet.get_instance_id())
+		active_keys[actor_key] = true
+		if not _next_pet_coin_drop_at.has(actor_key):
+			_schedule_pet_coin_drop(pet, now)
+			continue
+		if now < float(_next_pet_coin_drop_at.get(actor_key, now)):
+			continue
+		var interval := float(_pet_coin_drop_intervals.get(actor_key, 40.0))
+		_schedule_pet_coin_drop(pet, now)
+		if _pilgrimage_active:
+			continue
+		if pet.has_method("is_swallowed") and bool(pet.call("is_swallowed")):
+			continue
+		_spawn_pet_coin_pile(pet, interval)
+	for actor_key_value in _next_pet_coin_drop_at.keys().duplicate():
+		var actor_key := String(actor_key_value)
+		if active_keys.has(actor_key):
+			continue
+		_next_pet_coin_drop_at.erase(actor_key)
+		_pet_coin_drop_intervals.erase(actor_key)
+
+
+func _spawn_pet_coin_pile(actor: Node2D, interval_seconds: float) -> void:
+	if actor == null or not is_instance_valid(actor):
 		return
-	_spawn_pet_coin(available_pets[_rng.randi_range(0, available_pets.size() - 1)])
+	var pet_id := _get_actor_pet_id(actor)
+	if pet_id.is_empty():
+		return
+	var level := PetProgression.progression_level(_get_pet_state(pet_id))
+	var rate_per_minute := _get_pet_money_value_per_minute(pet_id, level)
+	var target_value := maxf(
+		float(PET_AUTO_COIN_PILE_MIN),
+		rate_per_minute * maxf(1.0, interval_seconds) / 60.0
+	)
+	var pile_count := clampi(
+		int(ceil(target_value / 8.0)),
+		PET_AUTO_COIN_PILE_MIN,
+		PET_AUTO_COIN_PILE_MAX
+	)
+	var drop_anchor := actor.position + Vector2(0.0, -64.0)
+	if actor.has_method("get_emotion_anchor"):
+		drop_anchor = actor.call("get_emotion_anchor")
+	var remaining_value := target_value
+	for coin_index in pile_count:
+		var slots_left := pile_count - coin_index
+		var average_value := remaining_value / float(maxi(1, slots_left))
+		var coin_type := "R"
+		if average_value >= 24.0:
+			coin_type = "D"
+		elif average_value >= 3.0:
+			coin_type = "P"
+		remaining_value = maxf(0.0, remaining_value - float(CoinDrop.get_coin_value(coin_type)))
+		var spread_weight := float(coin_index) - float(pile_count - 1) * 0.5
+		_spawn_coin(coin_type, drop_anchor + Vector2(
+			spread_weight * 13.0 + _rng.randf_range(-8.0, 8.0),
+			_rng.randf_range(-14.0, 10.0)
+		))
 
 
 func _update_coin_drops() -> void:
@@ -2016,6 +2170,11 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			pet_id,
 			mini(PetProgression.MAX_LEVEL, level + 1)
 		) * offering_multiplier * _get_total_faith_multiplier()
+		var current_money_rate := _get_pet_money_value_per_minute(pet_id, level)
+		var next_money_rate := _get_pet_money_value_per_minute(
+			pet_id,
+			mini(PetProgression.MAX_LEVEL, level + 1)
+		)
 		entries.append({
 			"id": pet_id,
 			"name": _get_pet_display_name(pet_id),
@@ -2030,6 +2189,9 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			"next_fps": next_fps,
 			"next_growth_bonus": maxf(0.0, next_fps - current_fps),
 			"total_growth_bonus": current_fps,
+			"current_money_rate": current_money_rate,
+			"next_money_rate": next_money_rate,
+			"money_rate_gain": maxf(0.0, next_money_rate - current_money_rate),
 			"offering_multiplier": offering_multiplier,
 			"offering_seconds_remaining": _get_pet_offering_seconds_remaining(pet_id),
 			"affordable": not is_max_level and int(floor(_faith_points)) >= cost
@@ -2063,6 +2225,10 @@ func _get_follower_growth_rate() -> float:
 
 func _get_pet_faith_per_second(pet_id: String, level: int) -> float:
 	return PetProgression.faith_per_second(PetCatalog.get_definition(pet_id), level)
+
+
+func _get_pet_money_value_per_minute(pet_id: String, level: int) -> float:
+	return PetProgression.money_drop_value_per_minute(PetCatalog.get_definition(pet_id), level)
 
 
 func _get_pet_offering_multiplier(pet_id: String, now := -1.0) -> float:
@@ -2270,6 +2436,11 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 		_inventory_window.call("add_pet", pet_id, _get_pet_display_name(pet_id))
 
 	_pets.erase(actor)
+	var actor_key := str(actor.get_instance_id())
+	_next_pet_coin_drop_at.erase(actor_key)
+	_pet_coin_drop_intervals.erase(actor_key)
+	if pet_id == "pet11":
+		_next_pet11_absorb_at = 0.0
 	if _hovered_pet == actor:
 		_hovered_pet = null
 
@@ -2599,6 +2770,8 @@ func _get_offering_target_pet(drop_x: float) -> Node2D:
 	var nearest_distance := INF
 	for pet in _pets:
 		if not is_instance_valid(pet):
+			continue
+		if pet.has_method("is_swallowed") and bool(pet.call("is_swallowed")):
 			continue
 		if _pending_offering_feeds.has(str(pet.get_instance_id())):
 			continue

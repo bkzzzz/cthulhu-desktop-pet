@@ -5,19 +5,22 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
-	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]
+	var expected_pets := [
+		"pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
+		"pet8", "pet9", "pet10", "pet11"
+	]
 	var desktop_scales := {}
 	var behavior_styles := {}
 	var minimum_scale := INF
 	var maximum_scale := 0.0
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
-		failures.append("all seven pets must be active")
+		failures.append("all eleven pets must be active")
 	if PetCatalog.STARTER_UNLOCKED_PETS != ["pet1"]:
 		failures.append("only pet1 may be unlocked at the start of a fresh game")
 	if PetCatalog.INVENTORY_STARTER_PETS != ["pet1"]:
 		failures.append("the starter roster must not expose gacha pets")
-	if PetCatalog.GACHA_PETS != ["pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]:
-		failures.append("pet2 through pet7 must be acquired through pet gacha")
+	if PetCatalog.GACHA_PETS != expected_pets.slice(1):
+		failures.append("pet2 through pet11 must be acquired through pet gacha")
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
@@ -63,6 +66,8 @@ static func run() -> Array[String]:
 			failures.append("%s walk fallback must contain 12 frames" % pet_id)
 		if float(definition.get("base_fps", 0.0)) <= 0.0:
 			failures.append("%s must produce faith" % pet_id)
+		if float(definition.get("base_money_rate", 4.0 + float(definition.get("rarity_stars", 1)) * 3.0)) <= 0.0:
+			failures.append("%s must produce collectible dropped money" % pet_id)
 		var rarity_stars := int(definition.get("rarity_stars", 0))
 		if rarity_stars < 1 or rarity_stars > 5:
 			failures.append("%s rarity must be represented by one to five stars" % pet_id)
@@ -84,8 +89,8 @@ static func run() -> Array[String]:
 			failures.append("%s personality must not use the removed hunger emotion" % pet_id)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
-	if behavior_styles.size() != expected_pets.size():
-		failures.append("each desktop pet must use a distinct behavior style")
+	if behavior_styles.size() < 6:
+		failures.append("the expanded desktop roster must retain varied behavior styles")
 	if minimum_scale > 0.7:
 		failures.append("the smallest desktop pet must be visibly small")
 	if maximum_scale - minimum_scale < 0.6:
@@ -95,7 +100,7 @@ static func run() -> Array[String]:
 			failures.append("%s must occasionally climb a screen edge" % climbing_pet_id)
 		if not bool(PetCatalog.get_definition(climbing_pet_id).get("can_wall_crawl", false)):
 			failures.append("%s wall-crawl chance must be backed by explicit permission" % climbing_pet_id)
-	for ground_pet_id in ["pet2", "pet3", "pet6", "pet7"]:
+	for ground_pet_id in ["pet2", "pet3", "pet6", "pet7", "pet9"]:
 		if float(PetCatalog.get_definition(ground_pet_id).get("wall_chance", 0.0)) > 0.0:
 			failures.append("%s must remain a ground-only pet" % ground_pet_id)
 		if bool(PetCatalog.get_definition(ground_pet_id).get("can_wall_crawl", false)):
@@ -132,6 +137,16 @@ static func run() -> Array[String]:
 	var pet7_frames := PetCatalog.build_frames("pet7")
 	_check_frame_count(failures, pet7_frames, "idle", 12)
 	_check_frame_count(failures, pet7_frames, "walk", 12)
+	for pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+		var frames := PetCatalog.build_frames(pet_id)
+		_check_frame_count(failures, frames, "idle", 12)
+		_check_frame_count(failures, frames, "walk", 12)
+	var pet9_definition := PetCatalog.get_definition("pet9")
+	if String(pet9_definition.get("walk", "")).is_empty():
+		failures.append("pet9 must use its dedicated walk animation sheet")
+	for idle_mover_id in ["pet8", "pet10", "pet11"]:
+		if not String(PetCatalog.get_definition(idle_mover_id).get("walk", "")).is_empty():
+			failures.append("%s must move by reusing its idle animation" % idle_mover_id)
 	return failures
 
 

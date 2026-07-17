@@ -56,7 +56,10 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 
 
 static func _check_pet_pool(failures: Array[String]) -> void:
-	var expected_ids := ["pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]
+	var expected_ids := [
+		"pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
+		"pet8", "pet9", "pet10", "pet11"
+	]
 	var actual_ids: Array[String] = []
 	var total_weight := 0.0
 	for entry_value in GachaProgression.PET_POOL:
@@ -73,12 +76,16 @@ static func _check_pet_pool(failures: Array[String]) -> void:
 			break
 
 	_check_roll_pet(failures, "first two-star boundary", 0.0, "pet2")
-	_check_roll_pet(failures, "second two-star boundary", 0.32, "pet3")
-	_check_roll_pet(failures, "three-star boundary", 0.64, "pet4")
-	_check_roll_pet(failures, "four-star boundary", 0.82, "pet5")
-	_check_roll_pet(failures, "first five-star boundary", 0.92, "pet6")
-	_check_roll_pet(failures, "pet7 five-star boundary", 0.97, "pet7")
-	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet7")
+	_check_roll_pet(failures, "second two-star boundary", 0.24, "pet3")
+	_check_roll_pet(failures, "first three-star boundary", 0.48, "pet4")
+	_check_roll_pet(failures, "first four-star boundary", 0.63, "pet5")
+	_check_roll_pet(failures, "first five-star boundary", 0.72, "pet6")
+	_check_roll_pet(failures, "pet7 boundary", 0.78, "pet7")
+	_check_roll_pet(failures, "pet8 boundary", 0.83, "pet8")
+	_check_roll_pet(failures, "pet9 boundary", 0.90, "pet9")
+	_check_roll_pet(failures, "pet10 boundary", 0.94, "pet10")
+	_check_roll_pet(failures, "pet11 boundary", 0.975, "pet11")
+	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet11")
 
 
 static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
@@ -96,7 +103,10 @@ static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
 
 
 static func _check_new_pet_pity(failures: Array[String]) -> void:
-	var unlocked := ["pet1", "pet2", "pet3", "pet4", "pet6", "pet7"]
+	var unlocked := [
+		"pet1", "pet2", "pet3", "pet4", "pet6", "pet7",
+		"pet8", "pet9", "pet10", "pet11"
+	]
 	var pity_count := 0
 	for draw_index in GachaProgression.NEW_PET_PITY_DRAWS - 1:
 		var duplicate := GachaProgression.roll_pet(0.0, unlocked, pity_count)

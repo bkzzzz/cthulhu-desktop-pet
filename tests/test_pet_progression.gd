@@ -8,6 +8,13 @@ static func run() -> Array[String]:
 	_check_close(failures, "level zero produces no faith", PetProgression.faith_per_second({"base_fps": 2.0}, 0), 0.0)
 	_check_close(failures, "faith applies level and power growth", PetProgression.faith_per_second({"base_fps": 2.0, "power_growth": 1.1}, 2), 4.84)
 	_check_equal(failures, "faith production is finite for hostile data", is_finite(PetProgression.faith_per_second({"base_fps": 2.0, "power_growth": 1000.0}, 100_000)), true)
+	var money_at_one := PetProgression.money_drop_value_per_minute({"base_money_rate": 10.0}, 1)
+	var money_at_two := PetProgression.money_drop_value_per_minute({"base_money_rate": 10.0}, 2)
+	_check_close(failures, "level one uses the authored dropped-money rate", money_at_one, 10.0)
+	if money_at_two <= money_at_one:
+		failures.append("pet upgrades must increase collectible dropped-money production")
+	if PetProgression.money_drop_value_per_minute({"base_money_rate": 1.0e300}, 100_000) > PetProgression.MAX_MONEY_VALUE_PER_MINUTE:
+		failures.append("dropped-money production must remain within its collectible runtime cap")
 	_check_equal(failures, "upgrade cost applies growth", PetProgression.upgrade_cost({"upgrade_cost_base": 10, "upgrade_cost_growth": 1.2}, {"upgrade_level": 2}), 14)
 	_check_equal(failures, "upgrade cost remains positive", PetProgression.upgrade_cost({"upgrade_cost_base": 1, "upgrade_cost_growth": 0.0}, {"upgrade_level": 3}), 1)
 	_check_equal(failures, "legacy saves derive progression from count", PetProgression.progression_level({"count": 42}), 42)

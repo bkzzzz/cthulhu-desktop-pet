@@ -5,6 +5,7 @@ extends RefCounted
 
 const MAX_UPGRADE_COST := 8_000_000_000_000_000_000
 const MAX_FAITH_PER_SECOND := 1.0e300
+const MAX_MONEY_VALUE_PER_MINUTE := 2500.0
 const MAX_LEVEL := 100_000
 const CAMPAIGN_TARGET_HOURS := 800.0
 const CAMPAIGN_PET_LEVEL_TARGET := 100
@@ -41,6 +42,24 @@ static func faith_per_second(pet_data: Dictionary, level: int) -> float:
 	if not is_finite(result):
 		return MAX_FAITH_PER_SECOND
 	return clampf(result, 0.0, MAX_FAITH_PER_SECOND)
+
+
+static func money_drop_value_per_minute(pet_data: Dictionary, level: int) -> float:
+	if level <= 0:
+		return 0.0
+	var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
+	var base_rate := maxf(0.0, float(pet_data.get(
+		"base_money_rate",
+		4.0 + (float(rarity) * 3.0)
+	)))
+	var excess_levels := float(maxi(0, level - 1))
+	var effective_levels := minf(excess_levels, 200.0)
+	if excess_levels > 200.0:
+		effective_levels += sqrt(excess_levels - 200.0) * 4.0
+	var result := base_rate * pow(1.012, effective_levels)
+	if not is_finite(result):
+		return MAX_MONEY_VALUE_PER_MINUTE
+	return clampf(result, 0.0, MAX_MONEY_VALUE_PER_MINUTE)
 
 
 static func upgrade_cost(pet_data: Dictionary, state: Dictionary) -> int:

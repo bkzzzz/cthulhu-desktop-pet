@@ -12,10 +12,12 @@ static func run() -> Array[String]:
 	_test_coin_definitions(failures)
 	_test_coin_ground_first_pickup(failures)
 	_test_coin_collection(failures)
+	_test_pet_money_pile(failures)
 	_test_activity_ranges(failures)
 	_test_settings_runtime(failures)
 	_test_believer_drop_signal(failures)
 	_test_believer_prayer_animation_and_reward(failures)
+	_test_believer_exit_refresh_and_pilgrimage_entry(failures)
 	_test_pilgrimage_activity_override(failures)
 	_test_pilgrimage_event_lifecycle(failures)
 	_test_pet_autonomy_pause(failures)
@@ -67,6 +69,23 @@ static func _test_coin_collection(failures: Array[String]) -> void:
 	main.free()
 
 
+static func _test_pet_money_pile(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	var pet := DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1200, 720), 0.0, 1200.0, 500.0, 704.0, false)
+	main.add_child(pet)
+	(main.get("_pets") as Array).append(pet)
+	main.call("_spawn_pet_coin_pile", pet, 45.0)
+	var drops := main.get("_coin_drops") as Array
+	if drops.size() < Main.PET_AUTO_COIN_PILE_MIN:
+		failures.append("an automatic pet money event must drop a visible pile of coins")
+	if int(main.get("_gold_coins")) != 0:
+		failures.append("automatic pet money must remain on the ground until the mouse collects it")
+	main.free()
+
+
 static func _test_activity_ranges(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_pet_window_size", Vector2i(1920, 1080))
@@ -83,6 +102,13 @@ static func _test_activity_ranges(failures: Array[String]) -> void:
 		failures.append("left activity mode must constrain pets to the desktop's left side")
 	if not (right_min > full_min and is_equal_approx(right_max, full_max)):
 		failures.append("right activity mode must constrain pets to the desktop's right side")
+	var left_actor := DesktopPetActor.new()
+	left_actor.setup("pet1", Vector2i(1920, 1080), left_min, left_max, 400.0, 1064.0, true)
+	left_actor.position.x = float(left_actor.get("_min_x"))
+	var left_visual_rect: Rect2 = left_actor.call("_get_sprite_visual_rect")
+	if left_visual_rect.position.x > 7.0:
+		failures.append("left activity mode must let a pet visibly reach the physical left screen edge")
+	left_actor.free()
 	main.free()
 
 
@@ -157,6 +183,35 @@ static func _test_believer_prayer_animation_and_reward(failures: Array[String]) 
 				failures.append("prayer rewards must use the expensive D coin")
 				break
 	main.free()
+
+
+static func _test_believer_exit_refresh_and_pilgrimage_entry(failures: Array[String]) -> void:
+	var believer := BelieverActor.new()
+	believer.setup_visible(Vector2i(820, 420), 400.0)
+	var exits: Array[bool] = []
+	believer.exited.connect(func(_actor: Node2D) -> void: exits.append(true))
+	believer.call("leave_quietly")
+	believer.position.x = -BelieverActor.OFFSCREEN_PADDING
+	believer.call("_update_walk_out", 0.0)
+	if exits.size() != 1 or not believer.is_queued_for_deletion():
+		failures.append("a believer reaching the exact screen boundary must be removed so spawning can continue")
+	believer.free()
+
+	var pilgrim := BelieverActor.new()
+	pilgrim.setup_pilgrim(Vector2i(1200, 720), 420.0, 704.0, true, 0.2)
+	if int(pilgrim.get("_state")) != BelieverActor.BelieverState.WALK_IN:
+		failures.append("pilgrimage believers must enter through the walk-in state")
+	if pilgrim.position.x >= 0.0:
+		failures.append("pilgrimage believers must begin outside the screen instead of popping into place")
+	var start_x := pilgrim.position.x
+	pilgrim.call("_update_walk_in", 0.1)
+	if not is_equal_approx(pilgrim.position.x, start_x):
+		failures.append("staggered pilgrimage entrances must honor their short group delay")
+	pilgrim.call("_update_walk_in", 0.2)
+	pilgrim.call("_update_walk_in", 0.2)
+	if pilgrim.position.x <= start_x:
+		failures.append("pilgrimage believers must visibly walk in from the screen edge")
+	pilgrim.free()
 
 
 static func _test_pilgrimage_activity_override(failures: Array[String]) -> void:

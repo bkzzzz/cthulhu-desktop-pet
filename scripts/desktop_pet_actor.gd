@@ -32,6 +32,10 @@ const INPUT_PROXY_PADDING := 10.0
 const DOZE_ANIMATION_SPEED_SCALE := 0.28
 const POP_DURATION_MIN := 0.48
 const POP_DURATION_MAX := 0.82
+const SWALLOW_IN_DURATION := 0.72
+const SWALLOW_OUT_DURATION := 0.82
+const SWALLOW_SPIT_DISTANCE_MIN := 120.0
+const SWALLOW_SPIT_DISTANCE_MAX := 240.0
 
 enum Behavior {
 	IDLE,
@@ -54,7 +58,15 @@ enum Behavior {
 	AIR_ROAM_PAUSE,
 	AIR_ROAM_RETURN,
 	GRABBED,
-	FALLING
+	FALLING,
+	SWALLOWED
+}
+
+enum SwallowPhase {
+	NONE,
+	SUCKING_IN,
+	HELD,
+	SPITTING_OUT
 }
 
 var pet_id := ""
@@ -138,6 +150,12 @@ var _interaction_enabled := true
 var _activity_restricted := false
 var _autonomy_paused := false
 var _autonomy_previous_speed_scale := 1.0
+var _swallow_phase := SwallowPhase.NONE
+var _swallow_progress := 0.0
+var _swallow_hold_time := 0.0
+var _swallow_start_position := Vector2.ZERO
+var _swallow_target_position := Vector2.ZERO
+var _swallower: Node2D
 var _hover_hint: Label
 var _hovering := false
 var _hover_time := 0.0
@@ -179,7 +197,6 @@ func setup(
 	_rolls_while_walking = bool(pet_data.get("rolls_while_walking", false))
 	_walk_rotation_speed = maxf(0.0, float(pet_data.get("walk_rotation_speed", 0.0)))
 	_faces_right = bool(pet_data.get("faces_right", false))
-	_set_safe_bounds(min_x, max_x)
 	_activity_restricted = restrict_activity
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ pet_id.hash()
 	_float_phase = _rng.randf_range(0.0, TAU)
@@ -220,6 +237,7 @@ func setup(
 
 	_create_sprite()
 	_create_interaction_area()
+	_set_safe_bounds(min_x, max_x)
 
 	position = Vector2(clampf(start_x, _min_x, _max_x), _get_rest_y())
 	_float_anchor_y = position.y
@@ -282,6 +300,8 @@ func set_autonomy_paused(paused: bool) -> void:
 	if _sprite == null:
 		return
 	if paused:
+		if _behavior == Behavior.SWALLOWED:
+			_finish_swallowed()
 		_autonomy_previous_speed_scale = _sprite.speed_scale
 		if _behavior in [Behavior.UNDERGROUND, Behavior.HIDDEN]:
 			_cancel_special_behavior()
@@ -293,6 +313,44 @@ func set_autonomy_paused(paused: bool) -> void:
 
 func is_autonomy_paused() -> bool:
 	return _autonomy_paused
+
+
+func can_be_swallowed() -> bool:
+	return (
+		_sprite != null
+		and _sprite.visible
+		and not _pointer_held
+		and not _autonomy_paused
+		and not _forced_target_pending
+		and _behavior not in [
+			Behavior.GRABBED,
+			Behavior.FALLING,
+			Behavior.SWALLOWED,
+			Behavior.UNDERGROUND,
+			Behavior.HIDDEN
+		]
+	)
+
+
+func start_swallowed_by(swallower: Node2D, hold_seconds: float) -> bool:
+	if swallower == null or not is_instance_valid(swallower) or not can_be_swallowed():
+		return false
+	_cancel_special_behavior()
+	_swallower = swallower
+	_swallow_phase = SwallowPhase.SUCKING_IN
+	_swallow_progress = 0.0
+	_swallow_hold_time = clampf(hold_seconds, 1.0, 20.0)
+	_swallow_start_position = position
+	_behavior = Behavior.SWALLOWED
+	z_index = 180
+	_set_interaction_enabled(false)
+	if _hover_hint != null:
+		_hover_hint.visible = false
+	return true
+
+
+func is_swallowed() -> bool:
+	return _behavior == Behavior.SWALLOWED
 
 
 func walk_to_offering_x(target_x: float) -> void:
@@ -577,6 +635,8 @@ func _update_pet(delta: float) -> void:
 			_update_grabbed_position()
 		Behavior.FALLING:
 			_update_falling(delta)
+		Behavior.SWALLOWED:
+			_update_swallowed(delta)
 		Behavior.WALK:
 			_update_walking(delta)
 		Behavior.IDLE:
@@ -625,6 +685,88 @@ func _update_pet(delta: float) -> void:
 					_start_next_air_roam_leg()
 				else:
 					_start_idle()
+
+
+func _update_swallowed(delta: float) -> void:
+	var safe_delta := maxf(0.0, delta)
+	match _swallow_phase:
+		SwallowPhase.SUCKING_IN:
+			_swallow_progress = minf(1.0, _swallow_progress + (safe_delta / SWALLOW_IN_DURATION))
+			var eased_in := ease(_swallow_progress, 2.2)
+			position = _swallow_start_position.lerp(_get_swallower_position(), eased_in)
+			_sprite.scale = Vector2.ONE * _pet_scale * lerpf(1.0, 0.08, eased_in)
+			_sprite.rotation += safe_delta * 8.0
+			if _swallow_progress >= 1.0:
+				_swallow_phase = SwallowPhase.HELD
+				_sprite.visible = false
+		SwallowPhase.HELD:
+			position = _get_swallower_position()
+			_swallow_hold_time -= safe_delta
+			if _swallow_hold_time <= 0.0 or _swallower == null or not is_instance_valid(_swallower):
+				_begin_swallow_spit()
+		SwallowPhase.SPITTING_OUT:
+			_swallow_progress = minf(1.0, _swallow_progress + (safe_delta / SWALLOW_OUT_DURATION))
+			var eased_out := ease(_swallow_progress, -2.0)
+			position = _swallow_start_position.lerp(_swallow_target_position, eased_out)
+			position.y -= sin(_swallow_progress * PI) * 64.0
+			_sprite.scale = Vector2.ONE * _pet_scale * lerpf(0.12, 1.0, eased_out)
+			_sprite.rotation = lerpf(-0.8, 0.0, eased_out)
+			if _swallow_progress >= 1.0:
+				_finish_swallowed()
+		_:
+			_finish_swallowed()
+
+
+func _get_swallower_position() -> Vector2:
+	if _swallower != null and is_instance_valid(_swallower):
+		return _swallower.position
+	return position
+
+
+func _begin_swallow_spit() -> void:
+	_swallow_phase = SwallowPhase.SPITTING_OUT
+	_swallow_progress = 0.0
+	_swallow_start_position = _get_swallower_position()
+	var direction := -1.0 if _swallow_start_position.x >= (_min_x + _max_x) * 0.5 else 1.0
+	if _rng.randf() < 0.28:
+		direction *= -1.0
+	var target_x := clampf(
+		_swallow_start_position.x + direction * _rng.randf_range(
+			SWALLOW_SPIT_DISTANCE_MIN,
+			SWALLOW_SPIT_DISTANCE_MAX
+		),
+		_min_x,
+		_max_x
+	)
+	var target_y := _get_rest_y()
+	if _behavior_style == "sleepy_floater":
+		var air_bounds := _get_air_roam_y_bounds()
+		target_y = clampf(
+			_swallow_start_position.y + _rng.randf_range(-48.0, 48.0),
+			air_bounds.x,
+			_get_rest_y()
+		)
+	_swallow_target_position = Vector2(target_x, target_y)
+	_sprite.visible = true
+
+
+func _finish_swallowed() -> void:
+	_swallow_phase = SwallowPhase.NONE
+	_swallower = null
+	position.x = clampf(position.x, _min_x, _max_x)
+	if _swallow_target_position != Vector2.ZERO:
+		position = _swallow_target_position
+	_swallow_target_position = Vector2.ZERO
+	z_index = 0
+	_sprite.scale = Vector2.ONE * _pet_scale
+	_sprite.rotation = 0.0
+	_sprite.visible = true
+	_set_interaction_enabled(true)
+	if _behavior_style == "sleepy_floater":
+		_float_anchor_y = position.y
+	else:
+		position.y = _get_rest_y()
+	_start_idle()
 
 
 func _update_walking(delta: float) -> void:
@@ -1127,7 +1269,7 @@ func _cancel_special_behavior() -> void:
 	_sprite.visible = true
 	_set_interaction_enabled(true)
 	position.x = clampf(position.x, _min_x, _max_x)
-	if restore_ground:
+	if restore_ground and _behavior_style != "sleepy_floater":
 		position.y = _get_rest_y()
 	if _behavior_style == "sleepy_floater":
 		_float_anchor_y = position.y
@@ -1195,12 +1337,19 @@ func _finish_pointer_hold(force_cancel := false) -> void:
 		if _interaction_area != null:
 			_interaction_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		grabbed_changed.emit(self, false)
-		var pointer_distance := _get_pointer_position().distance_to(_press_position)
+		var pointer_distance := INF
+		if not force_cancel:
+			pointer_distance = _get_pointer_position().distance_to(_press_position)
 		var is_petting_click := not force_cancel and _pointer_hold_time <= PETTING_CLICK_MAX_SECONDS and pointer_distance <= GRAB_CLICK_TOLERANCE
 		if is_petting_click:
 			position = _press_actor_position
 			_start_idle()
 			petted.emit(self)
+		elif _behavior_style == "sleepy_floater":
+			var air_bounds := _get_air_roam_y_bounds()
+			_float_anchor_y = clampf(position.y, air_bounds.x, _get_rest_y())
+			position.y = _float_anchor_y
+			_start_idle()
 		else:
 			_behavior = Behavior.FALLING
 			_fall_velocity = 0.0
@@ -1232,9 +1381,18 @@ func _get_pointer_position() -> Vector2:
 
 
 func _set_safe_bounds(min_x: float, max_x: float) -> void:
-	var half_width := (PET_VISUAL_SIZE.x * 0.5) + 8.0
-	_min_x = maxf(min_x, half_width)
-	_max_x = minf(max_x, float(_window_size.x) - half_width)
+	var left_inset := 48.0
+	var right_inset := 48.0
+	if _stable_hit_image != null and not _stable_hit_image.is_empty():
+		var visible_bounds := _stable_hit_image.get_used_rect()
+		if visible_bounds.size != Vector2i.ZERO:
+			var half_frame_width := float(_stable_hit_image.get_width()) * 0.5
+			var local_left := float(visible_bounds.position.x) - half_frame_width
+			var local_right := float(visible_bounds.end.x) - half_frame_width
+			left_inset = maxf(24.0, -local_left * _pet_scale + 6.0)
+			right_inset = maxf(24.0, local_right * _pet_scale + 6.0)
+	_min_x = maxf(min_x, left_inset)
+	_max_x = minf(max_x, float(_window_size.x) - right_inset)
 	if _max_x < _min_x:
 		var center_x := float(_window_size.x) * 0.5
 		_min_x = center_x
@@ -1242,11 +1400,11 @@ func _set_safe_bounds(min_x: float, max_x: float) -> void:
 
 
 func _get_drag_min_x() -> float:
-	return _min_x if _activity_restricted else 48.0
+	return _min_x
 
 
 func _get_drag_max_x() -> float:
-	return _max_x if _activity_restricted else float(_window_size.x) - 48.0
+	return _max_x
 
 
 func _get_wall_x() -> float:
@@ -1358,7 +1516,7 @@ func _set_interaction_enabled(enabled: bool) -> void:
 func _update_hover_hint(delta: float) -> void:
 	if _hover_hint == null:
 		return
-	if not _hovering or _behavior == Behavior.GRABBED or _behavior in [Behavior.UNDERGROUND, Behavior.HIDDEN] or not _sprite.visible:
+	if not _hovering or _behavior == Behavior.GRABBED or _behavior in [Behavior.UNDERGROUND, Behavior.HIDDEN, Behavior.SWALLOWED] or not _sprite.visible:
 		_hover_hint.visible = false
 		return
 	_hover_time += delta

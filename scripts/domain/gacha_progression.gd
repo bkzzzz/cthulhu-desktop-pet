@@ -12,27 +12,43 @@ const DUPLICATE_REWARD_RATIOS := [0.0, 0.50, 0.65, 0.80, 1.00, 1.25]
 const PET_POOL := [
 	{
 		"pet_id": "pet2",
-		"weight": 32.0
+		"weight": 24.0
 	},
 	{
 		"pet_id": "pet3",
-		"weight": 32.0
+		"weight": 24.0
 	},
 	{
 		"pet_id": "pet4",
-		"weight": 18.0
+		"weight": 15.0
 	},
 	{
 		"pet_id": "pet5",
-		"weight": 10.0
+		"weight": 9.0
 	},
 	{
 		"pet_id": "pet6",
-		"weight": 5.0
+		"weight": 6.0
 	},
 	{
 		"pet_id": "pet7",
-		"weight": 3.0
+		"weight": 5.0
+	},
+	{
+		"pet_id": "pet8",
+		"weight": 7.0
+	},
+	{
+		"pet_id": "pet9",
+		"weight": 4.0
+	},
+	{
+		"pet_id": "pet10",
+		"weight": 3.5
+	},
+	{
+		"pet_id": "pet11",
+		"weight": 2.5
 	}
 ]
 

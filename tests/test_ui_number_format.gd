@@ -32,9 +32,14 @@ static func run() -> Array[String]:
 		"current_fps": 1.25,
 		"next_fps": 2.5
 	}), "提升增速 +1.25/s")
+	_check(failures, formatter.call("_get_money_rate_text", {
+		"current_money_rate": 12.5,
+		"next_money_rate": 13.75,
+		"money_rate_gain": 1.25
+	}), "金钱增速  $12.50/分钟\n下一级  +$1.25/分钟 · 需用鼠标收集掉落钱币")
 	_check(failures, formatter.call("_get_rarity_stars_text", {"rarity_stars": 3}, {}), "★★★")
 	_check(failures, formatter.call("_get_upgrade_cost_text", {"cost": 25}), "消耗 25")
-	_check(failures, formatter.call("_get_upgrade_tooltip_text", {}), "点击升级宠物，提高信仰增速")
+	_check(failures, formatter.call("_get_upgrade_tooltip_text", {}), "点击升级宠物，提高信仰与金钱掉落")
 	_check(failures, formatter.call("_get_upgrade_cost_text", {"is_max_level": true}), "已满级")
 	_check(failures, formatter.call("_get_upgrade_tooltip_text", {"is_max_level": true}), "宠物已满级")
 	var compact_layout: Vector2 = formatter.call("_get_bookmark_layout", 400.0)

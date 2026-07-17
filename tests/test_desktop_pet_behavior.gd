@@ -13,9 +13,11 @@ static func run() -> Array[String]:
 	_test_generic_doze(failures)
 	_test_hide_then_pop(failures)
 	_test_air_roaming(failures)
+	_test_floater_interaction_height(failures)
 	_test_ground_alignment(failures)
 	_test_pet6_taskbar_alignment_and_wall_rule(failures)
 	_test_pet7_directional_roll(failures)
+	_test_pet11_swallow_cycle(failures)
 	_test_wall_alignment_and_descent(failures)
 	_test_grab_offset(failures)
 	_test_burrow_reaction(failures)
@@ -272,6 +274,48 @@ static func _test_air_roaming(failures: Array[String]) -> void:
 	if not is_equal_approx(float(actor.get("_float_anchor_y")), final_air_target.y):
 		failures.append("pet2 must remain at the final airborne height after a multi-leg roam")
 	actor.free()
+
+
+static func _test_floater_interaction_height(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet2", Vector2i(1600, 1000), 0.0, 1600.0, 800.0)
+	var airborne_height := 180.0
+	actor.position.y = airborne_height
+	actor.set("_float_anchor_y", airborne_height)
+	actor.set("_pointer_held", true)
+	actor.set("_behavior", DesktopPetActor.Behavior.GRABBED)
+	actor.call("_finish_pointer_hold", true)
+	if int(actor.get("_behavior")) == DesktopPetActor.Behavior.FALLING:
+		failures.append("releasing pet2 interaction must not force an airborne pet to fall")
+	if not is_equal_approx(actor.position.y, airborne_height):
+		failures.append("pet2 interaction must preserve its current airborne height")
+	actor.free()
+
+
+static func _test_pet11_swallow_cycle(failures: Array[String]) -> void:
+	var pet11 := DesktopPetActor.new()
+	pet11.setup("pet11", Vector2i(1600, 1000), 0.0, 1600.0, 900.0)
+	var target := DesktopPetActor.new()
+	target.setup("pet8", Vector2i(1600, 1000), 0.0, 1600.0, 420.0)
+	if not target.start_swallowed_by(pet11, 1.0):
+		failures.append("pet11 must be able to start swallowing another available pet")
+		target.free()
+		pet11.free()
+		return
+	target.call("_update_swallowed", DesktopPetActor.SWALLOW_IN_DURATION + 0.01)
+	var target_sprite := target.get_node("pet8Sprite") as AnimatedSprite2D
+	if target_sprite.visible or not target.is_swallowed():
+		failures.append("a swallowed pet must disappear inside pet11 during the hold")
+	target.call("_update_swallowed", 1.1)
+	if not target_sprite.visible:
+		failures.append("pet11 must visibly spit the swallowed pet back out")
+	target.call("_update_swallowed", DesktopPetActor.SWALLOW_OUT_DURATION + 0.01)
+	if target.is_swallowed() or int(target.get("_behavior")) != DesktopPetActor.Behavior.IDLE:
+		failures.append("a spat-out pet must fully return to normal autonomous behavior")
+	if not target_sprite.scale.is_equal_approx(Vector2.ONE * float(target.get("_pet_scale"))):
+		failures.append("a spat-out pet must restore its authored desktop scale")
+	target.free()
+	pet11.free()
 
 
 static func _test_wall_alignment_and_descent(failures: Array[String]) -> void:

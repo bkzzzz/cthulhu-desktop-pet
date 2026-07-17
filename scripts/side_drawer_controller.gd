@@ -1304,6 +1304,17 @@ func _get_upgrade_gain_text(entry: Dictionary) -> String:
 	]
 
 
+func _get_money_rate_text(entry: Dictionary) -> String:
+	var current_rate := maxf(0.0, float(entry.get("current_money_rate", 0.0)))
+	var next_rate := maxf(current_rate, float(entry.get("next_money_rate", current_rate)))
+	var gain := maxf(0.0, float(entry.get("money_rate_gain", next_rate - current_rate)))
+	return (
+		"MONEY DROP  $%s/min\nNEXT LEVEL  +$%s/min · collect the dropped coins"
+		if _language == "en"
+		else "金钱增速  $%s/分钟\n下一级  +$%s/分钟 · 需用鼠标收集掉落钱币"
+	) % [_format_number(current_rate, true), _format_number(gain, true)]
+
+
 func _get_rarity_stars(entry: Dictionary, pet_data: Dictionary) -> int:
 	return clampi(int(entry.get(
 		"rarity_stars",
@@ -1337,7 +1348,7 @@ func _get_pet_profile_text(entry: Dictionary, pet_data: Dictionary) -> String:
 func _get_upgrade_tooltip_text(entry: Dictionary) -> String:
 	if bool(entry.get("is_max_level", false)):
 		return "Maximum level" if _language == "en" else "宠物已满级"
-	return "Click to upgrade faith production" if _language == "en" else "点击升级宠物，提高信仰增速"
+	return "Upgrade faith and dropped-money production" if _language == "en" else "点击升级宠物，提高信仰与金钱掉落"
 
 
 func _get_upgrade_cost_text(entry: Dictionary) -> String:
@@ -1378,7 +1389,7 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 	if _upgrade_detail_profile_label != null:
 		_upgrade_detail_profile_label.text = _get_pet_profile_text(entry, pet_data)
 	if _upgrade_detail_stats_label != null:
-		_upgrade_detail_stats_label.text = "[color=#b9dc8a]%s[/color]" % _get_upgrade_gain_text(entry)
+		_upgrade_detail_stats_label.text = "[color=#b9dc8a]%s[/color]" % _get_money_rate_text(entry)
 
 	_upgrade_detail_pet_id = pet_id
 	_upgrade_detail_source_button = button

@@ -166,6 +166,8 @@ static func _test_upgrade_entry_simplicity(failures: Array[String]) -> void:
 		failures.append("upgrade entries must expose the current pet level")
 	if float(pet1_entry.get("next_fps", 0.0)) <= float(pet1_entry.get("current_fps", 0.0)):
 		failures.append("upgrade entries must preview a higher next-level generation rate")
+	if float(pet1_entry.get("next_money_rate", 0.0)) <= float(pet1_entry.get("current_money_rate", 0.0)):
+		failures.append("pet detail entries must preview higher collectible money drops")
 	if int(pet1_entry.get("rarity_stars", 0)) < 1:
 		failures.append("pet detail entries must expose a visible rarity star count")
 	if String(pet1_entry.get("age_text", "")).is_empty() or String(pet1_entry.get("personality", "")).is_empty():

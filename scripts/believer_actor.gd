@@ -20,6 +20,7 @@ const CHROMA_KEY_TOLERANCE := 0.075
 const BELIEVER_SCALE := 1.54
 const NOTICE_SCALE := 0.17
 const WALK_SPEED := 62.0
+const PILGRIMAGE_WALK_IN_SPEED := 190.0
 const RUN_SPEED := 188.0
 const OFFSCREEN_PADDING := 78.0
 const CENTER_ZONE_HALF_WIDTH := 86.0
@@ -55,6 +56,7 @@ var _target_x := 0.0
 var _idle_time := 0.0
 var _natural_leave_time := 0.0
 var _scare_grace_time := 0.0
+var _entrance_delay := 0.0
 var _pray_time := 0.0
 var _prayer_reward_count := 0
 var _prayer_chance := NORMAL_PRAY_CHANCE
@@ -102,7 +104,13 @@ func setup_visible(window_size: Vector2i, ground_contact_y := -1.0) -> void:
 	_start_idle(0.4)
 
 
-func setup_pilgrim(window_size: Vector2i, spawn_x: float, ground_contact_y := -1.0) -> void:
+func setup_pilgrim(
+	window_size: Vector2i,
+	spawn_x: float,
+	ground_contact_y := -1.0,
+	spawn_from_left := true,
+	entrance_delay := 0.0
+) -> void:
 	_rng.randomize()
 	_window_size = window_size
 	_ground_contact_y = float(window_size.y) if ground_contact_y < 0.0 else ground_contact_y
@@ -112,9 +120,15 @@ func setup_pilgrim(window_size: Vector2i, spawn_x: float, ground_contact_y := -1
 	_pilgrimage_member = true
 	_prayer_chance = PILGRIMAGE_PRAY_CHANCE
 	_natural_leave_time = 999999.0
-	position = Vector2(clampf(spawn_x, _get_center_min_x(), _get_center_max_x()), _get_rest_y())
-	_sprite.flip_h = _rng.randf() < 0.5
-	_start_idle(0.45)
+	_target_x = clampf(spawn_x, _get_center_min_x(), _get_center_max_x())
+	position = Vector2(
+		-OFFSCREEN_PADDING if spawn_from_left else float(_window_size.x) + OFFSCREEN_PADDING,
+		_get_rest_y()
+	)
+	_entrance_delay = maxf(0.0, entrance_delay)
+	_state = BelieverState.WALK_IN
+	_face_target(_target_x)
+	_sprite.play("walk")
 
 
 func _process(delta: float) -> void:
@@ -141,6 +155,8 @@ func set_threat_positions(threat_positions: Array) -> void:
 	for threat_position_value in threat_positions:
 		if threat_position_value is Vector2:
 			_threat_positions.append(threat_position_value)
+	if _pilgrimage_member and _state == BelieverState.WALK_IN:
+		return
 	_try_start_reaction(false)
 
 
@@ -181,12 +197,19 @@ func _create_notice() -> void:
 
 
 func _update_walk_in(delta: float) -> void:
-	if _try_start_reaction(false):
+	if _entrance_delay > 0.0:
+		_entrance_delay = maxf(0.0, _entrance_delay - maxf(0.0, delta))
 		return
-	_move_toward_x(_target_x, WALK_SPEED, delta)
+	if not _pilgrimage_member and _try_start_reaction(false):
+		return
+	_move_toward_x(
+		_target_x,
+		PILGRIMAGE_WALK_IN_SPEED if _pilgrimage_member else WALK_SPEED,
+		delta
+	)
 	if absf(position.x - _target_x) <= ARRIVE_DISTANCE:
 		position.x = _target_x
-		_start_idle()
+		_start_idle(0.45 if _pilgrimage_member else SCARE_GRACE_SECONDS)
 
 
 func _update_idle(delta: float) -> void:
@@ -219,14 +242,14 @@ func _update_center_walk(delta: float) -> void:
 
 func _update_walk_out(delta: float) -> void:
 	_move_toward_x(_run_target_x, WALK_SPEED, delta)
-	if position.x < -OFFSCREEN_PADDING or position.x > float(_window_size.x) + OFFSCREEN_PADDING:
+	if position.x <= -OFFSCREEN_PADDING or position.x >= float(_window_size.x) + OFFSCREEN_PADDING:
 		exited.emit(self)
 		queue_free()
 
 
 func _update_run_away(delta: float) -> void:
 	_move_toward_x(_run_target_x, RUN_SPEED, delta)
-	if position.x < -OFFSCREEN_PADDING or position.x > float(_window_size.x) + OFFSCREEN_PADDING:
+	if position.x <= -OFFSCREEN_PADDING or position.x >= float(_window_size.x) + OFFSCREEN_PADDING:
 		exited.emit(self)
 		queue_free()
 
