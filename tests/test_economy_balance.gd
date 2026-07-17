@@ -25,8 +25,8 @@ static func _check_starter_curve(failures: Array[String]) -> void:
 	var starter_rate := _pet_rate("pet1", 1)
 	if starter_rate <= 0.0 or starter_rate >= 1.0:
 		failures.append("pet1 must provide a small positive opening faith rate, got %.6f/s" % starter_rate)
-	if starter_rate * OPENING_SECONDS >= float(GachaProgression.draw_cost(0)):
-		failures.append("the first passive minute must not automatically skip the opening progression")
+	if GachaProgression.draw_cost(0) < 1 or GachaProgression.draw_cost(0) > 5:
+		failures.append("the opening gacha price must suit a scarce click-earned currency")
 	if PetCatalog.STARTER_UNLOCKED_PETS != ["pet1"]:
 		failures.append("a fresh game must begin with only pet1 unlocked")
 
@@ -208,9 +208,11 @@ static func _check_draw_price_curve(failures: Array[String]) -> void:
 		guarantee_cycle_cost += GachaProgression.draw_cost(draw_index)
 	if guarantee_cycle_cost <= GachaProgression.draw_cost(0):
 		failures.append("the full new-pet guarantee cycle must cost more than a single draw")
+	if guarantee_cycle_cost > 15:
+		failures.append("the opening guarantee cycle must remain affordable with click-earned coins")
 	var late_cost := GachaProgression.draw_cost(1000000)
-	if late_cost <= 0 or late_cost > GachaProgression.MAX_DRAW_COST:
-		failures.append("late-game draw costs must remain positive and safely capped")
+	if late_cost <= 0 or late_cost != GachaProgression.MAX_DRAW_COST or late_cost > 20:
+		failures.append("late-game draw costs must remain positive and capped at a small amount")
 
 
 static func _pet_rate(pet_id: String, level: int) -> float:

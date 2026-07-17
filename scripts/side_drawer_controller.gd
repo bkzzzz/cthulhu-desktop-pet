@@ -4,6 +4,7 @@ signal inventory_requested
 signal shop_requested
 signal gacha_requested
 signal news_requested
+signal settings_requested
 signal quit_requested
 signal pet_upgrade_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
@@ -46,10 +47,11 @@ const UPGRADE_EFFECT_TEXTURE := "res://assets/ui/newElements/upgradeEffect.png"
 const UPGRADE_TEXTURE := "res://assets/ui/testElements/upgrade.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
 const UI_FONT := "res://assets/ui/font/NormalFont.ttf"
+const COIN_TEXTURE := "res://assets/ui/coins/MonedaD.png"
 
 # Core UI sizing
 const MENU_ICON_SIZE := Vector2(218.0, 140.0)
-const ADDER_STAGE_HEIGHT := 392.0
+const ADDER_STAGE_HEIGHT := 484.0
 const ADDER_SIZE := Vector2(244.0, 296.0)
 const GLOW_SIZE := Vector2(230.0, 210.0)
 const GLOW_ROTATION_SPEED := 0.65
@@ -89,7 +91,7 @@ const UPGRADE_DETAIL_SAFE_PADDING := 18.0
 const BOOKMARK_SIZE := Vector2(258.0, 82.0)
 const BOOKMARK_CONTAINER_TOP := 106.0
 const BOOKMARK_SEPARATION := 12
-const BOOKMARK_CONTAINER_HEIGHT := 470.0
+const BOOKMARK_CONTAINER_HEIGHT := 570.0
 const BOOKMARK_SCREEN_MARGIN := 8.0
 const BOOKMARK_SAFE_INSET_X := 8.0
 const BOOKMARK_LABEL_POSITION := Vector2(84.0, 0.0)
@@ -141,7 +143,9 @@ var _menu_drag_pointer_offset := Vector2.ZERO
 var _faith_value_label: Label
 var _faith_title_label: Label
 var _faith_growth_value_label: Label
+var _coin_value_label: Label
 var _faith_count := 0.0
+var _coin_count := 0
 var _follower_count := 0
 var _faith_growth_rate := 0.0
 var _follower_growth_rate := 0.0
@@ -157,6 +161,8 @@ var _ui_theme: Theme
 var _ui_font: Font
 var _upgrade_row_texture: Texture2D
 var _menu_hit_images := {}
+var _bookmark_labels := {}
+var _language := "zh"
 var _rng := RandomNumberGenerator.new()
 
 
@@ -219,7 +225,7 @@ func refresh_pet_upgrades(entries: Array) -> void:
 			name_label.text = String(entry.get("name", _get_pet_display_name(pet_id, PetCatalog.get_definition(pet_id))))
 			_fit_font_to_text(name_label, name_label.text, 19, 12, 12)
 		if level_label != null:
-			level_label.text = "等级\n%s" % _get_upgrade_level_text(entry)
+			level_label.text = ("LEVEL\n%s" if _language == "en" else "等级\n%s") % _get_upgrade_level_text(entry)
 			_fit_font_to_text(level_label, level_label.text, 25, 18, 6)
 			if _upgrade_last_levels.has(pet_id) and level > int(_upgrade_last_levels.get(pet_id, level)):
 				_pulse_count_label(level_label)
@@ -252,6 +258,39 @@ func refresh_pet_upgrades(entries: Array) -> void:
 func refresh_followers(follower_count: int, growth_rate: float) -> void:
 	_follower_count = maxi(0, follower_count)
 	_follower_growth_rate = maxf(0.0, growth_rate)
+
+
+func refresh_coins(coin_count: int) -> void:
+	_coin_count = maxi(0, coin_count)
+	if _coin_value_label == null:
+		return
+	var next_text := "$ %s" % _format_number(float(_coin_count), false, true)
+	if _coin_value_label.text == next_text:
+		return
+	_coin_value_label.text = next_text
+	_fit_font_to_text(_coin_value_label, next_text, 34, 20, 12)
+	_pulse_count_label(_coin_value_label)
+
+
+func set_language(language_code: String) -> void:
+	_language = "en" if language_code == "en" else "zh"
+	if _faith_title_label != null:
+		_faith_title_label.text = "FAITH" if _language == "en" else "信仰点数"
+	var labels := {
+		"inventory": "INVENTORY" if _language == "en" else "仓库",
+		"shop": "SHOP" if _language == "en" else "商店",
+		"gacha": "GACHA" if _language == "en" else "抽卡",
+		"news": "NEWS" if _language == "en" else "新闻",
+		"settings": "SETTINGS" if _language == "en" else "设置",
+		"close": "CLOSE" if _language == "en" else "收起"
+	}
+	for bookmark_id in labels:
+		var label := _bookmark_labels.get(bookmark_id) as Label
+		if label != null:
+			label.text = String(labels[bookmark_id])
+			_fit_font_to_text(label, label.text, 24, 14, 9)
+	if not _upgrade_entries.is_empty():
+		refresh_pet_upgrades(_upgrade_entries)
 
 
 func set_menu_handle_anchor(anchor: float) -> void:
@@ -365,11 +404,12 @@ func _create_drawer_window() -> void:
 	_bookmark_container.add_theme_constant_override("separation", BOOKMARK_SEPARATION)
 	_drawer_root.add_child(_bookmark_container)
 
-	_bookmark_container.add_child(_make_bookmark_button("仓库", _on_inventory_bookmark_pressed))
-	_bookmark_container.add_child(_make_bookmark_button("商店", _on_shop_bookmark_pressed))
-	_bookmark_container.add_child(_make_bookmark_button("抽卡", _on_gacha_bookmark_pressed))
-	_bookmark_container.add_child(_make_bookmark_button("新闻", _on_news_bookmark_pressed))
-	_bookmark_container.add_child(_make_bookmark_button("收起", _on_drawer_close_bookmark_pressed))
+	_bookmark_container.add_child(_make_bookmark_button("仓库", _on_inventory_bookmark_pressed, "inventory"))
+	_bookmark_container.add_child(_make_bookmark_button("商店", _on_shop_bookmark_pressed, "shop"))
+	_bookmark_container.add_child(_make_bookmark_button("抽卡", _on_gacha_bookmark_pressed, "gacha"))
+	_bookmark_container.add_child(_make_bookmark_button("新闻", _on_news_bookmark_pressed, "news"))
+	_bookmark_container.add_child(_make_bookmark_button("设置", _on_settings_bookmark_pressed, "settings"))
+	_bookmark_container.add_child(_make_bookmark_button("收起", _on_drawer_close_bookmark_pressed, "close"))
 	var bookmark_spacer := Control.new()
 	bookmark_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_bookmark_container.add_child(bookmark_spacer)
@@ -413,6 +453,7 @@ func _create_drawer_window() -> void:
 	footer.add_child(_make_text_button("收起菜单", _on_drawer_button_pressed))
 	footer.add_child(_make_texture_button("Quit", QUIT_BUTTON_TEXTURE, _on_quit_pressed))
 
+	set_language(_language)
 	_refresh_drawer_geometry(false)
 
 
@@ -660,7 +701,55 @@ func _make_faith_adder_stage() -> Control:
 	_faith_growth_value_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	_faith_growth_value_label.add_theme_constant_override("outline_size", 3)
 	stage.add_child(_faith_growth_value_label)
+
+	var coin_center := CenterContainer.new()
+	coin_center.name = "GoldBalanceCenter"
+	coin_center.position = Vector2(0.0, 430.0)
+	coin_center.size = Vector2(DRAWER_CONTENT_WIDTH, 52.0)
+	coin_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(coin_center)
+
+	var coin_row := HBoxContainer.new()
+	coin_row.name = "GoldBalanceRow"
+	coin_row.add_theme_constant_override("separation", 8)
+	coin_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	coin_center.add_child(coin_row)
+
+	var coin_icon := TextureRect.new()
+	coin_icon.name = "GoldIcon"
+	coin_icon.texture = _make_coin_icon_texture()
+	coin_icon.custom_minimum_size = Vector2(36.0, 36.0)
+	coin_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	coin_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	coin_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	coin_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	coin_row.add_child(coin_icon)
+
+	_coin_value_label = Label.new()
+	_coin_value_label.name = "GoldValue"
+	_coin_value_label.text = "$ %s" % _format_number(float(_coin_count), false, true)
+	_coin_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_coin_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_coin_value_label.custom_minimum_size = Vector2(1.0, 44.0)
+	_coin_value_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_coin_value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_coin_value_label.add_theme_font_size_override("font_size", 34)
+	_coin_value_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.38, 1.0))
+	_coin_value_label.add_theme_color_override("font_outline_color", Color(0.03, 0.025, 0.01, 1.0))
+	_coin_value_label.add_theme_constant_override("outline_size", 4)
+	coin_row.add_child(_coin_value_label)
 	return stage
+
+
+func _make_coin_icon_texture() -> Texture2D:
+	var texture := load(COIN_TEXTURE) as Texture2D
+	if texture == null:
+		return null
+	var atlas := AtlasTexture.new()
+	atlas.atlas = texture
+	atlas.region = Rect2(0.0, 0.0, float(texture.get_width()) / 5.0, float(texture.get_height()))
+	return atlas
 
 
 func _make_faith_adder_button() -> TextureButton:
@@ -1004,7 +1093,7 @@ func _make_panel_style() -> StyleBoxFlat:
 	return style
 
 
-func _make_bookmark_button(label_text: String, callback: Callable) -> TextureButton:
+func _make_bookmark_button(label_text: String, callback: Callable, bookmark_id := "") -> TextureButton:
 	var button := TextureButton.new()
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.name = "%sBookmark" % label_text
@@ -1034,6 +1123,8 @@ func _make_bookmark_button(label_text: String, callback: Callable) -> TextureBut
 	label.add_theme_color_override("font_outline_color", Color(0.05, 0.035, 0.03, 1.0))
 	label.add_theme_constant_override("outline_size", 4)
 	button.add_child(label)
+	if not bookmark_id.is_empty():
+		_bookmark_labels[bookmark_id] = label
 
 	return button
 
@@ -1194,7 +1285,7 @@ func _get_next_growth_rate(entry: Dictionary) -> float:
 
 
 func _get_upgrade_growth_text(entry: Dictionary) -> String:
-	return "增速 %s%s" % [
+	return ("RATE %s%s" if _language == "en" else "增速 %s%s") % [
 		_format_number(_get_current_growth_rate(entry), true),
 		RATE_SUFFIX
 	]
@@ -1207,7 +1298,7 @@ func _get_upgrade_gain(entry: Dictionary) -> float:
 
 
 func _get_upgrade_gain_text(entry: Dictionary) -> String:
-	return "提升增速 +%s%s" % [
+	return ("RATE GAIN +%s%s" if _language == "en" else "提升增速 +%s%s") % [
 		_format_number(_get_upgrade_gain(entry), true),
 		RATE_SUFFIX
 	]
@@ -1240,19 +1331,19 @@ func _get_pet_profile_text(entry: Dictionary, pet_data: Dictionary) -> String:
 		age_text = "不详"
 	if personality.is_empty():
 		personality = "尚待观察"
-	return "年龄：%s\n性格：%s" % [age_text, personality]
+	return ("Age: %s\nPersonality: %s" if _language == "en" else "年龄：%s\n性格：%s") % [age_text, personality]
 
 
 func _get_upgrade_tooltip_text(entry: Dictionary) -> String:
 	if bool(entry.get("is_max_level", false)):
-		return "宠物已满级"
-	return "点击升级宠物，提高信仰增速"
+		return "Maximum level" if _language == "en" else "宠物已满级"
+	return "Click to upgrade faith production" if _language == "en" else "点击升级宠物，提高信仰增速"
 
 
 func _get_upgrade_cost_text(entry: Dictionary) -> String:
 	if bool(entry.get("is_max_level", false)):
-		return "已满级"
-	return "消耗 %s" % _format_number(float(entry.get("cost", 0.0)))
+		return "MAX LEVEL" if _language == "en" else "已满级"
+	return ("COST %s" if _language == "en" else "消耗 %s") % _format_number(float(entry.get("cost", 0.0)))
 
 
 func _get_pet_display_name(pet_id: String, pet_data: Dictionary) -> String:
@@ -1343,13 +1434,23 @@ func _make_texture_button(button_name: String, texture_path: String, callback: C
 	var button := TextureButton.new()
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.name = button_name
-	button.texture_normal = load(texture_path) as Texture2D
+	button.texture_normal = load(texture_path) as Texture2D if ResourceLoader.exists(texture_path) else null
 	button.texture_hover = button.texture_normal
 	button.texture_pressed = button.texture_normal
 	button.ignore_texture_size = true
 	button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	button.custom_minimum_size = Vector2(86, 26)
 	button.pressed.connect(callback)
+	if button.texture_normal == null:
+		var fallback_label := Label.new()
+		fallback_label.text = "退出"
+		fallback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		fallback_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		fallback_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		fallback_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		fallback_label.add_theme_font_size_override("font_size", 15)
+		fallback_label.add_theme_color_override("font_color", Color(0.96, 0.72, 0.54, 1.0))
+		button.add_child(fallback_label)
 	return button
 
 
@@ -1900,6 +2001,11 @@ func _on_gacha_bookmark_pressed() -> void:
 func _on_news_bookmark_pressed() -> void:
 	_hide_upgrade_detail_panel()
 	news_requested.emit()
+
+
+func _on_settings_bookmark_pressed() -> void:
+	_hide_upgrade_detail_panel()
+	settings_requested.emit()
 
 
 func _on_drawer_close_bookmark_pressed() -> void:

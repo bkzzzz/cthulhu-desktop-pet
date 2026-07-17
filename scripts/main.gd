@@ -13,8 +13,10 @@ const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
 const ShopWindowScript = preload("res://scripts/shop_window.gd")
 const GachaWindowScript = preload("res://scripts/gacha_window.gd")
 const NewsWindowScript = preload("res://scripts/news_window.gd")
+const SettingsWindowScript = preload("res://scripts/settings_window.gd")
 const SideDrawerController = preload("res://scripts/side_drawer_controller.gd")
 const NativeVisualClickthrough = preload("res://scripts/native_visual_clickthrough.gd")
+const CoinDrop = preload("res://scripts/coin_drop.gd")
 
 # Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
@@ -47,10 +49,13 @@ const BELIEVER_MAX_ACTIVE := 4
 const BELIEVER_SPAWN_MIN_SECONDS := 8.0
 const BELIEVER_SPAWN_MAX_SECONDS := 18.0
 const BELIEVER_FORCE_SPAWN_SECONDS := 60.0
+const AMBIENT_COIN_DROP_MIN_SECONDS := 32.0
+const AMBIENT_COIN_DROP_MAX_SECONDS := 68.0
+const PET_P_COIN_CHANCE := 0.18
 const UI_REFRESH_INTERVAL := 0.25
 const MANUAL_CLICK_RATE_SECONDS := 0.25
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 8
+const SAVE_VERSION := 9
 const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const AUTOSAVE_INTERVAL_SECONDS := 30.0
@@ -68,6 +73,7 @@ const NEWS_BROADCAST_FONT_SIZE := 24
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
 var _believers: Array[Node2D] = []
+var _coin_drops: Array[Node2D] = []
 var _hovered_pet: Node2D
 var _active_emotions: Dictionary = {}
 var _active_emotion_tweens: Dictionary = {}
@@ -103,11 +109,13 @@ var _inventory_window: Window
 var _shop_window: Window
 var _gacha_window: Window
 var _news_window: Window
+var _settings_window: Window
 var _follower_count := 0.0
 var _last_reported_follower_count := -1
 var _shop_owned_counts := {}
 var _side_drawer: Node
 var _lifetime_faith := 0.0
+var _gold_coins := 0
 var _gacha_draw_count := 0
 var _gacha_pity_count := 0
 var _gacha_history: Array[Dictionary] = []
@@ -125,6 +133,12 @@ var _news_broadcast_active := false
 var _news_story_backlog: Array[Dictionary] = []
 var _next_news_at := 0.0
 var _news_milestone_check_timer := 0.0
+var _next_ambient_coin_drop_at := 0.0
+var _session_runtime_seconds := 0.0
+var _total_runtime_seconds := 0.0
+var _settings_refresh_timer := 0.0
+var _pet_activity_range := "full"
+var _language := "zh"
 
 
 # Lifecycle
@@ -150,6 +164,7 @@ func _ready() -> void:
 	_create_shop_window()
 	_create_gacha_window()
 	_create_news_window()
+	_create_settings_window()
 	if _news_feed.get_history().is_empty():
 		_publish_news({
 			"category": "公告",
@@ -161,6 +176,9 @@ func _ready() -> void:
 	_spawn_believer(true)
 	_last_believer_spawn_at = now
 	_schedule_next_believer_spawn(now)
+	_schedule_next_ambient_coin_drop(now)
+	_refresh_coin_display()
+	_apply_language()
 
 	_position_retry_frames = POSITION_RETRY_FRAMES
 	call_deferred("_place_pet_window")
@@ -168,6 +186,9 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	var safe_delta := maxf(0.0, delta)
+	_session_runtime_seconds += safe_delta
+	_total_runtime_seconds += safe_delta
 	if _position_retry_frames > 0:
 		_position_retry_frames -= 1
 		_place_pet_window()
@@ -182,6 +203,9 @@ func _process(delta: float) -> void:
 	_update_offering_input_window()
 	_update_offering_cursor_state()
 	_update_pending_offerings()
+	_update_coin_drops()
+	_update_ambient_coin_drops()
+	_update_settings_runtime(safe_delta)
 	_update_autosave(delta)
 
 
@@ -255,11 +279,14 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 		min_x,
 		max_x,
 		spawn_x,
-		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
+		_pet_activity_range != "full"
 	)
 	_ensure_pet_state(pet_id)
 	if actor.has_method("set_display_name"):
 		actor.call("set_display_name", _get_pet_display_name(pet_id))
+	if actor.has_method("set_language"):
+		actor.call("set_language", _language)
 	actor.petted.connect(_on_pet_petted)
 	actor.recall_requested.connect(_on_pet_recall_requested)
 	actor.forced_target_reached.connect(_on_pet_forced_target_reached)
@@ -282,11 +309,16 @@ func _get_next_pet_start_x() -> float:
 
 
 func _get_pet_stage_min_x() -> float:
+	if _pet_activity_range == "right":
+		return maxf(PET_STAGE_MARGIN_X, float(_pet_window_size.x) * 0.5 + 24.0)
 	return PET_STAGE_MARGIN_X
 
 
 func _get_pet_stage_max_x() -> float:
-	return maxf(_get_pet_stage_min_x() + 1.0, float(_pet_window_size.x) - PET_STAGE_RIGHT_MARGIN)
+	var full_max := float(_pet_window_size.x) - PET_STAGE_RIGHT_MARGIN
+	if _pet_activity_range == "left":
+		return maxf(_get_pet_stage_min_x() + 1.0, float(_pet_window_size.x) * 0.5 - 24.0)
+	return maxf(_get_pet_stage_min_x() + 1.0, full_max)
 
 
 # Believers
@@ -332,6 +364,7 @@ func _spawn_believer(visible_on_spawn := false) -> void:
 	else:
 		believer.call("setup", _pet_window_size, spawn_from_left, ground_contact_y)
 	believer.connect("exited", Callable(self, "_on_believer_exited"))
+	believer.connect("scared_away", Callable(self, "_on_believer_scared_away"))
 	add_child(believer)
 	_believers.append(believer)
 	if believer.has_method("set_threat_positions"):
@@ -351,6 +384,74 @@ func _get_believer_threat_positions() -> Array[Vector2]:
 			continue
 		positions.append(pet.position)
 	return positions
+
+
+# Coin drops
+func _schedule_next_ambient_coin_drop(now: float) -> void:
+	_next_ambient_coin_drop_at = now + _rng.randf_range(
+		AMBIENT_COIN_DROP_MIN_SECONDS,
+		AMBIENT_COIN_DROP_MAX_SECONDS
+	)
+
+
+func _update_ambient_coin_drops() -> void:
+	var now := _get_now_seconds()
+	if now < _next_ambient_coin_drop_at:
+		return
+	_schedule_next_ambient_coin_drop(now)
+	var available_pets: Array[Node2D] = []
+	for pet in _pets:
+		if is_instance_valid(pet):
+			available_pets.append(pet)
+	if available_pets.is_empty():
+		return
+	_spawn_pet_coin(available_pets[_rng.randi_range(0, available_pets.size() - 1)])
+
+
+func _update_coin_drops() -> void:
+	for index in range(_coin_drops.size() - 1, -1, -1):
+		if not is_instance_valid(_coin_drops[index]) or _coin_drops[index].is_queued_for_deletion():
+			_coin_drops.remove_at(index)
+
+
+func _spawn_pet_coin(actor: Node2D) -> Node2D:
+	if actor == null or not is_instance_valid(actor):
+		return null
+	var coin_type := "P" if _rng.randf() < PET_P_COIN_CHANCE else "R"
+	var spawn_position := actor.position + Vector2(0.0, -72.0)
+	if actor.has_method("get_emotion_anchor"):
+		spawn_position = actor.call("get_emotion_anchor")
+	return _spawn_coin(coin_type, spawn_position)
+
+
+func _spawn_coin(coin_type: String, spawn_position: Vector2) -> Node2D:
+	var coin: Node2D = CoinDrop.new()
+	coin.setup(
+		coin_type,
+		spawn_position,
+		_pet_window_size,
+		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+	)
+	coin.collected.connect(_on_coin_collected)
+	add_child(coin)
+	_coin_drops.append(coin)
+	return coin
+
+
+func _on_coin_collected(actor: Node2D, coin_type: String, value: int) -> void:
+	var popup_position := actor.position if actor != null and is_instance_valid(actor) else _get_window_mouse_position(get_window())
+	if actor != null:
+		_coin_drops.erase(actor)
+	var safe_value := maxi(0, value)
+	if safe_value <= 0:
+		return
+	_gold_coins += safe_value
+	_refresh_coin_display()
+	_show_coin_change_popup(popup_position, safe_value, coin_type)
+
+
+func _on_believer_scared_away(_actor: Node2D, drop_position: Vector2) -> void:
+	_spawn_coin("D", drop_position)
 
 
 # UI windows
@@ -426,6 +527,7 @@ func _create_side_drawer() -> void:
 	_side_drawer.shop_requested.connect(_on_shop_requested)
 	_side_drawer.gacha_requested.connect(_on_gacha_requested)
 	_side_drawer.news_requested.connect(_on_news_requested)
+	_side_drawer.settings_requested.connect(_on_settings_requested)
 	_side_drawer.quit_requested.connect(_on_quit_requested)
 	_side_drawer.pet_upgrade_requested.connect(_on_pet_upgrade_requested)
 	_side_drawer.pet_rename_requested.connect(_on_pet_detail_rename_requested)
@@ -469,6 +571,16 @@ func _create_news_window() -> void:
 	_news_window.setup(_news_feed.get_history())
 
 
+func _create_settings_window() -> void:
+	_settings_window = SettingsWindowScript.new()
+	add_child(_settings_window)
+	_settings_window.activity_range_changed.connect(_on_activity_range_changed)
+	_settings_window.language_changed.connect(_on_language_changed)
+	_settings_window.quit_requested.connect(_on_quit_requested)
+	_settings_window.setup(_pet_activity_range, _language)
+	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
+
+
 # Window clickthrough and hit testing
 func _place_pet_window() -> void:
 	var usable_rect := _get_current_screen_usable_rect()
@@ -502,13 +614,22 @@ func _update_actor_window_bounds() -> void:
 				_pet_window_size,
 				min_x,
 				max_x,
-				float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+				float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
+				_pet_activity_range != "full"
 			)
 
 	for believer in _believers:
 		if is_instance_valid(believer) and believer.has_method("set_window_size"):
 			believer.call(
 				"set_window_size",
+				_pet_window_size,
+				float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+			)
+
+	for coin in _coin_drops:
+		if is_instance_valid(coin) and coin.has_method("set_window_bounds"):
+			coin.call(
+				"set_window_bounds",
 				_pet_window_size,
 				float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
 			)
@@ -929,8 +1050,15 @@ func _refresh_pet_stats(force := false) -> void:
 func _refresh_faith_display() -> void:
 	if _side_drawer != null and _side_drawer.has_method("refresh_faith"):
 		_side_drawer.refresh_faith(_faith_points, _get_faith_growth_rate())
-	if _shop_window != null and _shop_window.has_method("set_faith_points"):
-		_shop_window.call("set_faith_points", int(floor(_faith_points)))
+	if _gacha_window != null and _gacha_window.visible:
+		_sync_gacha_state()
+
+
+func _refresh_coin_display() -> void:
+	if _side_drawer != null and _side_drawer.has_method("refresh_coins"):
+		_side_drawer.call("refresh_coins", _gold_coins)
+	if _shop_window != null and _shop_window.has_method("set_coin_balance"):
+		_shop_window.call("set_coin_balance", _gold_coins)
 	if _gacha_window != null and _gacha_window.visible:
 		_sync_gacha_state()
 
@@ -947,8 +1075,8 @@ func _refresh_follower_display() -> void:
 func _sync_shop_state() -> void:
 	if _shop_window == null:
 		return
-	if _shop_window.has_method("set_faith_points"):
-		_shop_window.call("set_faith_points", int(floor(_faith_points)))
+	if _shop_window.has_method("set_coin_balance"):
+		_shop_window.call("set_coin_balance", _gold_coins)
 	if _shop_window.has_method("set_owned_counts"):
 		_shop_window.call("set_owned_counts", _shop_owned_counts)
 
@@ -958,13 +1086,23 @@ func _sync_gacha_state() -> void:
 		return
 	var next_cost := GachaProgression.draw_cost(_gacha_draw_count)
 	_gacha_window.refresh_state(
-		_faith_points,
+		float(_gold_coins),
 		_gacha_draw_count,
 		next_cost,
 		_unlocked_pet_ids.duplicate(),
 		_gacha_pity_count,
 		_gacha_history
 	)
+
+
+func _update_settings_runtime(delta: float) -> void:
+	if _settings_window == null:
+		return
+	_settings_refresh_timer += maxf(0.0, delta)
+	if _settings_refresh_timer < 0.5:
+		return
+	_settings_refresh_timer = 0.0
+	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
 
 
 func _initialize_news_feed() -> void:
@@ -1138,6 +1276,12 @@ func _load_game() -> void:
 		float(save.get_value("economy", "lifetime_faith", _faith_points))
 	)
 	_follower_count = maxf(0.0, float(save.get_value("economy", "followers", 0.0)))
+	_gold_coins = maxi(0, int(save.get_value("economy", "gold_coins", 0)))
+	_total_runtime_seconds = maxf(0.0, float(save.get_value("statistics", "total_runtime_seconds", 0.0)))
+	_pet_activity_range = String(save.get_value("settings", "pet_activity_range", "full"))
+	if _pet_activity_range not in ["full", "right", "left"]:
+		_pet_activity_range = "full"
+	_language = "en" if String(save.get_value("settings", "language", "zh")) == "en" else "zh"
 	_selected_pet_id = String(save.get_value("pets", "selected_pet_id", ""))
 	_pet_states = _sanitize_loaded_pet_states(save.get_value("pets", "states", {}))
 	if loaded_save_version >= PET_UNLOCK_SAVE_VERSION:
@@ -1214,6 +1358,10 @@ func _save_game() -> void:
 	save.set_value("economy", "faith_points", maxf(0.0, _faith_points))
 	save.set_value("economy", "lifetime_faith", maxf(0.0, _lifetime_faith))
 	save.set_value("economy", "followers", maxf(0.0, _follower_count))
+	save.set_value("economy", "gold_coins", maxi(0, _gold_coins))
+	save.set_value("statistics", "total_runtime_seconds", maxf(0.0, _total_runtime_seconds))
+	save.set_value("settings", "pet_activity_range", _pet_activity_range)
+	save.set_value("settings", "language", _language)
 	save.set_value("pets", "selected_pet_id", _selected_pet_id)
 	save.set_value("pets", "states", _pet_states.duplicate(true))
 	save.set_value("pets", "unlocked_ids", _unlocked_pet_ids.duplicate())
@@ -1675,6 +1823,7 @@ func _get_current_screen() -> int:
 func _on_pet_petted(actor: Node2D) -> void:
 	_hovered_pet = actor
 	_pet_the_pet(actor)
+	_spawn_pet_coin(actor)
 	var pet_id := _get_actor_pet_id(actor)
 	if not pet_id.is_empty():
 		_try_queue_news_event(
@@ -1792,12 +1941,19 @@ func _on_news_requested() -> void:
 		_news_window.call("open_window")
 
 
+func _on_settings_requested() -> void:
+	if _settings_window == null:
+		return
+	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
+	_settings_window.open_window()
+
+
 func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 	if _gacha_window == null:
 		return
 	var safe_draw_amount := 10 if draw_amount >= 10 else 1
 	var batch_cost := GachaProgression.draw_cost_total(_gacha_draw_count, safe_draw_amount)
-	if floor(_faith_points) < batch_cost:
+	if float(_gold_coins) < batch_cost:
 		_sync_gacha_state()
 		return
 
@@ -1805,7 +1961,7 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 	var gross_cost_spent := 0.0
 	for _draw_index in safe_draw_amount:
 		var cost := GachaProgression.draw_cost(_gacha_draw_count)
-		_faith_points -= float(cost)
+		_gold_coins -= cost
 		gross_cost_spent += float(cost)
 		var result := GachaProgression.roll_pet(
 			_rng.randf(),
@@ -1813,13 +1969,13 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 			_gacha_pity_count
 		)
 		if result.is_empty():
-			_faith_points += float(cost)
+			_gold_coins += cost
 			gross_cost_spent -= float(cost)
 			break
 
 		var pet_id := String(result.get("pet_id", ""))
 		if pet_id.is_empty() or not PetCatalog.GACHA_PETS.has(pet_id):
-			_faith_points += float(cost)
+			_gold_coins += cost
 			gross_cost_spent -= float(cost)
 			break
 		_ensure_pet_state(pet_id)
@@ -1853,10 +2009,11 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 	if results.is_empty():
 		_sync_gacha_state()
 		return
-	_show_faith_change_popup(_get_window_mouse_position(get_window()), -gross_cost_spent)
+	_show_coin_change_popup(_get_window_mouse_position(get_window()), -int(round(gross_cost_spent)))
 	_gacha_window.show_results(results)
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
+	_refresh_coin_display()
 	_sync_gacha_state()
 	_save_game()
 
@@ -1867,50 +2024,52 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 
 	var good: Dictionary = _shop_window.call("get_good", good_id)
 	if good.is_empty():
-		_shop_window.call("set_purchase_result", good_id, false, "商品不存在")
+		_shop_window.call("set_purchase_result", good_id, false, "Item not found" if _language == "en" else "商品不存在")
 		return
 
 	var price := maxi(0, int(good.get("price", 0)))
 	var is_offering := OfferingCatalog.is_offering(good)
 	if is_offering and not _carried_offering.is_empty():
-		_shop_window.call("set_purchase_result", good_id, false, "请先投放或取消鼠标上的贡品")
+		_shop_window.call("set_purchase_result", good_id, false, "Place or cancel the carried offering first" if _language == "en" else "请先投放或取消鼠标上的贡品")
 		return
-	if int(floor(_faith_points)) < price:
-		_shop_window.call("set_purchase_result", good_id, false, "信仰不足")
+	if _gold_coins < price:
+		_shop_window.call("set_purchase_result", good_id, false, "Not enough gold" if _language == "en" else "金币不足")
 		return
 
 	if is_offering:
 		var carried := OfferingCatalog.normalize_offering(good)
 		if carried.is_empty():
-			_shop_window.call("set_purchase_result", good_id, false, "贡品数据无效")
+			_shop_window.call("set_purchase_result", good_id, false, "Invalid offering data" if _language == "en" else "贡品数据无效")
 			return
-		_faith_points -= float(price)
+		_gold_coins -= price
 		carried["purchase_price"] = price
 		_carried_offering = carried
 		_set_offering_cursor(String(_carried_offering.get("texture", "")))
 		_update_offering_input_window()
-		_show_faith_change_popup(_get_window_mouse_position(get_window()), -float(price))
+		_show_coin_change_popup(_get_window_mouse_position(get_window()), -price)
 		_sync_shop_state()
 		_shop_window.call(
 			"set_purchase_result",
 			good_id,
 			true,
-			"已拿起：%s，点击桌面任意位置投放，右键取消" % String(good.get("name", "贡品"))
+			("Carrying %s. Click the desktop to place it; right-click to cancel" if _language == "en" else "已拿起：%s，点击桌面任意位置投放，右键取消") % String(good.get("name", "贡品"))
 		)
 		if _shop_window.has_method("close_window"):
 			_shop_window.call("close_window")
 		else:
 			_shop_window.visible = false
 		_refresh_pet_stats(true)
+		_refresh_coin_display()
 		_save_game()
 		return
 
-	_faith_points -= float(price)
-	_show_faith_change_popup(_get_window_mouse_position(get_window()), -float(price))
+	_gold_coins -= price
+	_show_coin_change_popup(_get_window_mouse_position(get_window()), -price)
 	_shop_owned_counts[good_id] = int(_shop_owned_counts.get(good_id, 0)) + 1
 	_sync_shop_state()
-	_shop_window.call("set_purchase_result", good_id, true, "购买成功：%s" % String(good.get("name", "商品")))
+	_shop_window.call("set_purchase_result", good_id, true, ("Purchased: %s" if _language == "en" else "购买成功：%s") % String(good.get("name", "商品")))
 	_refresh_pet_stats(true)
+	_refresh_coin_display()
 	_save_game()
 
 
@@ -1947,16 +2106,16 @@ func _cancel_carried_offering() -> void:
 	_clear_offering_cursor()
 	var refund := maxi(0, int(cancelled_offering.get("purchase_price", 0)))
 	if refund > 0:
-		_faith_points += float(refund)
-		_show_faith_change_popup(_get_window_mouse_position(get_window()), float(refund))
+		_gold_coins += refund
+		_show_coin_change_popup(_get_window_mouse_position(get_window()), refund)
 		_sync_shop_state()
-		_refresh_pet_stats(true)
+		_refresh_coin_display()
 		if _shop_window != null and _shop_window.has_method("set_purchase_result"):
 			_shop_window.call(
 				"set_purchase_result",
 				String(cancelled_offering.get("id", "")),
 				true,
-				"已取消投放，返还 %d 信仰" % refund
+				("Placement cancelled. Refunded $%d gold" if _language == "en" else "已取消投放，返还 $%d 金币") % refund
 			)
 	call_deferred("_update_offering_input_window")
 	_save_game()
@@ -2161,7 +2320,7 @@ func _finish_offering_consumed(
 		)
 		_show_offering_buff_popup(popup_position, pet_id, offering)
 	else:
-		_show_status_popup(popup_position, "没有宠物接取贡品", Color(1.0, 0.68, 0.48, 1.0))
+		_show_status_popup(popup_position, "No pet collected the offering" if _language == "en" else "没有宠物接取贡品", Color(1.0, 0.68, 0.48, 1.0))
 	_refresh_pet_stats(true)
 	_save_game()
 
@@ -2202,7 +2361,7 @@ func _show_offering_buff_popup(anchor: Vector2, pet_id: String, offering: Dictio
 	var duration_seconds := maxi(1, int(round(float(offering.get("duration_seconds", 60.0)))))
 	_show_status_popup(
 		anchor,
-		"%s  ×%s · %d秒" % [
+		("%s  ×%s · %ds" if _language == "en" else "%s  ×%s · %d秒") % [
 			_get_pet_display_name(pet_id),
 			_format_multiplier(multiplier),
 			duration_seconds
@@ -2218,7 +2377,20 @@ func _show_faith_change_popup(anchor: Vector2, amount: float) -> void:
 	var color := Color(0.88, 1.0, 0.78, 1.0) if amount > 0.0 else Color(1.0, 0.58, 0.46, 1.0)
 	_show_status_popup(
 		anchor,
-		"%s%s 信仰" % [prefix, _format_faith_amount(absf(amount))],
+		("%s%s FAITH" if _language == "en" else "%s%s 信仰") % [prefix, _format_faith_amount(absf(amount))],
+		color
+	)
+
+
+func _show_coin_change_popup(anchor: Vector2, amount: int, coin_type := "") -> void:
+	if amount == 0:
+		return
+	var prefix := "+" if amount > 0 else "-"
+	var type_hint := " %s" % coin_type if not coin_type.is_empty() and amount > 0 else ""
+	var color := Color(1.0, 0.84, 0.32, 1.0) if amount > 0 else Color(1.0, 0.58, 0.46, 1.0)
+	_show_status_popup(
+		anchor,
+		("%s$%d GOLD%s" if _language == "en" else "%s$%d 金币%s") % [prefix, absi(amount), type_hint],
 		color
 	)
 
@@ -2327,6 +2499,39 @@ func _on_faith_add_requested(amount: int) -> void:
 func _on_menu_handle_moved(anchor: float) -> void:
 	_loaded_menu_handle_anchor = clampf(anchor, 0.0, 1.0)
 	_save_game()
+
+
+func _on_activity_range_changed(range_mode: String) -> void:
+	if range_mode not in ["full", "right", "left"]:
+		return
+	_pet_activity_range = range_mode
+	_update_actor_window_bounds()
+	_save_game()
+
+
+func _on_language_changed(language_code: String) -> void:
+	_language = "en" if language_code == "en" else "zh"
+	_apply_language()
+	_save_game()
+
+
+func _apply_language() -> void:
+	TranslationServer.set_locale(_language)
+	if _side_drawer != null and _side_drawer.has_method("set_language"):
+		_side_drawer.call("set_language", _language)
+	if _settings_window != null and _settings_window.has_method("set_language"):
+		_settings_window.call("set_language", _language)
+	if _shop_window != null and _shop_window.has_method("set_language"):
+		_shop_window.call("set_language", _language)
+	if _gacha_window != null and _gacha_window.has_method("set_language"):
+		_gacha_window.call("set_language", _language)
+	if _inventory_window != null and _inventory_window.has_method("set_language"):
+		_inventory_window.call("set_language", _language)
+	if _news_window != null and _news_window.has_method("set_language"):
+		_news_window.call("set_language", _language)
+	for pet in _pets:
+		if is_instance_valid(pet) and pet.has_method("set_language"):
+			pet.call("set_language", _language)
 
 
 func _get_manual_faith_click_gain(base_amount := 1) -> float:

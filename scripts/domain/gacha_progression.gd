@@ -2,9 +2,9 @@ extends RefCounted
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
-const BASE_DRAW_COST := 5.0
-const DRAW_COST_GROWTH := 1.60
-const MAX_DRAW_COST := 8_000_000_000_000_000_000
+const BASE_DRAW_COST := 2
+const DRAW_COST_INCREASE_INTERVAL := 10
+const MAX_DRAW_COST := 20
 const MAX_DUPLICATE_FAITH_REWARD := 9_000_000_000_000_000_000
 const NEW_PET_PITY_DRAWS := 5
 const DUPLICATE_REWARD_RATIOS := [0.0, 0.50, 0.65, 0.80, 1.00, 1.25]
@@ -39,10 +39,8 @@ const PET_POOL := [
 
 static func draw_cost(draw_count: int) -> int:
 	var safe_count := maxi(0, draw_count)
-	var raw_cost := BASE_DRAW_COST * pow(DRAW_COST_GROWTH, float(safe_count))
-	if not is_finite(raw_cost) or raw_cost >= float(MAX_DRAW_COST):
-		return MAX_DRAW_COST
-	return maxi(1, int(round(raw_cost)))
+	var slow_increase := int(floor(float(safe_count) / float(DRAW_COST_INCREASE_INTERVAL)))
+	return mini(BASE_DRAW_COST + slow_increase, MAX_DRAW_COST)
 
 
 static func draw_cost_total(draw_count: int, draw_amount: int) -> float:

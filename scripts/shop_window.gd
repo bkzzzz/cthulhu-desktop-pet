@@ -23,6 +23,7 @@ const SHOP_SLOT_RECTS := [
 
 var _root: Control
 var _page_label: Label
+var _coin_balance_label: Label
 var _result_label: Label
 var _info_panel: PanelContainer
 var _info_name_label: Label
@@ -34,11 +35,12 @@ var _slot_name_labels: Array[Label] = []
 var _slot_price_labels: Array[Label] = []
 var _slot_owned_labels: Array[Label] = []
 var _page := 0
-var _faith_points := 0
+var _coin_balance := 0
 var _owned_counts := {}
 var _goods: Array[Dictionary] = []
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
+var _language := "zh"
 
 
 func setup() -> void:
@@ -67,8 +69,21 @@ func close_window() -> void:
 	_close_window()
 
 
-func set_faith_points(faith_points: int) -> void:
-	_faith_points = maxi(0, faith_points)
+func set_coin_balance(coin_balance: int) -> void:
+	_coin_balance = maxi(0, coin_balance)
+	_refresh_page()
+
+
+func set_faith_points(legacy_balance: int) -> void:
+	# Kept as a compatibility alias for older callers; the shop economy is gold-only.
+	set_coin_balance(legacy_balance)
+
+
+func set_language(language_code: String) -> void:
+	_language = "en" if language_code == "en" else "zh"
+	title = "Shop" if _language == "en" else "商店"
+	if _result_label != null:
+		_result_label.text = "Click an item to buy" if _language == "en" else "点击商品购买"
 	_refresh_page()
 
 
@@ -159,6 +174,7 @@ func _create_content() -> void:
 	_create_slots()
 	_create_page_controls()
 	_create_close_button()
+	_create_coin_balance()
 	_create_result_label()
 	_create_info_panel()
 
@@ -280,6 +296,21 @@ func _create_result_label() -> void:
 	_root.add_child(_result_label)
 
 
+func _create_coin_balance() -> void:
+	_coin_balance_label = Label.new()
+	_coin_balance_label.name = "ShopGoldBalance"
+	_coin_balance_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_coin_balance_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_coin_balance_label.position = Vector2(348.0, 172.0)
+	_coin_balance_label.size = Vector2(420.0, 48.0)
+	_coin_balance_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_coin_balance_label.add_theme_font_size_override("font_size", 28)
+	_coin_balance_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.34, 1.0))
+	_coin_balance_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
+	_coin_balance_label.add_theme_constant_override("outline_size", 5)
+	_root.add_child(_coin_balance_label)
+
+
 func _create_info_panel() -> void:
 	_info_panel = PanelContainer.new()
 	_info_panel.name = "GoodInfoPanel"
@@ -356,7 +387,17 @@ func _refresh_page() -> void:
 	_page = clampi(_page, 0, page_count - 1)
 
 	if _page_label != null:
-		_page_label.text = "第 %d / %d 页" % [_page + 1, page_count]
+		_page_label.text = (
+			"PAGE %d / %d" % [_page + 1, page_count]
+			if _language == "en"
+			else "第 %d / %d 页" % [_page + 1, page_count]
+		)
+	if _coin_balance_label != null:
+		_coin_balance_label.text = (
+			"GOLD  $ %d" % _coin_balance
+			if _language == "en"
+			else "金币  $ %d" % _coin_balance
+		)
 
 	var page_start := _page * GOODS_PER_PAGE
 	for slot_index in _slot_controls.size():
@@ -379,21 +420,21 @@ func _refresh_page() -> void:
 
 		var good := _goods[good_index]
 		var price := int(good.get("price", 0))
-		var affordable := _faith_points >= price
+		var affordable := _coin_balance >= price
 		var offering := OfferingCatalog.is_offering(good)
 		var owned := int(_owned_counts.get(String(good.get("id", "")), 0))
 		icon.texture = load(String(good.get("texture", ""))) as Texture2D
 		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
 		name_label.text = String(good.get("name", "商品"))
-		price_label.text = "价格 %d 信仰" % price
+		price_label.text = ("PRICE  $%d" if _language == "en" else "价格 $%d 金币") % price
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
 		owned_label.text = (
-			"%d秒 · ×%s" % [
+			("%ds · ×%s" if _language == "en" else "%d秒 · ×%s") % [
 				int(round(float(good.get("duration_seconds", 60.0)))),
 				_format_multiplier(float(good.get("multiplier", 1.0)))
 			]
 			if offering
-			else "已拥有 %d" % owned
+			else (("OWNED %d" if _language == "en" else "已拥有 %d") % owned)
 		)
 
 
@@ -431,13 +472,13 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	_info_name_label.text = String(good.get("name", "商品"))
 	_info_desc_label.text = String(good.get("description", ""))
 	if OfferingCatalog.is_offering(good):
-		_info_price_label.text = "价格：%d 信仰    加速：%d秒 ×%s" % [
+		_info_price_label.text = ("PRICE: $%d GOLD    BOOST: %ds ×%s" if _language == "en" else "价格：$%d 金币    加速：%d秒 ×%s") % [
 			int(good.get("price", 0)),
 			int(round(float(good.get("duration_seconds", 60.0)))),
 			_format_multiplier(float(good.get("multiplier", 1.0)))
 		]
 	else:
-		_info_price_label.text = "价格：%d 信仰    已拥有：%d" % [
+		_info_price_label.text = ("PRICE: $%d GOLD    OWNED: %d" if _language == "en" else "价格：$%d 金币    已拥有：%d") % [
 			int(good.get("price", 0)),
 			int(_owned_counts.get(String(good.get("id", "")), 0))
 		]

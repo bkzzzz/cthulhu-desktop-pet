@@ -1,6 +1,7 @@
 extends Node2D
 
 signal exited(actor: Node2D)
+signal scared_away(actor: Node2D, drop_position: Vector2)
 
 const IDLE_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerIdle1.png"
 const WALK_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerWalk1.png"
@@ -239,6 +240,7 @@ func _start_run_away(threat_position: Vector2) -> void:
 	_face_target(_run_target_x)
 	_sprite.play("run")
 	_show_notice()
+	scared_away.emit(self, position + Vector2(0.0, -54.0))
 
 
 func _try_start_run_away(ignore_grace: bool) -> bool:

@@ -34,11 +34,14 @@ var _detail_icon: TextureRect
 var _detail_name_edit: LineEdit
 var _detail_desc_label: Label
 var _detail_deploy_button: Button
+var _detail_hint_label: Label
+var _detail_close_button: Button
 var _detail_slot_index := -1
 var _page := 0
 var _pets: Array[Dictionary] = []
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
+var _language := "zh"
 
 
 func setup(initial_pets: Array[Dictionary]) -> void:
@@ -96,6 +99,28 @@ func set_pet_name(pet_id: String, custom_name: String) -> void:
 			_detail_name_edit.text = next_name
 		break
 	_refresh_page_icons_only()
+
+
+func set_language(language_code: String) -> void:
+	_language = "en" if language_code == "en" else "zh"
+	title = "Inventory" if _language == "en" else "仓库"
+	if _empty_label != null:
+		_empty_label.text = "This page is empty" if _language == "en" else "这一页暂时空着"
+	if _detail_name_edit != null:
+		_detail_name_edit.placeholder_text = "Pet name" if _language == "en" else "宠物名字"
+	if _detail_hint_label != null:
+		_detail_hint_label.text = "Rename the pet here, then return it to the desktop" if _language == "en" else "可在这里改名，然后放回桌面"
+	if _detail_close_button != null:
+		_detail_close_button.text = "Close" if _language == "en" else "关闭"
+	if _detail_deploy_button != null:
+		_detail_deploy_button.text = "Return to desktop" if _language == "en" else "放回桌面"
+	var left_arrow := get_node_or_null("InventoryRoot/InventoryArrow-1") as TextureButton
+	var right_arrow := get_node_or_null("InventoryRoot/InventoryArrow1") as TextureButton
+	if left_arrow != null:
+		left_arrow.tooltip_text = "Previous page" if _language == "en" else "上一页"
+	if right_arrow != null:
+		right_arrow.tooltip_text = "Next page" if _language == "en" else "下一页"
+	_refresh_page()
 
 
 func _configure_window() -> void:
@@ -289,11 +314,11 @@ func _create_detail_panel() -> void:
 	_detail_name_edit.text_changed.connect(_on_detail_name_changed)
 	top_text.add_child(_detail_name_edit)
 
-	var hint := Label.new()
-	hint.text = "可在这里改名，然后放回桌面"
-	hint.add_theme_font_size_override("font_size", 13)
-	hint.add_theme_color_override("font_color", Color(0.34, 0.25, 0.23, 0.88))
-	top_text.add_child(hint)
+	_detail_hint_label = Label.new()
+	_detail_hint_label.text = "可在这里改名，然后放回桌面"
+	_detail_hint_label.add_theme_font_size_override("font_size", 13)
+	_detail_hint_label.add_theme_color_override("font_color", Color(0.34, 0.25, 0.23, 0.88))
+	top_text.add_child(_detail_hint_label)
 
 	_detail_desc_label = Label.new()
 	_detail_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -307,11 +332,11 @@ func _create_detail_panel() -> void:
 	actions.add_theme_constant_override("separation", 10)
 	content.add_child(actions)
 
-	var close_button := Button.new()
-	close_button.text = "关闭"
-	close_button.custom_minimum_size = Vector2(86, 34)
-	close_button.pressed.connect(_hide_detail_panel)
-	actions.add_child(close_button)
+	_detail_close_button = Button.new()
+	_detail_close_button.text = "关闭"
+	_detail_close_button.custom_minimum_size = Vector2(86, 34)
+	_detail_close_button.pressed.connect(_hide_detail_panel)
+	actions.add_child(_detail_close_button)
 
 	_detail_deploy_button = Button.new()
 	_detail_deploy_button.text = "放回桌面"
@@ -365,7 +390,11 @@ func _refresh_page() -> void:
 	_page = clampi(_page, 0, page_count - 1)
 
 	if _page_label != null:
-		_page_label.text = "第 %d / %d 页" % [_page + 1, page_count]
+		_page_label.text = (
+			"PAGE %d / %d" % [_page + 1, page_count]
+			if _language == "en"
+			else "第 %d / %d 页" % [_page + 1, page_count]
+		)
 
 	var page_start := _page * SLOTS_PER_PAGE
 	var pet_count_on_page := 0
@@ -380,7 +409,7 @@ func _refresh_page() -> void:
 		if has_pet:
 			var pet_data := _pets[pet_index]
 			icon.texture = PetCatalog.make_icon_texture(String(pet_data.get("texture", "")))
-			slot.tooltip_text = "查看：%s" % String(pet_data.get("name", pet_data.get("id", "")))
+			slot.tooltip_text = ("View: %s" if _language == "en" else "查看：%s") % String(pet_data.get("name", pet_data.get("id", "")))
 			pet_count_on_page += 1
 
 	if _empty_label != null:
@@ -479,7 +508,7 @@ func _show_detail_panel(pet_index: int) -> void:
 	_detail_icon.texture = PetCatalog.make_icon_texture(String(entry.get("texture", pet_data.get("icon", ""))), 6)
 	_detail_name_edit.text = String(entry.get("name", pet_data.get("name", pet_id)))
 	var rarity_stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
-	_detail_desc_label.text = "星级  %s\n年龄  %s\n性格  %s" % [
+	_detail_desc_label.text = ("Stars  %s\nAge  %s\nPersonality  %s" if _language == "en" else "星级  %s\n年龄  %s\n性格  %s") % [
 		"★".repeat(rarity_stars),
 		String(pet_data.get("age_text", pet_data.get("age", "不详"))),
 		String(pet_data.get("personality", "不详"))
@@ -518,7 +547,7 @@ func _refresh_page_icons_only() -> void:
 		var display_name := String(entry.get("name", "")).strip_edges()
 		if display_name.is_empty():
 			display_name = String(PetCatalog.get_definition(pet_id).get("name", pet_id))
-		_slot_controls[slot_index].tooltip_text = "查看：%s" % display_name
+		_slot_controls[slot_index].tooltip_text = ("View: %s" if _language == "en" else "查看：%s") % display_name
 
 
 func _deploy_detail_pet() -> void:

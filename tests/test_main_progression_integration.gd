@@ -48,7 +48,7 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	var window := Main.GachaWindowScript.new()
 	window.setup()
 	main.set("_gacha_window", window)
-	main.set("_faith_points", 1000000.0)
+	main.set("_gold_coins", 1000000)
 	var first_cost := Main.GachaProgression.draw_cost(0)
 	main.call("_on_gacha_draw_requested")
 	var unlocked_after_first: Array = main.get("_unlocked_pet_ids")
@@ -56,8 +56,8 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 		failures.append("the first successful pet draw must unlock exactly one new non-starter pet")
 	if int(main.get("_gacha_draw_count")) != 1:
 		failures.append("a successful pet draw must advance the saved draw count")
-	if not is_equal_approx(float(main.get("_faith_points")), 1000000.0 - float(first_cost)):
-		failures.append("a successful pet draw must spend its displayed faith cost")
+	if int(main.get("_gold_coins")) != 1000000 - first_cost:
+		failures.append("a successful pet draw must spend its displayed gold cost")
 	var history: Array = main.get("_gacha_history")
 	if history.is_empty() or not bool((history[0] as Dictionary).get("is_new", false)):
 		failures.append("new pet draws must be recorded as unlocks in gacha history")
@@ -66,6 +66,7 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	unlocked_all.clear()
 	for pet_id_value in Main.PetCatalog.ACTIVE_DESKTOP_PETS:
 		unlocked_all.append(String(pet_id_value))
+	var gold_before_duplicate := int(main.get("_gold_coins"))
 	var faith_before_duplicate := float(main.get("_faith_points"))
 	var duplicate_draw_cost := Main.GachaProgression.draw_cost(1)
 	main.call("_on_gacha_draw_requested")
@@ -76,14 +77,13 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 		var duplicate_faith := int((history[0] as Dictionary).get("duplicate_faith", 0))
 		if duplicate_faith <= 0:
 			failures.append("a duplicate pet must exchange directly into faith")
-		if not is_equal_approx(
-			float(main.get("_faith_points")),
-			faith_before_duplicate - float(duplicate_draw_cost) + float(duplicate_faith)
-		):
-			failures.append("duplicate faith must be credited immediately after paying the draw cost")
+		if int(main.get("_gold_coins")) != gold_before_duplicate - duplicate_draw_cost:
+			failures.append("duplicate draws must still spend only gold")
+		if not is_equal_approx(float(main.get("_faith_points")), faith_before_duplicate + float(duplicate_faith)):
+			failures.append("duplicate faith must be credited without refunding the gold draw cost")
 
 	var draw_count_before_batch := int(main.get("_gacha_draw_count"))
-	main.set("_faith_points", 1.0e18)
+	main.set("_gold_coins", 9_000_000_000_000_000_000)
 	main.call("_on_gacha_draw_requested", 10)
 	if int(main.get("_gacha_draw_count")) != draw_count_before_batch + 10:
 		failures.append("checking draw ten must resolve exactly ten sequential pet draws")

@@ -91,18 +91,38 @@ static func run() -> Array[String]:
 		failures.append("the faith header must not retain the follower summary line")
 	var faith_value := formatter.get("_faith_value_label") as Label
 	var faith_growth := formatter.get("_faith_growth_value_label") as Label
+	var gold_value := formatter.get("_coin_value_label") as Label
+	var gold_center := drawer_root.find_child("GoldBalanceCenter", true, false) as CenterContainer
+	var gold_row := drawer_root.find_child("GoldBalanceRow", true, false) as HBoxContainer
+	var gold_icon := drawer_root.find_child("GoldIcon", true, false) as TextureRect
 	if faith_value == null or faith_growth == null:
 		failures.append("the faith header must create both total and growth labels")
 	elif Rect2(faith_value.position, faith_value.size).intersects(Rect2(faith_growth.position, faith_growth.size)):
 		failures.append("the large faith total must not overlap its growth-rate label")
+	if gold_value == null or not gold_value.text.begins_with("$"):
+		failures.append("the drawer must show a money-marked gold balance above pet upgrades")
+	if drawer_root.find_child("GoldTitle", true, false) != null:
+		failures.append("the money row must not repeat a separate gold title")
+	if gold_center == null or gold_row == null or gold_icon == null or gold_value == null:
+		failures.append("the money icon and amount must share one centered row")
+	else:
+		var stage := drawer_root.find_child("FaithAdderStage", true, false) as Control
+		if not is_equal_approx(gold_center.position.x + gold_center.size.x * 0.5, SideDrawer.DRAWER_CONTENT_WIDTH * 0.5):
+			failures.append("the complete money row must align to the drawer center axis")
+		if gold_icon.get_parent() != gold_row or gold_value.get_parent() != gold_row:
+			failures.append("the coin icon and money amount must be aligned by the same row container")
+		if faith_growth != null and gold_center.position.y <= faith_growth.position.y + faith_growth.size.y:
+			failures.append("the money row must leave visible space below faith growth")
+		if stage == null or gold_center.position.y + gold_center.size.y > stage.custom_minimum_size.y:
+			failures.append("the money row must remain immediately above the pet upgrade block")
 	var bookmark_container := drawer_root.get_node_or_null("DrawerBookmarks") as VBoxContainer
 	var bookmark_names: Array[String] = []
 	if bookmark_container != null:
 		for child in bookmark_container.get_children():
 			if child is TextureButton:
 				bookmark_names.append(String(child.name))
-	if bookmark_names != ["仓库Bookmark", "商店Bookmark", "抽卡Bookmark", "新闻Bookmark", "收起Bookmark"]:
-		failures.append("drawer bookmarks must keep warehouse/shop/gacha/news/close order")
+	if bookmark_names != ["仓库Bookmark", "商店Bookmark", "抽卡Bookmark", "新闻Bookmark", "设置Bookmark", "收起Bookmark"]:
+		failures.append("drawer bookmarks must keep warehouse/shop/gacha/news/settings/close order")
 
 	var detail_name_edit := formatter.get("_upgrade_detail_name_edit") as LineEdit
 	if detail_name_edit == null or detail_name_edit.max_length != 40:

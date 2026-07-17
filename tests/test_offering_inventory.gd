@@ -36,8 +36,8 @@ static func _test_catalog(failures: Array[String]) -> void:
 		var price := int(item.get("price", 0))
 		var multiplier := float(item.get("multiplier", 1.0))
 		var duration_seconds := float(item.get("duration_seconds", 0.0))
-		if price < 500 or price <= previous_price:
-			failures.append("%s must be part of the strictly increasing expensive offering price curve" % offering_id)
+		if price <= 0 or price <= previous_price or price > 40:
+			failures.append("%s must stay on the small, strictly increasing manual-coin price curve" % offering_id)
 		if multiplier <= 1.0 or multiplier <= previous_multiplier:
 			failures.append("%s must grant a larger production multiplier than cheaper food" % offering_id)
 		if duration_seconds < 45.0 or duration_seconds > 75.0:
@@ -53,6 +53,8 @@ static func _test_catalog(failures: Array[String]) -> void:
 
 	if seen_ids.size() < 10:
 		failures.append("the shop must sell at least ten different offering foods")
+	if int(OfferingCatalog.ITEMS[0].get("price", 0)) > 2:
+		failures.append("the first offering must be affordable with only a few R coins")
 
 	var copied_goods := OfferingCatalog.make_shop_goods()
 	if copied_goods.size() != OfferingCatalog.ITEMS.size():
@@ -114,15 +116,18 @@ static func _test_shop_goods(failures: Array[String]) -> void:
 	var fish := shop.get_good("fish")
 	if not OfferingCatalog.is_offering(fish):
 		failures.append("shop normalization must preserve valid offering metadata")
-	if float(fish.get("multiplier", 0.0)) <= 1.0 or int(fish.get("price", 0)) < 500:
-		failures.append("shop lookup must preserve the expensive timed boost metadata")
+	if float(fish.get("multiplier", 0.0)) <= 1.0 or int(fish.get("price", 0)) > 40:
+		failures.append("shop lookup must preserve the affordable timed boost metadata")
 	shop.free()
 
 
 static func _test_shop_purchase_to_cursor(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
-	main.set("_faith_points", 2000.0)
+	var red_price := int(OfferingCatalog.ITEMS[0].get("price", 0))
+	var starting_gold := red_price + 20
+	main.set("_gold_coins", starting_gold)
+	main.set("_faith_points", 23.0)
 	main.set("_lifetime_faith", 17.0)
 	var shop := ShopWindow.new()
 	shop.setup()
@@ -132,14 +137,16 @@ static func _test_shop_purchase_to_cursor(failures: Array[String]) -> void:
 	var carried: Dictionary = main.get("_carried_offering")
 	if String(carried.get("id", "")) != "red_fruit":
 		failures.append("buying an offering must immediately put that food on the cursor")
-	if int(carried.get("purchase_price", -1)) != 500 or not is_equal_approx(float(main.get("_faith_points")), 1500.0):
-		failures.append("buying a cursor offering must charge its exact shop price once")
+	if int(carried.get("purchase_price", -1)) != red_price or int(main.get("_gold_coins")) != starting_gold - red_price:
+		failures.append("buying a cursor offering must charge its exact gold price once")
+	if not is_equal_approx(float(main.get("_faith_points")), 23.0):
+		failures.append("shop purchases must not spend faith")
 	var owned_counts: Dictionary = main.get("_shop_owned_counts")
 	if owned_counts.has("red_fruit"):
 		failures.append("consumable offerings must not enter the durable owned-count inventory")
 
 	main.call("_on_shop_purchase_requested", "fish")
-	if not is_equal_approx(float(main.get("_faith_points")), 1500.0):
+	if int(main.get("_gold_coins")) != starting_gold - red_price:
 		failures.append("the shop must not charge for a second offering while one is already carried")
 	var refused_carried: Dictionary = main.get("_carried_offering")
 	if String(refused_carried.get("id", "")) != "red_fruit":
@@ -149,7 +156,7 @@ static func _test_shop_purchase_to_cursor(failures: Array[String]) -> void:
 	var cancelled_carried: Dictionary = main.get("_carried_offering")
 	if not cancelled_carried.is_empty():
 		failures.append("right-click cancellation must clear the carried offering")
-	if not is_equal_approx(float(main.get("_faith_points")), 2000.0):
+	if int(main.get("_gold_coins")) != starting_gold:
 		failures.append("cancelling before placement must refund the exact purchase price")
 	if not is_equal_approx(float(main.get("_lifetime_faith")), 17.0):
 		failures.append("an offering refund must not inflate lifetime-generated faith")

@@ -16,14 +16,14 @@ static func run() -> Array[String]:
 
 
 static func _check_draw_costs(failures: Array[String]) -> void:
-	var expected_opening_costs := [5, 8, 13, 20, 33, 52]
-	for index in expected_opening_costs.size():
+	for draw_count in 10:
 		_check_equal(
 			failures,
-			"draw %d cost" % (index + 1),
-			GachaProgression.draw_cost(index),
-			expected_opening_costs[index]
+			"opening draw %d stays cheap" % (draw_count + 1),
+			GachaProgression.draw_cost(draw_count),
+			2
 		)
+	_check_equal(failures, "draw 11 adds only one coin", GachaProgression.draw_cost(10), 3)
 
 	_check_equal(
 		failures,
@@ -33,20 +33,26 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 	)
 	_check_equal(
 		failures,
-		"ten draws show and charge their complete progressive cost",
+		"ten opening draws remain affordable with manual coins",
 		GachaProgression.draw_cost_total(0, 10),
-		908.0
+		20.0
 	)
 
 	var previous_cost := GachaProgression.draw_cost(0)
-	for draw_count in range(1, 41):
+	for draw_count in range(1, 241):
 		var next_cost := GachaProgression.draw_cost(draw_count)
-		if next_cost <= previous_cost:
+		if next_cost < previous_cost or next_cost - previous_cost > 1:
 			failures.append(
-				"draw costs must strictly increase at draw %d: %d <= %d"
+				"draw costs must rise slowly at draw %d: %d after %d"
 				% [draw_count + 1, next_cost, previous_cost]
 			)
 		previous_cost = next_cost
+	_check_equal(
+		failures,
+		"draw price has a small permanent cap",
+		GachaProgression.draw_cost(1000000),
+		GachaProgression.MAX_DRAW_COST
+	)
 
 
 static func _check_pet_pool(failures: Array[String]) -> void:

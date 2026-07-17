@@ -58,10 +58,11 @@ var _animation_tween: Tween
 var _animation_playing := false
 var _pending_results: Array[Dictionary] = []
 var _result_index := 0
-var _faith_points := 0.0
-var _next_cost := 5
+var _coin_balance := 0.0
+var _next_cost := GachaProgression.BASE_DRAW_COST
 var _draw_count := 0
 var _rng := RandomNumberGenerator.new()
+var _language := "zh"
 
 
 func setup() -> void:
@@ -94,16 +95,28 @@ func close_window() -> void:
 
 
 func refresh_state(
-	faith_points: float,
+	coin_balance: float,
 	draw_count: int,
 	next_cost: int,
 	_unlocked_pet_ids: Array,
 	_pity_count: int,
 	_history: Array
 ) -> void:
-	_faith_points = maxf(0.0, faith_points)
+	_coin_balance = maxf(0.0, coin_balance)
 	_draw_count = maxi(0, draw_count)
 	_next_cost = maxi(1, next_cost)
+	_update_draw_button()
+
+
+func set_language(language_code: String) -> void:
+	_language = "en" if language_code == "en" else "zh"
+	title = "Pet Gacha" if _language == "en" else "宠物扭蛋"
+	if _draw_ten_toggle != null:
+		_draw_ten_toggle.text = "Draw ten" if _language == "en" else "扭十次"
+	if _result_title != null and _pending_results.is_empty():
+		_result_title.text = "WAITING FOR DRAW" if _language == "en" else "等待抽取"
+	if _result_detail != null and _pending_results.is_empty():
+		_result_detail.text = "[center]Waiting for a gacha result[/center]" if _language == "en" else "[center]等待扭蛋结果[/center]"
 	_update_draw_button()
 
 
@@ -202,7 +215,7 @@ func _create_content() -> void:
 	content.add_child(button_center)
 	_draw_button = Button.new()
 	_draw_button.name = "DrawPetButton"
-	_draw_button.text = "扭蛋  ·  5 点数"
+	_draw_button.text = "扭蛋  ·  $%d 金币" % GachaProgression.draw_cost(0)
 	_draw_button.custom_minimum_size = Vector2(332.0, 54.0)
 	_draw_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_draw_button.add_theme_font_size_override("font_size", 21)
@@ -459,13 +472,13 @@ func _reveal_current_result() -> void:
 	if is_new:
 		_result_detail.text = (
 			"[center][color=%s][font_size=21]%s[/font_size][/color]"
-			+ "\n[color=#b8c8b5]新宠物  ·  已进入仓库[/color][/center]"
+			+ ("\n[color=#b8c8b5]NEW PET  ·  SENT TO INVENTORY[/color][/center]" if _language == "en" else "\n[color=#b8c8b5]新宠物  ·  已进入仓库[/color][/center]")
 		) % [color, stars_text]
 	else:
 		var duplicate_points := maxi(0, int(result.get("duplicate_faith", 0)))
 		_result_detail.text = (
 			"[center][color=%s][font_size=20]%s[/font_size][/color]"
-			+ "\n[color=#d8c675][font_size=29]重复获得  +%s 信仰[/font_size][/color][/center]"
+			+ ("\n[color=#d8c675][font_size=29]DUPLICATE  +%s FAITH[/font_size][/color][/center]" if _language == "en" else "\n[color=#d8c675][font_size=29]重复获得  +%s 信仰[/font_size][/color][/center]")
 		) % [color, stars_text, _format_number(float(duplicate_points))]
 	_result_progress.text = (
 		"%d / %d" % [_result_index + 1, _pending_results.size()]
@@ -475,7 +488,7 @@ func _reveal_current_result() -> void:
 	_result_action_button.text = (
 		"SKIP  ›"
 		if _result_index < _pending_results.size() - 1
-		else ("完成" if _pending_results.size() > 1 else "收下")
+		else (("DONE" if _pending_results.size() > 1 else "CLAIM") if _language == "en" else ("完成" if _pending_results.size() > 1 else "收下"))
 	)
 	_result_overlay.visible = true
 	_update_draw_button()
@@ -502,20 +515,26 @@ func _update_draw_button() -> void:
 		return
 	if _animation_playing:
 		_draw_button.disabled = true
-		_draw_button.text = "扭蛋中…"
+		_draw_button.text = "DRAWING…" if _language == "en" else "扭蛋中…"
 		return
 	if _result_overlay != null and _result_overlay.visible:
 		_draw_button.disabled = true
 		return
 	var draw_amount := _selected_draw_amount()
 	var selected_cost := _selected_draw_cost()
-	_draw_button.disabled = floor(_faith_points) < selected_cost
+	_draw_button.disabled = floor(_coin_balance) < selected_cost
 	if _draw_button.disabled:
-		_draw_button.text = "点数不足  ·  %s" % _format_number(selected_cost)
+		_draw_button.text = (
+			"NOT ENOUGH GOLD  ·  $%s" if _language == "en" else "金币不足  ·  $%s"
+		) % _format_number(selected_cost)
 	elif draw_amount == 10:
-		_draw_button.text = "扭蛋 × 10  ·  %s 点数" % _format_number(selected_cost)
+		_draw_button.text = (
+			"DRAW × 10  ·  $%s GOLD" if _language == "en" else "扭蛋 × 10  ·  $%s 金币"
+		) % _format_number(selected_cost)
 	else:
-		_draw_button.text = "扭蛋  ·  %s 点数" % _format_number(selected_cost)
+		_draw_button.text = (
+			"DRAW  ·  $%s GOLD" if _language == "en" else "扭蛋  ·  $%s 金币"
+		) % _format_number(selected_cost)
 
 
 func _make_label(text_value: String, font_size: int, color: Color) -> Label:

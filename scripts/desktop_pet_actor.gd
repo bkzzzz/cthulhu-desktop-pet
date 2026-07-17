@@ -135,6 +135,7 @@ var _input_window: Window
 var _interaction_area: Control
 var _interaction_rect := Rect2()
 var _interaction_enabled := true
+var _activity_restricted := false
 var _hover_hint: Label
 var _hovering := false
 var _hover_time := 0.0
@@ -146,6 +147,7 @@ var _grab_offset := Vector2.ZERO
 var _frame_hit_images := {}
 var _stable_hit_image: Image
 var _stable_hit_polygon := PackedVector2Array()
+var _language := "zh"
 
 
 func _ready() -> void:
@@ -160,7 +162,8 @@ func setup(
 	min_x: float,
 	max_x: float,
 	start_x: float,
-	ground_contact_y := -1.0
+	ground_contact_y := -1.0,
+	restrict_activity := false
 ) -> void:
 	pet_id = new_pet_id
 	pet_data = PetCatalog.get_definition(pet_id)
@@ -175,6 +178,7 @@ func setup(
 	_walk_rotation_speed = maxf(0.0, float(pet_data.get("walk_rotation_speed", 0.0)))
 	_faces_right = bool(pet_data.get("faces_right", false))
 	_set_safe_bounds(min_x, max_x)
+	_activity_restricted = restrict_activity
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ pet_id.hash()
 	_float_phase = _rng.randf_range(0.0, TAU)
 	_behavior_style = String(pet_data.get("behavior", "wanderer"))
@@ -233,11 +237,17 @@ func set_display_name(new_display_name: String) -> void:
 	_refresh_hover_hint_text()
 
 
+func set_language(language_code: String) -> void:
+	_language = "en" if language_code == "en" else "zh"
+	_refresh_hover_hint_text()
+
+
 func set_window_bounds(
 	window_size: Vector2i,
 	min_x: float,
 	max_x: float,
-	ground_contact_y := -1.0
+	ground_contact_y := -1.0,
+	restrict_activity := false
 ) -> void:
 	var previous_stage_ground_y := _stage_ground_y
 	_window_size = window_size
@@ -253,6 +263,7 @@ func set_window_bounds(
 		_air_path_start.y += ground_shift
 		_air_path_target.y += ground_shift
 	_set_safe_bounds(min_x, max_x)
+	_activity_restricted = restrict_activity
 	position.x = clampf(position.x, _get_drag_min_x(), _get_drag_max_x())
 	_target_x = clampf(_target_x, _min_x, _max_x)
 	_pop_target_position.x = clampf(_pop_target_position.x, _min_x, _max_x)
@@ -526,7 +537,11 @@ func _create_hover_hint() -> void:
 
 func _refresh_hover_hint_text() -> void:
 	if _hover_hint != null:
-		_hover_hint.text = "%s\n按住拖动 · 短按抚摸  右键召回" % display_name
+		_hover_hint.text = (
+			"%s\nHold to drag · Click to pet · Right-click to recall"
+			if _language == "en"
+			else "%s\n按住拖动 · 短按抚摸  右键召回"
+		) % display_name
 
 
 func _update_pet(delta: float) -> void:
@@ -665,7 +680,7 @@ func _choose_next_action() -> void:
 	if special_roll < action_threshold:
 		_start_hiding()
 		return
-	action_threshold += _wall_chance if _can_wall_crawl else 0.0
+	action_threshold += _wall_chance if _can_wall_crawl and not _activity_restricted else 0.0
 	if special_roll < action_threshold:
 		_start_wall_trip()
 		return
@@ -908,7 +923,7 @@ func _apply_air_pause_motion() -> void:
 
 
 func _start_wall_trip() -> void:
-	if not _can_wall_crawl:
+	if not _can_wall_crawl or _activity_restricted:
 		_wall_pending = false
 		_choose_walk_target()
 		return
@@ -923,7 +938,7 @@ func _start_wall_trip() -> void:
 
 
 func _start_wall_mount() -> void:
-	if not _can_wall_crawl:
+	if not _can_wall_crawl or _activity_restricted:
 		_wall_pending = false
 		_start_idle()
 		return
@@ -952,7 +967,7 @@ func _update_wall_mount(delta: float) -> void:
 
 
 func _start_wall_crawl() -> void:
-	if not _can_wall_crawl:
+	if not _can_wall_crawl or _activity_restricted:
 		_wall_pending = false
 		_start_idle()
 		return
@@ -1201,11 +1216,11 @@ func _set_safe_bounds(min_x: float, max_x: float) -> void:
 
 
 func _get_drag_min_x() -> float:
-	return 48.0
+	return _min_x if _activity_restricted else 48.0
 
 
 func _get_drag_max_x() -> float:
-	return float(_window_size.x) - 48.0
+	return _max_x if _activity_restricted else float(_window_size.x) - 48.0
 
 
 func _get_wall_x() -> float:

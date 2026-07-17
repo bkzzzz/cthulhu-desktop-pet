@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d3h23gnph06ue"
-path="res://.godot/imported/upgrade.png-93fb50c7a3e0a946475b19dfdfa77ffd.ctex"
+uid="uid://bfykj31ijq2sc"
+path="res://.godot/imported/MonedaR.png-53d8d30675f99a78f8eb3b2462dbe0d2.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/testElements/upgrade.png"
-dest_files=["res://.godot/imported/upgrade.png-93fb50c7a3e0a946475b19dfdfa77ffd.ctex"]
+source_file="res://assets/ui/coins/MonedaR.png"
+dest_files=["res://.godot/imported/MonedaR.png-53d8d30675f99a78f8eb3b2462dbe0d2.ctex"]
 
 [params]
 

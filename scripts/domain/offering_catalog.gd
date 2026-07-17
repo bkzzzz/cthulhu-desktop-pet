@@ -13,7 +13,7 @@ const ITEMS := [
 		"name": "红果",
 		"texture": "res://assets/ui/foods/红果.png",
 		"description": "清甜多汁。投喂后，该宠物的信仰产量提高至2倍，持续60秒。",
-		"price": 500,
+		"price": 2,
 		"multiplier": 2.0,
 		"duration_seconds": 60.0
 	},
@@ -23,7 +23,7 @@ const ITEMS := [
 		"name": "米糊",
 		"texture": "res://assets/ui/foods/米糊.png",
 		"description": "温热细软。投喂后，该宠物的信仰产量提高至2.5倍，持续60秒。",
-		"price": 1500,
+		"price": 3,
 		"multiplier": 2.5,
 		"duration_seconds": 60.0
 	},
@@ -33,7 +33,7 @@ const ITEMS := [
 		"name": "华夫饼",
 		"texture": "res://assets/ui/foods/华夫饼.png",
 		"description": "外脆内软。投喂后，该宠物的信仰产量提高至3倍，持续60秒。",
-		"price": 5000,
+		"price": 5,
 		"multiplier": 3.0,
 		"duration_seconds": 60.0
 	},
@@ -43,7 +43,7 @@ const ITEMS := [
 		"name": "起司",
 		"texture": "res://assets/ui/foods/起司.png",
 		"description": "香味浓郁。投喂后，该宠物的信仰产量提高至4倍，持续60秒。",
-		"price": 15000,
+		"price": 7,
 		"multiplier": 4.0,
 		"duration_seconds": 60.0
 	},
@@ -53,7 +53,7 @@ const ITEMS := [
 		"name": "鸡肉",
 		"texture": "res://assets/ui/foods/鸡肉.png",
 		"description": "烹熟的鸡肉。投喂后，该宠物的信仰产量提高至5倍，持续60秒。",
-		"price": 50000,
+		"price": 10,
 		"multiplier": 5.0,
 		"duration_seconds": 60.0
 	},
@@ -63,7 +63,7 @@ const ITEMS := [
 		"name": "浓汤",
 		"texture": "res://assets/ui/foods/浓汤.png",
 		"description": "一碗浓汤。投喂后，该宠物的信仰产量提高至6.5倍，持续60秒。",
-		"price": 150000,
+		"price": 14,
 		"multiplier": 6.5,
 		"duration_seconds": 60.0
 	},
@@ -73,7 +73,7 @@ const ITEMS := [
 		"name": "鱼",
 		"texture": "res://assets/ui/foods/鱼.png",
 		"description": "今日鲜鱼。投喂后，该宠物的信仰产量提高至8倍，持续60秒。",
-		"price": 500000,
+		"price": 19,
 		"multiplier": 8.0,
 		"duration_seconds": 60.0
 	},
@@ -83,7 +83,7 @@ const ITEMS := [
 		"name": "九转大肠",
 		"texture": "res://assets/ui/foods/九转大肠.png",
 		"description": "香味很有存在感。投喂后，该宠物的信仰产量提高至10倍，持续60秒。",
-		"price": 1500000,
+		"price": 25,
 		"multiplier": 10.0,
 		"duration_seconds": 60.0
 	},
@@ -93,7 +93,7 @@ const ITEMS := [
 		"name": "血杯",
 		"texture": "res://assets/ui/foods/血杯.png",
 		"description": "颜色鲜红的营养饮料。投喂后，该宠物的信仰产量提高至13倍，持续60秒。",
-		"price": 5000000,
+		"price": 32,
 		"multiplier": 13.0,
 		"duration_seconds": 60.0
 	},
@@ -103,7 +103,7 @@ const ITEMS := [
 		"name": "眼球汤",
 		"texture": "res://assets/ui/foods/眼球汤.png",
 		"description": "最昂贵的特别料理。投喂后，该宠物的信仰产量提高至16倍，持续60秒。",
-		"price": 15000000,
+		"price": 40,
 		"multiplier": 16.0,
 		"duration_seconds": 60.0
 	}

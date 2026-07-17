@@ -7,10 +7,14 @@ var _root: PanelContainer
 var _entry_list: VBoxContainer
 var _status_label: Label
 var _empty_label: Label
+var _title_label: Label
+var _close_button: Button
+var _description_label: Label
 var _scroller: ScrollContainer
 var _entries: Array[Dictionary] = []
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
+var _language := "zh"
 
 
 func setup(initial_entries: Array[Dictionary]) -> void:
@@ -53,6 +57,22 @@ func add_entry(entry: Dictionary) -> void:
 		_entries.resize(80)
 	if visible:
 		_refresh_entries()
+
+
+func set_language(language_code: String) -> void:
+	_language = "en" if language_code == "en" else "zh"
+	title = "Cult News Archive" if _language == "en" else "教团新闻档案"
+	if _title_label != null:
+		_title_label.text = "CULT NEWS ARCHIVE" if _language == "en" else "教团新闻档案"
+	if _close_button != null:
+		_close_button.text = "Close" if _language == "en" else "关闭"
+	if _description_label != null:
+		_description_label.text = (
+			"Tracking the cult's expansion from one city and one ecosystem to the stars beyond."
+			if _language == "en"
+			else "持续记录教团扩张与理性污染：从一座城市、整个生态圈，直至星辰之间。"
+		)
+	_refresh_entries()
 
 
 func _configure_window() -> void:
@@ -98,16 +118,16 @@ func _create_content() -> void:
 	header.add_theme_constant_override("separation", 12)
 	content.add_child(header)
 
-	var title_label := Label.new()
-	title_label.text = "教团新闻档案"
-	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title_label.add_theme_font_size_override("font_size", 30)
-	title_label.add_theme_color_override("font_color", Color(0.91, 0.82, 0.52, 1.0))
-	title_label.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.035, 1.0))
-	title_label.add_theme_constant_override("outline_size", 4)
-	header.add_child(title_label)
+	_title_label = Label.new()
+	_title_label.text = "教团新闻档案"
+	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_title_label.add_theme_font_size_override("font_size", 30)
+	_title_label.add_theme_color_override("font_color", Color(0.91, 0.82, 0.52, 1.0))
+	_title_label.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.035, 1.0))
+	_title_label.add_theme_constant_override("outline_size", 4)
+	header.add_child(_title_label)
 
 	_status_label = Label.new()
 	_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -116,26 +136,26 @@ func _create_content() -> void:
 	_status_label.add_theme_color_override("font_color", Color(0.56, 0.82, 0.62, 1.0))
 	header.add_child(_status_label)
 
-	var close_button := Button.new()
-	close_button.text = "关闭"
-	close_button.custom_minimum_size = Vector2(72.0, 36.0)
-	close_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	close_button.add_theme_font_size_override("font_size", 15)
-	close_button.pressed.connect(_close_window)
-	header.add_child(close_button)
+	_close_button = Button.new()
+	_close_button.text = "关闭"
+	_close_button.custom_minimum_size = Vector2(72.0, 36.0)
+	_close_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_close_button.add_theme_font_size_override("font_size", 15)
+	_close_button.pressed.connect(_close_window)
+	header.add_child(_close_button)
 
 	var divider := HSeparator.new()
 	divider.add_theme_stylebox_override("separator", _make_separator_style())
 	content.add_child(divider)
 
-	var description := Label.new()
-	description.text = "持续记录教团扩张与理性污染：从一座城市、整个生态圈，直至星辰之间。"
-	description.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	description.custom_minimum_size = Vector2(0.0, 42.0)
-	description.add_theme_font_size_override("font_size", 16)
-	description.add_theme_color_override("font_color", Color(0.67, 0.72, 0.59, 1.0))
-	content.add_child(description)
+	_description_label = Label.new()
+	_description_label.text = "持续记录教团扩张与理性污染：从一座城市、整个生态圈，直至星辰之间。"
+	_description_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_description_label.custom_minimum_size = Vector2(0.0, 42.0)
+	_description_label.add_theme_font_size_override("font_size", 16)
+	_description_label.add_theme_color_override("font_color", Color(0.67, 0.72, 0.59, 1.0))
+	content.add_child(_description_label)
 
 	_scroller = ScrollContainer.new()
 	_scroller.name = "NewsHistoryScroll"
@@ -179,7 +199,7 @@ func _refresh_entries() -> void:
 
 	if _entries.is_empty():
 		_empty_label = Label.new()
-		_empty_label.text = "暂无新消息，记者正在核对人数。"
+		_empty_label.text = "No new reports. The newsroom is checking its figures." if _language == "en" else "暂无新消息，记者正在核对人数。"
 		_empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_empty_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		_empty_label.custom_minimum_size = Vector2(0.0, 160.0)
@@ -193,7 +213,11 @@ func _refresh_entries() -> void:
 			_entry_list.add_child(_make_entry_row(_entries[index], index))
 
 	if _status_label != null:
-		_status_label.text = "● 实时监听  ·  %d 条" % _entries.size()
+		_status_label.text = (
+			"● LIVE  ·  %d REPORTS" % _entries.size()
+			if _language == "en"
+			else "● 实时监听  ·  %d 条" % _entries.size()
+		)
 	call_deferred("_scroll_to_latest")
 
 
@@ -220,7 +244,7 @@ func _make_entry_row(entry: Dictionary, index: int) -> PanelContainer:
 
 	var category := String(entry.get("category", "异闻"))
 	var category_label := Label.new()
-	category_label.text = "【%s】" % category
+	category_label.text = "【%s】" % _get_localized_category(category)
 	category_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	category_label.add_theme_font_size_override("font_size", 16)
 	category_label.add_theme_color_override("font_color", _get_category_color(category))
@@ -232,7 +256,7 @@ func _make_entry_row(entry: Dictionary, index: int) -> PanelContainer:
 
 	var time_label := Label.new()
 	var clock_text := String(entry.get("time_text", "")).strip_edges()
-	time_label.text = clock_text if not clock_text.is_empty() else "旧闻"
+	time_label.text = clock_text if not clock_text.is_empty() else ("ARCHIVE" if _language == "en" else "旧闻")
 	time_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	time_label.add_theme_font_size_override("font_size", 14)
 	time_label.add_theme_color_override("font_color", Color(0.48, 0.58, 0.51, 1.0))
@@ -332,6 +356,20 @@ func _get_category_color(category: String) -> Color:
 			return Color(0.83, 0.62, 0.52, 1.0)
 		_:
 			return Color(0.66, 0.78, 0.72, 1.0)
+
+
+func _get_localized_category(category: String) -> String:
+	if _language != "en":
+		return category
+	var names := {
+		"公告": "NOTICE",
+		"传播": "SPREAD",
+		"信仰": "FAITH",
+		"宠物": "PETS",
+		"教团": "CULT",
+		"异闻": "REPORT"
+	}
+	return String(names.get(category, category))
 
 
 func _make_window_style() -> StyleBoxFlat:
