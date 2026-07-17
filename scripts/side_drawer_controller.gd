@@ -27,7 +27,7 @@ const MENU_WINDOW_SIZE := Vector2i(228, 150)
 const MENU_TO_DRAWER_GAP := 2
 const MENU_DRAG_THRESHOLD := 6.0
 const RATE_SUFFIX := "/s"
-const POSITION_RETRY_FRAMES := 90
+const POSITION_RETRY_FRAMES := 12
 
 enum TaskbarEdge {
 	BOTTOM,
@@ -185,10 +185,11 @@ func _process(delta: float) -> void:
 		_finish_menu_drag()
 
 	_update_drawer_slide(delta)
-	_update_upgrade_detail_hover(delta)
-	_update_drawer_background_symbols(delta)
-	if _adder_glow != null:
-		_adder_glow.rotation += GLOW_ROTATION_SPEED * delta
+	if _drawer_window != null and _drawer_window.visible:
+		_update_upgrade_detail_hover(delta)
+		_update_drawer_background_symbols(delta)
+		if _adder_glow != null:
+			_adder_glow.rotation += GLOW_ROTATION_SPEED * delta
 
 
 # Public refresh API

@@ -20,7 +20,9 @@ const MAGNET_START_SPEED := 260.0
 const MAGNET_ACCELERATION := 1150.0
 const PICKUP_ARM_DELAY_SECONDS := 0.20
 const COLLECT_DISTANCE := 15.0
-const MAX_LIFETIME_SECONDS := 180.0
+const MAGNET_CHECK_INTERVAL_SECONDS := 0.14
+const MAX_LIFETIME_SECONDS := 120.0
+const EXPIRE_FADE_SECONDS := 0.24
 
 var coin_type := "R"
 var value := 1
@@ -32,8 +34,11 @@ var _magnetized := false
 var _settled := false
 var _settled_age := 0.0
 var _age := 0.0
+var _magnet_check_time := 0.0
+var _expiring := false
 var _rng := RandomNumberGenerator.new()
 var _sprite: AnimatedSprite2D
+static var _frames_cache := {}
 
 
 static func get_coin_value(type_id: String) -> int:
@@ -54,6 +59,7 @@ func setup(type_id: String, start_position: Vector2, window_size: Vector2i, grou
 	position = start_position
 	z_index = 210
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ coin_type.hash()
+	_magnet_check_time = _rng.randf_range(0.0, MAGNET_CHECK_INTERVAL_SECONDS)
 	_velocity = Vector2(_rng.randf_range(-92.0, 92.0), _rng.randf_range(-245.0, -155.0))
 	_create_sprite()
 
@@ -67,30 +73,53 @@ func set_window_bounds(window_size: Vector2i, ground_y: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if _expiring:
+		return
 	var safe_delta := maxf(0.0, delta)
 	_age += safe_delta
 	if _age >= MAX_LIFETIME_SECONDS:
-		queue_free()
+		expire()
 		return
 
 	if _settled:
 		_settled_age += safe_delta
-	var pointer := _get_pointer_position()
-	if not _magnetized and _can_start_magnet(pointer):
-		_magnetized = true
-		_settled = false
 
 	if _magnetized:
-		_update_magnet(pointer, safe_delta)
+		_update_magnet(_get_pointer_position(), safe_delta)
 		return
+	if _settled:
+		_magnet_check_time -= safe_delta
+		if _magnet_check_time <= 0.0:
+			_magnet_check_time = MAGNET_CHECK_INTERVAL_SECONDS
+			if _can_start_magnet(_get_pointer_position()):
+				_magnetized = true
+				_settled = false
+				return
 
 	_update_fall(safe_delta)
+
+
+func expire() -> void:
+	if _expiring or is_queued_for_deletion():
+		return
+	_expiring = true
+	_magnetized = false
+	set_process(false)
+	if _sprite == null or not is_inside_tree():
+		queue_free()
+		return
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.set_ease(Tween.EASE_IN)
+	tween.tween_property(_sprite, "modulate", Color(1.0, 1.0, 1.0, 0.0), EXPIRE_FADE_SECONDS)
+	tween.parallel().tween_property(_sprite, "scale", _sprite.scale * 0.72, EXPIRE_FADE_SECONDS)
+	tween.tween_callback(queue_free)
 
 
 func _create_sprite() -> void:
 	_sprite = AnimatedSprite2D.new()
 	_sprite.name = "Coin%sSprite" % coin_type
-	_sprite.sprite_frames = _build_frames(get_coin_texture(coin_type))
+	_sprite.sprite_frames = _get_shared_frames(coin_type)
 	_sprite.animation = "spin"
 	_sprite.centered = true
 	_sprite.scale = Vector2.ONE * COIN_SCALE
@@ -99,7 +128,17 @@ func _create_sprite() -> void:
 	_sprite.play("spin")
 
 
-func _build_frames(texture_path: String) -> SpriteFrames:
+static func _get_shared_frames(type_id: String) -> SpriteFrames:
+	var safe_type := type_id.to_upper()
+	var cached := _frames_cache.get(safe_type) as SpriteFrames
+	if cached != null:
+		return cached
+	var frames := _build_frames(get_coin_texture(safe_type))
+	_frames_cache[safe_type] = frames
+	return frames
+
+
+static func _build_frames(texture_path: String) -> SpriteFrames:
 	var frames := SpriteFrames.new()
 	frames.remove_animation("default")
 	frames.add_animation("spin")

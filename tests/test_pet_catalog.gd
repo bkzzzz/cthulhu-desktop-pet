@@ -87,6 +87,9 @@ static func run() -> Array[String]:
 			failures.append("%s must define a varied personality emotion profile" % pet_id)
 		if emotion_weights.has("hungry"):
 			failures.append("%s personality must not use the removed hunger emotion" % pet_id)
+	for new_pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+		if float(PetCatalog.get_definition(new_pet_id).get("desktop_scale", 0.0)) < 0.90:
+			failures.append("%s must visually match the established desktop pet size" % new_pet_id)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
 	if behavior_styles.size() < 6:

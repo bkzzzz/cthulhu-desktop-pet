@@ -19,9 +19,13 @@ config/features=PackedStringArray("4.5", "Forward Plus")
 boot_splash/bg_color=Color(0, 0, 0, 0)
 boot_splash/fullsize=false
 boot_splash/use_filter=false
+boot_splash/show_image=false
 boot_splash/image="res://assets/ui/starterUi/加载图标.png"
 config/icon="res://assets/ui/starterUi/启动icon.png"
-boot_splash/minimum_display_time=700
+boot_splash/minimum_display_time=0
+run/low_processor_mode=true
+run/low_processor_mode_sleep_usec=10000
+run/max_fps=30
 
 [display]
 

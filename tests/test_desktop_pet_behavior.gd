@@ -159,7 +159,7 @@ static func _test_hide_then_pop(failures: Array[String]) -> void:
 
 
 static func _test_ground_alignment(failures: Array[String]) -> void:
-	for pet_id in ["pet1", "pet3", "pet4", "pet5"]:
+	for pet_id in ["pet1", "pet3", "pet4", "pet5", "pet9"]:
 		var actor := DesktopPetActor.new()
 		actor.setup(pet_id, Vector2i(1200, 720), 72.0, 1100.0, 600.0)
 		var sprite := actor.get_node("%sSprite" % pet_id) as AnimatedSprite2D
@@ -245,8 +245,12 @@ static func _test_air_roaming(failures: Array[String]) -> void:
 	var actor := DesktopPetActor.new()
 	actor.setup("pet2", Vector2i(1600, 1000), 72.0, 1500.0, 800.0)
 	var y_bounds: Vector2 = actor.call("_get_air_roam_y_bounds")
-	if y_bounds.y - y_bounds.x < 500.0:
-		failures.append("pet2 awake air-roam range must cover a large part of the desktop")
+	var rest_y := float(actor.call("_get_rest_y"))
+	if (
+		y_bounds.x < rest_y - DesktopPetActor.AIR_ROAM_MAX_HEIGHT - 0.01
+		or y_bounds.y > rest_y - DesktopPetActor.AIR_ROAM_MIN_HEIGHT + 0.01
+	):
+		failures.append("flying pets must roam in a low-altitude band instead of crossing the work area")
 
 	actor.set("_air_roam_legs_min", 3)
 	actor.set("_air_roam_legs_max", 3)
@@ -279,7 +283,8 @@ static func _test_air_roaming(failures: Array[String]) -> void:
 static func _test_floater_interaction_height(failures: Array[String]) -> void:
 	var actor := DesktopPetActor.new()
 	actor.setup("pet2", Vector2i(1600, 1000), 0.0, 1600.0, 800.0)
-	var airborne_height := 180.0
+	var low_air_bounds: Vector2 = actor.call("_get_air_roam_y_bounds")
+	var airborne_height := low_air_bounds.x - 120.0
 	actor.position.y = airborne_height
 	actor.set("_float_anchor_y", airborne_height)
 	actor.set("_pointer_held", true)
@@ -288,7 +293,11 @@ static func _test_floater_interaction_height(failures: Array[String]) -> void:
 	if int(actor.get("_behavior")) == DesktopPetActor.Behavior.FALLING:
 		failures.append("releasing pet2 interaction must not force an airborne pet to fall")
 	if not is_equal_approx(actor.position.y, airborne_height):
-		failures.append("pet2 interaction must preserve its current airborne height")
+		failures.append("releasing a high flying pet must not teleport it into the low-altitude band")
+	actor.call("_update_idle", 1.0)
+	var descended_height := float(actor.get("_float_anchor_y"))
+	if descended_height <= airborne_height or descended_height >= low_air_bounds.x:
+		failures.append("a flying pet dragged high must descend gradually toward low altitude")
 	actor.free()
 
 

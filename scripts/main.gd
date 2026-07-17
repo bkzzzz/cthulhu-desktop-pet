@@ -24,7 +24,9 @@ const PET_TASKBAR_OVERLAP_PIXELS := 16
 const PET_STAGE_MARGIN_X := 0.0
 const PET_STAGE_RIGHT_MARGIN := 0.0
 const PET_STAGE_START_SPACING := 132.0
-const POSITION_RETRY_FRAMES := 90
+const POSITION_RETRY_FRAMES := 12
+const BACKGROUND_LOGIC_INTERVAL := 0.10
+const POINTER_HOVER_INTERVAL := 1.0 / 15.0
 
 # Pet interaction and offering tuning
 const OFFERING_CURSOR_SIZE := Vector2i(52, 52)
@@ -68,6 +70,7 @@ const PET_AUTO_COIN_INTERVAL_MIN := 12.0
 const PET_AUTO_COIN_INTERVAL_MAX := 62.0
 const PET_AUTO_COIN_PILE_MIN := 4
 const PET_AUTO_COIN_PILE_MAX := 10
+const DESKTOP_COIN_LIMIT := 96
 const PET11_ABSORB_INITIAL_MIN_SECONDS := 24.0
 const PET11_ABSORB_INITIAL_MAX_SECONDS := 42.0
 const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
@@ -168,6 +171,8 @@ var _news_milestone_check_timer := 0.0
 var _next_pet_coin_drop_at := {}
 var _pet_coin_drop_intervals := {}
 var _next_pet11_absorb_at := 0.0
+var _background_logic_time := 0.0
+var _pointer_hover_time := 0.0
 var _session_runtime_seconds := 0.0
 var _total_runtime_seconds := 0.0
 var _settings_refresh_timer := 0.0
@@ -187,6 +192,7 @@ func _ready() -> void:
 		push_error("Desktop pets stopped because safe click-through setup failed.")
 		get_tree().quit(2)
 		return
+	_place_pet_window()
 	_load_game()
 	_apply_offline_progress()
 	_initialize_news_feed()
@@ -217,6 +223,7 @@ func _ready() -> void:
 	_apply_language()
 
 	_position_retry_frames = POSITION_RETRY_FRAMES
+	_place_pet_window()
 	call_deferred("_place_pet_window")
 	call_deferred("_update_offering_input_window")
 
@@ -229,22 +236,32 @@ func _process(delta: float) -> void:
 		_position_retry_frames -= 1
 		_place_pet_window()
 
+	_pointer_hover_time += safe_delta
+	if _has_captured_pet_pointer() or _pointer_hover_time >= POINTER_HOVER_INTERVAL:
+		_pointer_hover_time = 0.0
+		_update_pet_hover()
+	if not _carried_offering.is_empty():
+		_update_offering_input_window()
+		_update_offering_cursor_state()
+
+	_background_logic_time += safe_delta
+	if _background_logic_time < BACKGROUND_LOGIC_INTERVAL:
+		return
+	var logic_delta := _background_logic_time
+	_background_logic_time = 0.0
 	_update_pet_offering_buffs()
-	_update_faith(delta)
-	_update_followers(delta)
-	_update_news(delta)
+	_update_faith(logic_delta)
+	_update_followers(logic_delta)
+	_update_news(logic_delta)
 	_update_pet_emotions()
 	_update_pet11_absorb_ability()
 	_update_pilgrimage()
 	_update_believers()
-	_update_pet_hover()
-	_update_offering_input_window()
-	_update_offering_cursor_state()
 	_update_pending_offerings()
 	_update_coin_drops()
 	_update_ambient_coin_drops()
-	_update_settings_runtime(safe_delta)
-	_update_autosave(delta)
+	_update_settings_runtime(logic_delta)
+	_update_autosave(logic_delta)
 
 
 func _notification(what: int) -> void:
@@ -270,7 +287,6 @@ func _configure_pet_window() -> bool:
 	window.always_on_top = false
 	window.unfocusable = true
 	window.unresizable = true
-	window.visible = true
 
 	get_viewport().transparent_bg = true
 
@@ -840,6 +856,7 @@ func _spawn_pet_coin(actor: Node2D) -> Node2D:
 
 
 func _spawn_coin(coin_type: String, spawn_position: Vector2) -> Node2D:
+	_make_desktop_coin_capacity(1)
 	var coin: Node2D = CoinDrop.new()
 	coin.setup(
 		coin_type,
@@ -851,6 +868,19 @@ func _spawn_coin(coin_type: String, spawn_position: Vector2) -> Node2D:
 	add_child(coin)
 	_coin_drops.append(coin)
 	return coin
+
+
+func _make_desktop_coin_capacity(incoming_count: int) -> void:
+	_update_coin_drops()
+	var required_slots := maxi(0, incoming_count)
+	while _coin_drops.size() + required_slots > DESKTOP_COIN_LIMIT:
+		var oldest_coin := _coin_drops.pop_front() as Node2D
+		if oldest_coin == null or not is_instance_valid(oldest_coin):
+			continue
+		if oldest_coin.has_method("expire"):
+			oldest_coin.call("expire")
+		else:
+			oldest_coin.queue_free()
 
 
 func _on_coin_collected(actor: Node2D, coin_type: String, value: int) -> void:
@@ -1102,6 +1132,7 @@ func _create_side_drawer() -> void:
 
 func _create_inventory_window() -> void:
 	_inventory_window = InventoryWindowScript.new()
+	_inventory_window.visible = false
 	add_child(_inventory_window)
 	_inventory_window.connect("pet_deploy_requested", Callable(self, "_on_inventory_pet_deploy_requested"))
 	_inventory_window.connect("pet_rename_requested", Callable(self, "_on_inventory_pet_rename_requested"))
@@ -1110,6 +1141,7 @@ func _create_inventory_window() -> void:
 
 func _create_shop_window() -> void:
 	_shop_window = ShopWindowScript.new()
+	_shop_window.visible = false
 	add_child(_shop_window)
 	_shop_window.connect("purchase_requested", Callable(self, "_on_shop_purchase_requested"))
 	_shop_window.call("setup")
@@ -1118,6 +1150,7 @@ func _create_shop_window() -> void:
 
 func _create_gacha_window() -> void:
 	_gacha_window = GachaWindowScript.new()
+	_gacha_window.visible = false
 	add_child(_gacha_window)
 	_gacha_window.draw_requested.connect(_on_gacha_draw_requested)
 	_gacha_window.setup()
@@ -1126,12 +1159,14 @@ func _create_gacha_window() -> void:
 
 func _create_news_window() -> void:
 	_news_window = NewsWindowScript.new()
+	_news_window.visible = false
 	add_child(_news_window)
 	_news_window.setup(_news_feed.get_history())
 
 
 func _create_settings_window() -> void:
 	_settings_window = SettingsWindowScript.new()
+	_settings_window.visible = false
 	add_child(_settings_window)
 	_settings_window.activity_range_changed.connect(_on_activity_range_changed)
 	_settings_window.language_changed.connect(_on_language_changed)
@@ -1144,16 +1179,19 @@ func _create_settings_window() -> void:
 func _place_pet_window() -> void:
 	var usable_rect := _get_current_screen_usable_rect()
 	var window := get_window()
-	_pet_window_size = _get_target_pet_window_size(usable_rect)
-	window.size = _pet_window_size
+	var target_size := _get_target_pet_window_size(usable_rect)
 	var target_x: int = usable_rect.position.x
 	var target_y: int = usable_rect.position.y
-	window.position = Vector2i(
-		target_x,
-		target_y
-	)
-	_update_actor_window_bounds()
-	_update_offering_input_window()
+	var target_position := Vector2i(target_x, target_y)
+	var bounds_changed := window.size != target_size or window.position != target_position
+	_pet_window_size = target_size
+	if window.size != target_size:
+		window.size = target_size
+	if window.position != target_position:
+		window.position = target_position
+	if bounds_changed:
+		_update_actor_window_bounds()
+		_update_offering_input_window()
 
 
 func _get_target_pet_window_size(usable_rect: Rect2i) -> Vector2i:
@@ -1324,10 +1362,18 @@ func _create_offering_input_window() -> void:
 func _update_offering_input_window() -> void:
 	if _offering_input_window == null:
 		return
+	if _carried_offering.is_empty():
+		if _offering_input_window.visible:
+			_offering_input_window.visible = false
+		return
 	var usable_bottom := _pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS
-	_offering_input_window.position = get_window().position
-	_offering_input_window.size = Vector2i(_pet_window_size.x, usable_bottom)
-	_offering_input_window.visible = not _carried_offering.is_empty()
+	var target_position := get_window().position
+	var target_size := Vector2i(_pet_window_size.x, usable_bottom)
+	if _offering_input_window.position != target_position:
+		_offering_input_window.position = target_position
+	if _offering_input_window.size != target_size:
+		_offering_input_window.size = target_size
+	_offering_input_window.visible = true
 
 
 func _on_offering_input(event: InputEvent) -> void:

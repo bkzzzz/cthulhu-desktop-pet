@@ -13,8 +13,10 @@ static func run() -> Array[String]:
 	_test_coin_ground_first_pickup(failures)
 	_test_coin_collection(failures)
 	_test_pet_money_pile(failures)
+	_test_coin_retention_limits(failures)
 	_test_activity_ranges(failures)
 	_test_settings_runtime(failures)
+	_test_background_resource_settings(failures)
 	_test_believer_drop_signal(failures)
 	_test_believer_prayer_animation_and_reward(failures)
 	_test_believer_exit_refresh_and_pilgrimage_entry(failures)
@@ -84,6 +86,31 @@ static func _test_pet_money_pile(failures: Array[String]) -> void:
 	if int(main.get("_gold_coins")) != 0:
 		failures.append("automatic pet money must remain on the ground until the mouse collects it")
 	main.free()
+
+
+static func _test_coin_retention_limits(failures: Array[String]) -> void:
+	if CoinDrop.MAX_LIFETIME_SECONDS > 120.0:
+		failures.append("uncollected desktop coins must expire before they can accumulate indefinitely")
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	for coin_index in Main.DESKTOP_COIN_LIMIT + 12:
+		main.call("_spawn_coin", "R", Vector2(200.0 + float(coin_index % 20), 300.0))
+	if (main.get("_coin_drops") as Array).size() > Main.DESKTOP_COIN_LIMIT:
+		failures.append("the desktop must enforce a hard retained-coin node limit")
+	main.free()
+
+
+static func _test_background_resource_settings(failures: Array[String]) -> void:
+	if int(ProjectSettings.get_setting("application/boot_splash/minimum_display_time", 700)) > 0:
+		failures.append("startup must not hold a temporary splash window on screen")
+	if bool(ProjectSettings.get_setting("application/boot_splash/show_image", true)):
+		failures.append("startup must not flash a splash image before the desktop windows are positioned")
+	if not bool(ProjectSettings.get_setting("application/run/low_processor_mode", false)):
+		failures.append("the desktop game must opt into low-processor mode")
+	var max_fps := int(ProjectSettings.get_setting("application/run/max_fps", 0))
+	if max_fps <= 0 or max_fps > 30:
+		failures.append("the always-running desktop game must cap its rendering frame rate")
 
 
 static func _test_activity_ranges(failures: Array[String]) -> void:
@@ -243,9 +270,13 @@ static func _test_pilgrimage_activity_override(failures: Array[String]) -> void:
 static func _test_pet_autonomy_pause(failures: Array[String]) -> void:
 	var pet := DesktopPetActor.new()
 	pet.setup("pet1", Vector2i(820, 420), 72.0, 724.0, 400.0, 400.0, false)
+	pet.call("_choose_walk_target")
 	pet.set_autonomy_paused(true)
 	if not pet.is_autonomy_paused():
 		failures.append("pets must pause autonomous behavior during pilgrimage events")
+	var sprite := pet.get_node("pet1Sprite") as AnimatedSprite2D
+	if int(pet.get("_behavior")) != DesktopPetActor.Behavior.IDLE or sprite.speed_scale <= 0.0:
+		failures.append("pilgrimage pets must stay calmly idle without visually freezing their animations")
 	pet.set_autonomy_paused(false)
 	if pet.is_autonomy_paused():
 		failures.append("pets must resume autonomous behavior after pilgrimage events")

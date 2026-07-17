@@ -24,11 +24,13 @@ const WALL_CRAWL_SPEED := 48.0
 const WALL_CORNER_TURN_DURATION := 0.22
 const FLOAT_BOB_AMPLITUDE := 14.0
 const AIR_ROAM_SPEED := 52.0
-const AIR_ROAM_TOP_MARGIN := 72.0
-const AIR_ROAM_BOTTOM_CLEARANCE := 72.0
+const AIR_ROAM_MIN_HEIGHT := 42.0
+const AIR_ROAM_MAX_HEIGHT := 118.0
+const FLOATER_HEIGHT_RETURN_SPEED := 72.0
 const AIR_ROAM_LEG_PAUSE_MIN := 0.35
 const AIR_ROAM_LEG_PAUSE_MAX := 1.15
 const INPUT_PROXY_PADDING := 10.0
+const INPUT_WINDOW_UPDATE_INTERVAL := 1.0 / 15.0
 const DOZE_ANIMATION_SPEED_SCALE := 0.28
 const POP_DURATION_MIN := 0.48
 const POP_DURATION_MAX := 0.82
@@ -167,6 +169,7 @@ var _grab_offset := Vector2.ZERO
 var _frame_hit_images := {}
 var _stable_hit_image: Image
 var _stable_hit_polygon := PackedVector2Array()
+var _input_window_update_time := 0.0
 var _language := "zh"
 
 
@@ -288,8 +291,7 @@ func set_window_bounds(
 	_target_x = clampf(_target_x, _min_x, _max_x)
 	_pop_target_position.x = clampf(_pop_target_position.x, _min_x, _max_x)
 	if _behavior_style == "sleepy_floater":
-		var air_y_bounds := _get_air_roam_y_bounds()
-		_float_anchor_y = clampf(_float_anchor_y, air_y_bounds.x, _get_rest_y())
+		_float_anchor_y = clampf(_float_anchor_y, 32.0, _get_rest_y())
 	_update_interaction_area()
 
 
@@ -302,11 +304,11 @@ func set_autonomy_paused(paused: bool) -> void:
 	if paused:
 		if _behavior == Behavior.SWALLOWED:
 			_finish_swallowed()
-		_autonomy_previous_speed_scale = _sprite.speed_scale
-		if _behavior in [Behavior.UNDERGROUND, Behavior.HIDDEN]:
+		_autonomy_previous_speed_scale = 1.0
+		if _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
 			_cancel_special_behavior()
 			_start_idle()
-		_sprite.speed_scale = 0.0
+		_sprite.speed_scale = 1.0
 	else:
 		_sprite.speed_scale = maxf(0.01, _autonomy_previous_speed_scale)
 
@@ -448,7 +450,10 @@ func _input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	_update_pointer_interaction(delta)
 	_update_pet(delta)
-	_update_interaction_area()
+	_input_window_update_time += maxf(0.0, delta)
+	if _pointer_held or _input_window_update_time >= INPUT_WINDOW_UPDATE_INTERVAL:
+		_input_window_update_time = 0.0
+		_update_interaction_area()
 	_update_hover_hint(delta)
 
 
@@ -594,7 +599,6 @@ func _create_input_window() -> void:
 	_interaction_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_interaction_area.gui_input.connect(_on_gui_input)
 	_input_window.add_child(_interaction_area)
-	_input_window.visible = true
 
 
 func _create_hover_hint() -> void:
@@ -627,8 +631,9 @@ func _refresh_hover_hint_text() -> void:
 func _update_pet(delta: float) -> void:
 	_float_phase += delta * 2.15
 	if _autonomy_paused and _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
-		if _sprite != null:
-			_sprite.speed_scale = 0.0
+		if _behavior_style == "sleepy_floater":
+			_settle_floater_height(delta)
+			_apply_floating_position(_float_bob_amplitude)
 		return
 	match _behavior:
 		Behavior.GRABBED:
@@ -800,12 +805,15 @@ func _update_walking(delta: float) -> void:
 	if _sprite.animation != "walk":
 		_sprite.play("walk")
 	if _behavior_style == "sleepy_floater":
+		_settle_floater_height(delta)
 		_apply_floating_position(_float_bob_amplitude)
 	else:
 		_apply_grounded_position(false)
 
 
 func _update_idle(delta: float) -> void:
+	if _behavior_style == "sleepy_floater":
+		_settle_floater_height(delta)
 	_apply_grounded_position(_behavior_style == "sleepy_floater")
 	if _behavior_style == "sleepy_floater":
 		position.x = clampf(_idle_anchor_x + sin(_float_phase * 0.63) * 3.5, _min_x, _max_x)
@@ -1036,9 +1044,22 @@ func _choose_air_roam_destination() -> Vector2:
 
 
 func _get_air_roam_y_bounds() -> Vector2:
-	var upper_y := minf(_get_rest_y(), maxf(AIR_ROAM_TOP_MARGIN, float(_window_size.y) * 0.08))
-	var lower_y := maxf(upper_y, _get_rest_y() - AIR_ROAM_BOTTOM_CLEARANCE)
+	var rest_y := _get_rest_y()
+	var upper_y := maxf(32.0, rest_y - AIR_ROAM_MAX_HEIGHT)
+	var lower_y := clampf(rest_y - AIR_ROAM_MIN_HEIGHT, upper_y, rest_y)
 	return Vector2(upper_y, lower_y)
+
+
+func _settle_floater_height(delta: float) -> void:
+	if _behavior_style != "sleepy_floater":
+		return
+	var low_air_bounds := _get_air_roam_y_bounds()
+	var target_y := clampf(_float_anchor_y, low_air_bounds.x, low_air_bounds.y)
+	_float_anchor_y = move_toward(
+		_float_anchor_y,
+		target_y,
+		FLOATER_HEIGHT_RETURN_SPEED * maxf(0.0, delta)
+	)
 
 
 func _start_air_return() -> void:
@@ -1346,8 +1367,7 @@ func _finish_pointer_hold(force_cancel := false) -> void:
 			_start_idle()
 			petted.emit(self)
 		elif _behavior_style == "sleepy_floater":
-			var air_bounds := _get_air_roam_y_bounds()
-			_float_anchor_y = clampf(position.y, air_bounds.x, _get_rest_y())
+			_float_anchor_y = clampf(position.y, 32.0, _get_rest_y())
 			position.y = _float_anchor_y
 			_start_idle()
 		else:
