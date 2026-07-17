@@ -1,20 +1,22 @@
 extends RefCounted
 
 const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
+const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const GachaWindow = preload("res://scripts/gacha_window.gd")
 
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
-	_check_equal(failures, "campaign target uses pet levels", GachaProgression.CAMPAIGN_PET_LEVEL_TARGET, 100)
 	_check_draw_costs(failures)
-	_check_weight_boundaries(failures)
-	_check_twelve_draw_pity(failures)
-	_check_additive_stacking(failures)
+	_check_pet_pool(failures)
+	_check_new_and_duplicate_results(failures)
+	_check_new_pet_pity(failures)
+	_check_static_machine_and_eggs(failures)
 	return failures
 
 
 static func _check_draw_costs(failures: Array[String]) -> void:
-	var expected_opening_costs := [75, 120, 192, 307, 492, 786]
+	var expected_opening_costs := [5, 8, 13, 20, 33, 52]
 	for index in expected_opening_costs.size():
 		_check_equal(
 			failures,
@@ -29,6 +31,12 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 		GachaProgression.draw_cost(-4),
 		GachaProgression.draw_cost(0)
 	)
+	_check_equal(
+		failures,
+		"ten draws show and charge their complete progressive cost",
+		GachaProgression.draw_cost_total(0, 10),
+		908.0
+	)
 
 	var previous_cost := GachaProgression.draw_cost(0)
 	for draw_count in range(1, 41):
@@ -41,80 +49,133 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 		previous_cost = next_cost
 
 
-static func _check_weight_boundaries(failures: Array[String]) -> void:
-	_check_roll_id(failures, "normal roll starts in common", 0.0, 0, "whisper")
-	_check_roll_id(failures, "common upper interior", 0.649999, 0, "whisper")
-	_check_roll_id(failures, "uncommon lower boundary", 0.65, 0, "omen")
-	_check_roll_id(failures, "uncommon upper interior", 0.899999, 0, "omen")
-	_check_roll_id(failures, "rare lower boundary", 0.90, 0, "revelation")
-	_check_roll_id(failures, "rare upper interior", 0.979999, 0, "revelation")
-	_check_roll_id(failures, "mythic lower boundary", 0.98, 0, "outer_blessing")
-	_check_roll_id(failures, "unit roll is safely clamped", 1.0, 0, "outer_blessing")
-
-	_check_roll_id(failures, "pity pool starts with rare", 0.0, 11, "revelation")
-	_check_roll_id(failures, "pity rare upper interior", 0.799999, 11, "revelation")
-	_check_roll_id(failures, "pity mythic lower boundary", 0.80, 11, "outer_blessing")
-	_check_roll_id(failures, "pity pool ends with mythic", 1.0, 11, "outer_blessing")
-
+static func _check_pet_pool(failures: Array[String]) -> void:
+	var expected_ids := ["pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]
+	var actual_ids: Array[String] = []
 	var total_weight := 0.0
-	for buff_value in GachaProgression.BUFFS:
-		var buff: Dictionary = buff_value
-		total_weight += float(buff.get("weight", 0.0))
-	_check_close(failures, "normal rarity weights total 100", total_weight, 100.0, 0.0001)
+	for entry_value in GachaProgression.PET_POOL:
+		var entry: Dictionary = entry_value
+		actual_ids.append(String(entry.get("pet_id", "")))
+		total_weight += float(entry.get("weight", 0.0))
+	_check_equal(failures, "gacha pool contains every non-starter pet", actual_ids, expected_ids)
+	_check_equal(failures, "catalog gacha list matches the roll pool", PetCatalog.GACHA_PETS, expected_ids)
+	_check_close(failures, "pet rarity weights total 100", total_weight, 100.0, 0.0001)
+
+	_check_roll_pet(failures, "first common boundary", 0.0, "pet2")
+	_check_roll_pet(failures, "second common boundary", 0.32, "pet3")
+	_check_roll_pet(failures, "rare boundary", 0.64, "pet4")
+	_check_roll_pet(failures, "epic boundary", 0.82, "pet5")
+	_check_roll_pet(failures, "first legendary boundary", 0.92, "pet6")
+	_check_roll_pet(failures, "pet7 legendary boundary", 0.97, "pet7")
+	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet7")
 
 
-static func _check_twelve_draw_pity(failures: Array[String]) -> void:
+static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
+	var first_pet2 := GachaProgression.roll_pet(0.0, ["pet1"], 0)
+	if not bool(first_pet2.get("is_new", false)):
+		failures.append("drawing a locked pet must mark it as newly unlocked")
+	if GachaProgression.duplicate_faith_reward(1000, first_pet2) != 0:
+		failures.append("a newly unlocked pet must not also return duplicate faith")
+
+	var duplicate_pet2 := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
+	if bool(duplicate_pet2.get("is_new", true)):
+		failures.append("drawing an unlocked pet must be a duplicate result")
+	if GachaProgression.duplicate_faith_reward(1000, duplicate_pet2) != 300:
+		failures.append("a duplicate common pet must convert into its configured faith refund")
+
+
+static func _check_new_pet_pity(failures: Array[String]) -> void:
+	var unlocked := ["pet1", "pet2", "pet3", "pet4", "pet6", "pet7"]
 	var pity_count := 0
-	for failed_draw in 11:
-		var common := GachaProgression.roll(0.0, pity_count)
-		if float(common.get("bonus", 0.0)) >= 0.40:
-			failures.append("draw %d must still allow a low-rarity result" % (failed_draw + 1))
+	for draw_index in GachaProgression.NEW_PET_PITY_DRAWS - 1:
+		var duplicate := GachaProgression.roll_pet(0.0, unlocked, pity_count)
+		if bool(duplicate.get("is_new", true)):
+			failures.append("pre-pity draws must still be allowed to repeat an owned pet")
 			return
-		pity_count = GachaProgression.next_pity_count(pity_count, common)
-
-	_check_equal(failures, "eleven misses arm the pity draw", pity_count, 11)
-	var guaranteed := GachaProgression.roll(0.0, pity_count)
-	if float(guaranteed.get("bonus", 0.0)) < 0.40:
-		failures.append("the twelfth draw must be rare or better")
+		pity_count = GachaProgression.next_pity_count(pity_count, duplicate)
 	_check_equal(
 		failures,
-		"rare-or-better result resets pity",
+		"four consecutive duplicates arm the fifth-draw guarantee",
+		pity_count,
+		GachaProgression.NEW_PET_PITY_DRAWS - 1
+	)
+	var guaranteed := GachaProgression.roll_pet(0.0, unlocked, pity_count)
+	_check_equal(failures, "pity chooses the only locked pet", guaranteed.get("pet_id", ""), "pet5")
+	if not bool(guaranteed.get("is_new", false)):
+		failures.append("the fifth draw after repeated duplicates must unlock a new pet")
+	_check_equal(
+		failures,
+		"a new pet resets pity",
 		GachaProgression.next_pity_count(pity_count, guaranteed),
 		0
 	)
 
-
-static func _check_additive_stacking(failures: Array[String]) -> void:
-	var total_bonus := 0.0
-	total_bonus = GachaProgression.apply_buff(total_bonus, {"bonus": 0.10})
-	total_bonus = GachaProgression.apply_buff(total_bonus, {"bonus": 0.20})
-	total_bonus = GachaProgression.apply_buff(total_bonus, {"bonus": 0.40})
-	_check_close(failures, "buffs stack additively", total_bonus, 0.70, 0.0001)
-	_check_close(
-		failures,
-		"invalid negative state cannot reduce an earned buff",
-		GachaProgression.apply_buff(-5.0, {"bonus": 0.20}),
-		0.20,
-		0.0001
-	)
-	_check_close(
-		failures,
-		"negative buff values are ignored",
-		GachaProgression.apply_buff(0.30, {"bonus": -1.0}),
-		0.30,
-		0.0001
-	)
+	var all_unlocked := PetCatalog.ACTIVE_DESKTOP_PETS.duplicate()
+	var all_owned_result := GachaProgression.roll_pet(0.0, all_unlocked, pity_count)
+	if bool(all_owned_result.get("is_new", true)):
+		failures.append("a complete collection must keep producing duplicate level rewards")
 
 
-static func _check_roll_id(
+static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
+	if not FileAccess.file_exists(GachaWindow.GACHA_UI_TEXTURE):
+		failures.append("the pet gacha must use the supplied gacha UI background")
+	if not FileAccess.file_exists(GachaWindow.GACHA_MACHINE_TEXTURE):
+		failures.append("the pet gacha must use the supplied static machine image")
+	if not FileAccess.file_exists(GachaWindow.GACHA_EGG_TEXTURE):
+		failures.append("the pet gacha must use the supplied egg image")
+	var window := GachaWindow.new()
+	window.setup()
+	var background := window.get_node_or_null("GachaRoot/GachaBackground") as TextureRect
+	if background == null or background.texture == null:
+		failures.append("the supplied gacha UI must render as the window background")
+	var machine: TextureRect = window.get("_machine_view")
+	if machine == null or machine.texture == null:
+		failures.append("the gacha machine must remain a visible static UI layer")
+	var egg_views: Array = window.get("_egg_views")
+	if egg_views.size() != GachaWindow.EGG_COUNT:
+		failures.append("the machine must contain a full, readable pile of eggs")
+	for egg_value in egg_views:
+		var egg := egg_value as TextureRect
+		if egg == null or egg.texture == null:
+			failures.append("every egg in the pile must use the supplied egg image")
+			break
+		if not GachaWindow.EGG_POSITION_BOUNDS.has_point(egg.position):
+			failures.append("egg pile positions must remain inside the machine chamber")
+			break
+
+	window.set("_animation_playing", true)
+	var result := GachaProgression.roll_pet(0.0, ["pet1"], 0)
+	result["name"] = "测试宠物"
+	window.show_result(result)
+	var result_title: Label = window.get("_result_title")
+	if result_title.text != "等待抽取":
+		failures.append("a pet result must remain hidden while the eggs are moving")
+	window.call("_finish_draw_animation")
+	if result_title.text != "新宠物":
+		failures.append("the result popup must appear when the egg movement completes")
+
+	var duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
+	duplicate["name"] = "测试宠物"
+	duplicate["duplicate_faith"] = 30
+	window.show_results([result, duplicate])
+	var action_button: Button = window.get("_result_action_button")
+	if action_button == null or not action_button.text.begins_with("SKIP"):
+		failures.append("multi-draw results must expose a skip-to-next action")
+	else:
+		window.call("_on_result_advance_pressed")
+		if result_title.text != "重复转化":
+			failures.append("skip must advance to the next multi-draw result")
+	window.free()
+
+
+static func _check_roll_pet(
 	failures: Array[String],
 	label: String,
 	unit_roll: float,
-	pity_count: int,
-	expected_id: String
+	expected_pet_id: String
 ) -> void:
-	var result := GachaProgression.roll(unit_roll, pity_count)
-	_check_equal(failures, label, String(result.get("id", "")), expected_id)
+	var result := GachaProgression.roll_pet(unit_roll, ["pet1"], 0)
+	_check_equal(failures, label, String(result.get("pet_id", "")), expected_pet_id)
 
 
 static func _check_equal(

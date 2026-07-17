@@ -15,6 +15,7 @@ static func run() -> Array[String]:
 	_test_air_roaming(failures)
 	_test_ground_alignment(failures)
 	_test_pet6_taskbar_alignment_and_wall_rule(failures)
+	_test_pet7_directional_roll(failures)
 	_test_wall_alignment_and_descent(failures)
 	_test_grab_offset(failures)
 	_test_burrow_reaction(failures)
@@ -212,6 +213,29 @@ static func _test_pet6_taskbar_alignment_and_wall_rule(failures: Array[String]) 
 		DesktopPetActor.Behavior.WALL_LANDING
 	]:
 		failures.append("pet6 must reject wall trips even when requested directly")
+	actor.free()
+
+
+static func _test_pet7_directional_roll(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet7", Vector2i(1200, 420), 72.0, 1120.0, 500.0, 404.0)
+	var sprite := actor.get_node("pet7Sprite") as AnimatedSprite2D
+	actor.set("_target_x", 700.0)
+	actor.call("_begin_walk_to_selected_target")
+	actor.call("_update_walking", 0.1)
+	if sprite.rotation <= 0.0:
+		failures.append("pet7 must rotate clockwise while rolling right")
+	if not is_equal_approx(actor.position.y, float(actor.call("_get_rest_y"))):
+		failures.append("pet7 must remain attached to its lowered taskbar contact line while rolling")
+	actor.call("_start_idle")
+	actor.set("_target_x", 300.0)
+	actor.call("_begin_walk_to_selected_target")
+	actor.call("_update_walking", 0.1)
+	if sprite.rotation >= 0.0:
+		failures.append("pet7 must rotate counterclockwise while rolling left")
+	actor.call("_start_idle")
+	if not is_zero_approx(sprite.rotation):
+		failures.append("pet7 must return to its upright idle art after stopping")
 	actor.free()
 
 

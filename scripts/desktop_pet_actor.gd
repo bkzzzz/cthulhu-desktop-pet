@@ -108,6 +108,8 @@ var _pet_scale := DEFAULT_PET_SCALE
 var _frame_center_y := 64.0
 var _frame_foot_y := 102.0
 var _ground_offset_y := 0.0
+var _rolls_while_walking := false
+var _walk_rotation_speed := 0.0
 var _faces_right := false
 var _float_bob_amplitude := FLOAT_BOB_AMPLITUDE
 var _float_anchor_y := 0.0
@@ -169,6 +171,8 @@ func setup(
 	_frame_center_y = float(pet_data.get("frame_center_y", 64.0))
 	_frame_foot_y = float(pet_data.get("frame_foot_y", 102.0))
 	_ground_offset_y = float(pet_data.get("ground_offset_y", 0.0))
+	_rolls_while_walking = bool(pet_data.get("rolls_while_walking", false))
+	_walk_rotation_speed = maxf(0.0, float(pet_data.get("walk_rotation_speed", 0.0)))
 	_faces_right = bool(pet_data.get("faces_right", false))
 	_set_safe_bounds(min_x, max_x)
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ pet_id.hash()
@@ -604,6 +608,12 @@ func _update_walking(delta: float) -> void:
 
 	position.x += signf(distance) * step
 	_face_direction(distance)
+	if _rolls_while_walking:
+		_sprite.rotation = wrapf(
+			_sprite.rotation + (signf(distance) * _walk_rotation_speed * delta),
+			-PI,
+			PI
+		)
 	if _sprite.animation != "walk":
 		_sprite.play("walk")
 	if _behavior_style == "sleepy_floater":

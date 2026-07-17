@@ -5,15 +5,19 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
-	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6"]
+	var expected_pets := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]
 	var desktop_scales := {}
 	var behavior_styles := {}
 	var minimum_scale := INF
 	var maximum_scale := 0.0
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
-		failures.append("all six pets must be active")
-	if PetCatalog.INVENTORY_STARTER_PETS != expected_pets:
-		failures.append("all six pets must be available to inventory")
+		failures.append("all seven pets must be active")
+	if PetCatalog.STARTER_UNLOCKED_PETS != ["pet1"]:
+		failures.append("only pet1 may be unlocked at the start of a fresh game")
+	if PetCatalog.INVENTORY_STARTER_PETS != ["pet1"]:
+		failures.append("the starter roster must not expose gacha pets")
+	if PetCatalog.GACHA_PETS != ["pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]:
+		failures.append("pet2 through pet7 must be acquired through pet gacha")
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
@@ -91,7 +95,7 @@ static func run() -> Array[String]:
 			failures.append("%s must occasionally climb a screen edge" % climbing_pet_id)
 		if not bool(PetCatalog.get_definition(climbing_pet_id).get("can_wall_crawl", false)):
 			failures.append("%s wall-crawl chance must be backed by explicit permission" % climbing_pet_id)
-	for ground_pet_id in ["pet2", "pet3", "pet6"]:
+	for ground_pet_id in ["pet2", "pet3", "pet6", "pet7"]:
 		if float(PetCatalog.get_definition(ground_pet_id).get("wall_chance", 0.0)) > 0.0:
 			failures.append("%s must remain a ground-only pet" % ground_pet_id)
 		if bool(PetCatalog.get_definition(ground_pet_id).get("can_wall_crawl", false)):
@@ -120,6 +124,14 @@ static func run() -> Array[String]:
 	var pet6_idle_frame := pet6_frames.get_frame_texture("idle", 0).get_image()
 	if pet6_idle_frame.get_size() != Vector2i(256, 256):
 		failures.append("pet6's 1024x768 sheets must slice into 256x256 frames")
+	var pet7_definition := PetCatalog.get_definition("pet7")
+	if not bool(pet7_definition.get("rolls_while_walking", false)):
+		failures.append("pet7 must roll its idle art while walking")
+	if float(pet7_definition.get("ground_offset_y", 0.0)) <= 0.0:
+		failures.append("pet7 must sit slightly lower on the taskbar contact line")
+	var pet7_frames := PetCatalog.build_frames("pet7")
+	_check_frame_count(failures, pet7_frames, "idle", 12)
+	_check_frame_count(failures, pet7_frames, "walk", 12)
 	return failures
 
 

@@ -1,47 +1,52 @@
 extends RefCounted
 
-const BASE_DRAW_COST := 75.0
+const BASE_DRAW_COST := 5.0
 const DRAW_COST_GROWTH := 1.60
 const MAX_DRAW_COST := 8_000_000_000_000_000_000
-const CAMPAIGN_TARGET_HOURS := 800.0
-const CAMPAIGN_PET_LEVEL_TARGET := 100
+const NEW_PET_PITY_DRAWS := 5
 
-const BUFFS := [
+const PET_POOL := [
 	{
-		"id": "whisper",
-		"name": "低语残响",
+		"pet_id": "pet2",
 		"rarity": "普通",
-		"bonus": 0.10,
-		"weight": 65.0,
-		"color": "#b8c4b2",
-		"description": "所有宠物的信仰产出永久提高 10%。"
+		"weight": 32.0,
+		"duplicate_refund_ratio": 0.30,
+		"color": "#b8c4b2"
 	},
 	{
-		"id": "omen",
-		"name": "深海征兆",
-		"rarity": "罕见",
-		"bonus": 0.20,
-		"weight": 25.0,
-		"color": "#83c7b5",
-		"description": "所有宠物的信仰产出永久提高 20%。"
+		"pet_id": "pet3",
+		"rarity": "普通",
+		"weight": 32.0,
+		"duplicate_refund_ratio": 0.30,
+		"color": "#a9c6a0"
 	},
 	{
-		"id": "revelation",
-		"name": "禁忌启示",
+		"pet_id": "pet4",
 		"rarity": "稀有",
-		"bonus": 0.40,
-		"weight": 8.0,
-		"color": "#82aee8",
-		"description": "所有宠物的信仰产出永久提高 40%。"
+		"weight": 18.0,
+		"duplicate_refund_ratio": 0.45,
+		"color": "#78c7b8"
 	},
 	{
-		"id": "outer_blessing",
-		"name": "外神赐福",
-		"rarity": "神话",
-		"bonus": 1.0,
-		"weight": 2.0,
-		"color": "#e8bd62",
-		"description": "所有宠物的信仰产出永久提高 100%。"
+		"pet_id": "pet5",
+		"rarity": "史诗",
+		"weight": 10.0,
+		"duplicate_refund_ratio": 0.60,
+		"color": "#8caee8"
+	},
+	{
+		"pet_id": "pet6",
+		"rarity": "传说",
+		"weight": 5.0,
+		"duplicate_refund_ratio": 0.80,
+		"color": "#e8bd62"
+	},
+	{
+		"pet_id": "pet7",
+		"rarity": "传说",
+		"weight": 3.0,
+		"duplicate_refund_ratio": 0.90,
+		"color": "#f0cf86"
 	}
 ]
 
@@ -54,30 +59,75 @@ static func draw_cost(draw_count: int) -> int:
 	return maxi(1, int(round(raw_cost)))
 
 
-static func roll(unit_roll: float, pity_count := 0) -> Dictionary:
-	var pool: Array = BUFFS
-	if pity_count >= 11:
-		pool = [BUFFS[2], BUFFS[3]]
+static func draw_cost_total(draw_count: int, draw_amount: int) -> float:
+	var safe_count := maxi(0, draw_count)
+	var safe_amount := clampi(draw_amount, 1, 10)
+	var total := 0.0
+	for draw_offset in safe_amount:
+		total += float(draw_cost(safe_count + draw_offset))
+	return total
+
+
+static func roll_pet(unit_roll: float, unlocked_pet_ids: Array, pity_count := 0) -> Dictionary:
+	var unlocked := {}
+	for pet_id_value in unlocked_pet_ids:
+		unlocked[String(pet_id_value)] = true
+
+	var locked_pool: Array = []
+	for entry_value in PET_POOL:
+		var entry: Dictionary = entry_value
+		if not unlocked.has(String(entry.get("pet_id", ""))):
+			locked_pool.append(entry)
+
+	var pool: Array = PET_POOL
+	if not locked_pool.is_empty() and maxi(0, pity_count) >= NEW_PET_PITY_DRAWS - 1:
+		pool = locked_pool
+	var result := _roll_from_pool(pool, unit_roll)
+	if result.is_empty():
+		return {}
+	result["is_new"] = not unlocked.has(String(result.get("pet_id", "")))
+	result["duplicate_faith"] = 0
+	return result
+
+
+static func duplicate_faith_reward(draw_cost_value: int, result: Dictionary) -> int:
+	var draw_cost := maxi(0, draw_cost_value)
+	if draw_cost <= 0 or bool(result.get("is_new", false)):
+		return 0
+	var refund_ratio := clampf(float(result.get("duplicate_refund_ratio", 0.30)), 0.0, 0.95)
+	return clampi(int(round(float(draw_cost) * refund_ratio)), 1, draw_cost)
+
+
+static func next_pity_count(current_pity: int, result: Dictionary) -> int:
+	if bool(result.get("is_new", false)):
+		return 0
+	return mini(NEW_PET_PITY_DRAWS - 1, maxi(0, current_pity) + 1)
+
+
+static func get_pool_entry(pet_id: String) -> Dictionary:
+	for entry_value in PET_POOL:
+		var entry: Dictionary = entry_value
+		if String(entry.get("pet_id", "")) == pet_id:
+			return entry.duplicate(true)
+	return {}
+
+
+static func _roll_from_pool(pool: Array, unit_roll: float) -> Dictionary:
+	if pool.is_empty():
+		return {}
 	var total_weight := 0.0
-	for buff in pool:
-		total_weight += float(buff.get("weight", 0.0))
+	for entry_value in pool:
+		var entry: Dictionary = entry_value
+		total_weight += maxf(0.0, float(entry.get("weight", 0.0)))
 	if total_weight <= 0.0:
 		return {}
 
-	var target := clampf(unit_roll, 0.0, 0.999999) * total_weight
+	var safe_roll := clampf(unit_roll, 0.0, 0.999999) if is_finite(unit_roll) else 0.0
+	var target := safe_roll * total_weight
 	var accumulated := 0.0
-	for buff in pool:
-		accumulated += float(buff.get("weight", 0.0))
+	for entry_value in pool:
+		var entry: Dictionary = entry_value
+		accumulated += maxf(0.0, float(entry.get("weight", 0.0)))
 		if target < accumulated:
-			return buff.duplicate(true)
-	return pool.back().duplicate(true)
-
-
-static func apply_buff(current_bonus: float, buff: Dictionary) -> float:
-	var safe_bonus := maxf(0.0, current_bonus)
-	var bonus := maxf(0.0, float(buff.get("bonus", 0.0)))
-	return safe_bonus + bonus
-
-
-static func next_pity_count(current_pity: int, buff: Dictionary) -> int:
-	return 0 if float(buff.get("bonus", 0.0)) >= 0.40 else maxi(0, current_pity) + 1
+			return entry.duplicate(true)
+	return (pool.back() as Dictionary).duplicate(true)

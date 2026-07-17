@@ -6,7 +6,7 @@ extends RefCounted
 const MAX_HISTORY := 80
 const MAX_HEADLINE_LENGTH := 220
 const RECENT_TEMPLATE_LIMIT := 6
-const NEWS_COPY_VERSION := 3
+const NEWS_COPY_VERSION := 4
 const AMBIENT_INTERVAL_MIN_SECONDS := 240.0
 const AMBIENT_INTERVAL_MAX_SECONDS := 360.0
 
@@ -35,7 +35,12 @@ const FOLLOWER_MILESTONES := [
 	50000,
 	100000,
 	500000,
-	1000000
+	1000000,
+	5000000,
+	50000000,
+	500000000,
+	5000000000,
+	50000000000
 ]
 
 const PLACES := [
@@ -108,42 +113,42 @@ const COSMIC_TEMPLATES := [
 
 const EVENT_TEMPLATES := {
 	"petting": [
-		{"id": "event_contact_conversion", "text": "教团举行公开招募，47名居民加入，其中12人将在邻近街区成立新分会。"},
-		{"id": "event_contact_memory", "text": "23名教团志愿者完成入门培训，随后前往3个社区组织新的宣传活动。"},
-		{"id": "event_contact_guards", "text": "19名场地保安加入教团，并开放3条通道供更多居民参加集会。"}
+		{"id": "event_contact_conversion", "text": "教团举行一次街边招募，7名居民报名，其中2人愿意协助下一场活动。"},
+		{"id": "event_contact_memory", "text": "5名教团志愿者完成入门培训，随后前往1个社区张贴活动通知。"},
+		{"id": "event_contact_guards", "text": "3名场地管理员加入教团，并腾出1间空房作为临时聚会点。"}
 	],
 	"burrow": [
-		{"id": "event_ground_fault", "text": "教团启用9条地下运输路线，14名工程师正在加固沿线仓库和入口。"},
-		{"id": "event_ground_conversion", "text": "教团通过地下通道向3个街区运送物资，61名居民随后报名加入。"}
+		{"id": "event_ground_fault", "text": "教团清理1处地下储藏室，4名志愿者正在加固入口并登记物资。"},
+		{"id": "event_ground_conversion", "text": "教团借地下通道向1个街区运送12箱物资，6名居民随后报名加入。"}
 	],
 	"sleep": [
-		{"id": "event_silence_city", "text": "教团在16个街区举行夜间静默集会，活动结束后新增340名信众。"},
-		{"id": "event_silence_reason", "text": "11名夜班工作人员加入教团，并共同负责1座通宵开放的聚会点。"}
+		{"id": "event_silence_city", "text": "教团在1个街区举行夜间集会，活动结束后新增8名信众。"},
+		{"id": "event_silence_reason", "text": "4名夜班工作人员加入教团，并共同看守1处夜间聚会点。"}
 	],
 	"air_roam": [
-		{"id": "event_sky_mark", "text": "教团出动18架宣传飞行器，在城市上空连续23分钟展示招募信息。"},
-		{"id": "event_sky_conversion", "text": "教团在4座机场设立联络处，已有260名工作人员报名协助人员运输。"}
+		{"id": "event_sky_mark", "text": "教团放飞3架小型宣传飞行器，在旧城区上空展示了12分钟招募信息。"},
+		{"id": "event_sky_conversion", "text": "教团在1座民用机场设置临时咨询台，已有9名工作人员报名协助。"}
 	],
 	"wall_crawl": [
 		{"id": "event_boundary_failure", "text": "教团在6栋建筑外墙设置大型招募海报，11支小队负责维护和更新内容。"},
 		{"id": "event_boundary_conversion", "text": "15名教团成员完成高层建筑宣传活动，并在不同楼层开设临时咨询点。"}
 	],
 	"hide": [
-		{"id": "event_absence_worship", "text": "教团将物资分散存入6处隐蔽仓库，17名成员负责按时送往各个分会。"},
-		{"id": "event_absence_conversion", "text": "教团在13分钟内完成一次快闪招募，活动结束时新增94名信众。"}
+		{"id": "event_absence_worship", "text": "教团将物资存入2处小型仓库，5名成员负责送往附近聚会点。"},
+		{"id": "event_absence_conversion", "text": "教团在13分钟内完成一次快闪招募，活动结束时新增6名信众。"}
 	],
 	"offering": [
 		{"id": "event_offering_vanish", "text": "教团用“{item}”举办分享餐会，18名到场居民在活动结束后加入。"},
-		{"id": "event_offering_replication", "text": "27座教团分会同时准备“{item}”，10分钟内吸引超过6300名居民参加活动。"},
+		{"id": "event_offering_replication", "text": "教团准备了9份“{item}”，并邀请附近21名居民参加小型餐会。"},
 		{"id": "event_offering_conversion", "text": "教团完成“{item}”主题招募活动，14名工作人员将负责筹备下一场。"}
 	],
 	"upgrade": [
-		{"id": "event_upgrade_index", "text": "教团扩建达到第{level}级，32名新成员已分配到各地分会负责招募。"},
-		{"id": "event_upgrade_radius", "text": "教团完成第{level}级扩张，新设4个活动区并新增2100名登记信众。"}
+		{"id": "event_upgrade_index", "text": "教团筹备工作达到第{level}级，8名成员开始负责附近街区的招募。"},
+		{"id": "event_upgrade_radius", "text": "教团完成第{level}级扩建，新设2个活动区并新增17名登记信众。"}
 	],
 	"gacha": [
-		{"id": "event_gacha_relic", "text": "教团公开展出“{item}”，27名志愿者负责接待参观者并介绍入团方式。"},
-		{"id": "event_gacha_signal", "text": "教团围绕“{item}”展开宣传，活动覆盖18座城镇并吸引超过7万名居民报名。"}
+		{"id": "event_gacha_relic", "text": "教团为“{item}”举行见面会，7名志愿者负责接待访客并介绍入团方式。"},
+		{"id": "event_gacha_signal", "text": "教团围绕“{item}”制作了16张新海报，并在2个街区开始试发。"}
 	]
 }
 
@@ -276,16 +281,21 @@ func make_event(event_type: String, context: Dictionary, template_roll: float) -
 
 func collect_milestones(faith_rate: float, followers: float, detail_roll: float) -> Array[Dictionary]:
 	var articles: Array[Dictionary] = []
+	var current_follower_tier := get_follower_tier(followers)
 	var next_faith_tier := get_faith_tier(faith_rate)
 	if next_faith_tier > _faith_tier:
 		_faith_tier = next_faith_tier
 		var threshold := float(FAITH_RATE_MILESTONES[next_faith_tier - 1])
 		articles.append({
 			"category": "信仰",
-			"headline": _make_faith_milestone_headline(threshold, next_faith_tier, detail_roll)
+			"headline": _make_faith_milestone_headline(
+				threshold,
+				mini(next_faith_tier, current_follower_tier),
+				detail_roll
+			)
 		})
 
-	var next_follower_tier := get_follower_tier(followers)
+	var next_follower_tier := current_follower_tier
 	if next_follower_tier > _follower_tier:
 		_follower_tier = next_follower_tier
 		var threshold := int(FOLLOWER_MILESTONES[next_follower_tier - 1])
@@ -298,13 +308,13 @@ func collect_milestones(faith_rate: float, followers: float, detail_roll: float)
 
 static func get_scope_tier(progression_tier: int) -> int:
 	var safe_tier := maxi(0, progression_tier)
-	if safe_tier < 3:
+	if safe_tier < 6:
 		return 0
-	if safe_tier < 5:
+	if safe_tier < 12:
 		return 1
-	if safe_tier < 7:
+	if safe_tier < 15:
 		return 2
-	if safe_tier < 10:
+	if safe_tier < 17:
 		return 3
 	return 4
 

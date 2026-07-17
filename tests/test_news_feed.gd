@@ -52,6 +52,7 @@ static func run() -> Array[String]:
 	_test_event_templates(failures)
 	_test_direct_copy_contract(failures)
 	_test_milestones(failures)
+	_test_slow_expansion_scopes(failures)
 	_test_history_and_restore(failures)
 	_test_copy_version_migration(failures)
 	_test_cooldown_and_cadence(failures)
@@ -65,10 +66,10 @@ static func _test_ambient_templates(failures: Array[String]) -> void:
 	feed.restore({}, 0.85, 12.0)
 	var scope_cases := [
 		{"tier": 0, "prefix": "scope_local_", "category": "异闻"},
-		{"tier": 3, "prefix": "scope_region_", "category": "传播"},
-		{"tier": 5, "prefix": "scope_bio_", "category": "传播"},
-		{"tier": 7, "prefix": "scope_planet_", "category": "信仰"},
-		{"tier": 10, "prefix": "scope_cosmic_", "category": "教团"}
+		{"tier": 6, "prefix": "scope_region_", "category": "传播"},
+		{"tier": 12, "prefix": "scope_bio_", "category": "传播"},
+		{"tier": 15, "prefix": "scope_planet_", "category": "信仰"},
+		{"tier": 17, "prefix": "scope_cosmic_", "category": "教团"}
 	]
 	for case_value in scope_cases:
 		var scope_case: Dictionary = case_value
@@ -220,10 +221,10 @@ static func _test_milestones(failures: Array[String]) -> void:
 			failures.append("faith milestone news must report the highest crossed threshold")
 		if not String(articles[1].get("headline", "")).contains("5000"):
 			failures.append("follower milestone news must report the highest crossed threshold")
-		if not String(articles[0].get("headline", "")).contains("23座物资中心"):
-			failures.append("faith milestones must report a concrete larger-scale cult project")
-		if not String(articles[1].get("headline", "")).contains("4片大陆"):
-			failures.append("follower milestones must expand into planetary-scale conversion")
+		if not String(articles[0].get("headline", "")).contains("公开招募点"):
+			failures.append("faith milestones must stay local when follower reach is still limited")
+		if not String(articles[1].get("headline", "")).contains("7座城镇"):
+			failures.append("five thousand followers must report regional rather than planetary expansion")
 		for article in articles:
 			var headline := String(article.get("headline", ""))
 			if headline.contains(PET_NAME_SENTINEL) or headline.contains("{") or headline.contains("}"):
@@ -235,6 +236,39 @@ static func _test_milestones(failures: Array[String]) -> void:
 		failures.append("already seen news milestones must not repeat")
 	if NewsFeed.get_faith_tier(-1.0) != 0 or NewsFeed.get_follower_tier(NAN) != 0:
 		failures.append("news milestone tiers must safely reject invalid progression values")
+
+
+static func _test_slow_expansion_scopes(failures: Array[String]) -> void:
+	var cases := [
+		{"followers": 999.0, "scope": 0},
+		{"followers": 1000.0, "scope": 1},
+		{"followers": 999999.0, "scope": 1},
+		{"followers": 1000000.0, "scope": 2},
+		{"followers": 499999999.0, "scope": 2},
+		{"followers": 500000000.0, "scope": 3},
+		{"followers": 49999999999.0, "scope": 3},
+		{"followers": 50000000000.0, "scope": 4}
+	]
+	for case_value in cases:
+		var case: Dictionary = case_value
+		var follower_tier := NewsFeed.get_follower_tier(float(case.get("followers", 0.0)))
+		var actual_scope := NewsFeed.get_scope_tier(follower_tier)
+		if actual_scope != int(case.get("scope", -1)):
+			failures.append(
+				"follower reach %.0f must unlock scope %d, got %d"
+				% [float(case.get("followers", 0.0)), int(case.get("scope", -1)), actual_scope]
+			)
+	if NewsFeed.get_scope_tier(NewsFeed.get_follower_tier(0.0)) != 0:
+		failures.append("a new cult must begin with strictly local news")
+	var faith_ahead_feed := NewsFeed.new()
+	faith_ahead_feed.restore({}, 0.0, 0.0)
+	var faith_ahead_articles := faith_ahead_feed.collect_milestones(1000000.0, 0.0, 0.25)
+	if faith_ahead_articles.is_empty():
+		failures.append("a large faith-rate milestone must still produce a report")
+	else:
+		var headline := String((faith_ahead_articles[0] as Dictionary).get("headline", ""))
+		if not headline.contains("公开招募点") or headline.contains("通信卫星"):
+			failures.append("faith production alone must never imply worldwide propagation")
 
 
 static func _test_history_and_restore(failures: Array[String]) -> void:

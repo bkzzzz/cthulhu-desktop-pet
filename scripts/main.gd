@@ -50,7 +50,8 @@ const BELIEVER_FORCE_SPAWN_SECONDS := 60.0
 const UI_REFRESH_INTERVAL := 0.25
 const MANUAL_CLICK_RATE_SECONDS := 0.25
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 7
+const SAVE_VERSION := 8
+const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const AUTOSAVE_INTERVAL_SECONDS := 30.0
 const OFFLINE_PROGRESS_MAX_SECONDS := 12.0 * 60.0 * 60.0
@@ -89,6 +90,8 @@ var _rng := RandomNumberGenerator.new()
 # Economy and UI state
 var _selected_pet_id := ""
 var _pet_states: Dictionary = {}
+var _unlocked_pet_ids: Array[String] = ["pet1"]
+var _deployed_pet_ids: Array[String] = ["pet1"]
 var _faith_points := 0.0
 var _stats_refresh_timer := 0.0
 var _last_reported_faith_count := -1
@@ -107,7 +110,6 @@ var _side_drawer: Node
 var _lifetime_faith := 0.0
 var _gacha_draw_count := 0
 var _gacha_pity_count := 0
-var _gacha_total_bonus := 0.0
 var _gacha_history: Array[Dictionary] = []
 var _autosave_timer := 0.0
 var _loaded_save_unix := 0.0
@@ -150,7 +152,7 @@ func _ready() -> void:
 	if _news_feed.get_history().is_empty():
 		_publish_news({
 			"category": "公告",
-			"headline": "《教团简报》开始播报：首批17名信众已在旧城区建立公开聚会点，招募仍在继续。"
+			"headline": "《教团简报》开始播报：3名志愿者正在旧城区筹备首个聚会点，招募尚未形成规模。"
 		}, false, false)
 	_next_news_at = _get_news_runtime_seconds() + NEWS_INITIAL_AMBIENT_DELAY
 	_refresh_pet_stats(true)
@@ -224,8 +226,10 @@ func _create_desktop_pets() -> void:
 	var min_x := _get_pet_stage_min_x()
 	var max_x := _get_pet_stage_max_x()
 
-	for index in PetCatalog.ACTIVE_DESKTOP_PETS.size():
-		var pet_id := String(PetCatalog.ACTIVE_DESKTOP_PETS[index])
+	for index in _deployed_pet_ids.size():
+		var pet_id := String(_deployed_pet_ids[index])
+		if not _is_pet_unlocked(pet_id):
+			continue
 		var start_x := max_x - (float(index) * PET_STAGE_START_SPACING)
 		if start_x < min_x:
 			start_x = lerpf(min_x, max_x, float(index % 5) / 4.0)
@@ -436,7 +440,7 @@ func _create_inventory_window() -> void:
 	add_child(_inventory_window)
 	_inventory_window.connect("pet_deploy_requested", Callable(self, "_on_inventory_pet_deploy_requested"))
 	_inventory_window.connect("pet_rename_requested", Callable(self, "_on_inventory_pet_rename_requested"))
-	_inventory_window.setup(PetCatalog.make_inventory_entries([]))
+	_inventory_window.setup(_get_inventory_pet_entries())
 
 
 func _create_shop_window() -> void:
@@ -953,9 +957,8 @@ func _sync_gacha_state() -> void:
 		_faith_points,
 		_gacha_draw_count,
 		next_cost,
-		1.0 + _gacha_total_bonus,
-		_lifetime_faith,
-		_get_campaign_progress(),
+		_unlocked_pet_ids.duplicate(),
+		_gacha_pity_count,
 		_gacha_history
 	)
 
@@ -1133,14 +1136,41 @@ func _load_game() -> void:
 	_follower_count = maxf(0.0, float(save.get_value("economy", "followers", 0.0)))
 	_selected_pet_id = String(save.get_value("pets", "selected_pet_id", ""))
 	_pet_states = _sanitize_loaded_pet_states(save.get_value("pets", "states", {}))
+	if loaded_save_version >= PET_UNLOCK_SAVE_VERSION:
+		_unlocked_pet_ids = _sanitize_pet_id_list(
+			save.get_value("pets", "unlocked_ids", PetCatalog.STARTER_UNLOCKED_PETS),
+			PetCatalog.ACTIVE_DESKTOP_PETS
+		)
+		if not _unlocked_pet_ids.has("pet1"):
+			_unlocked_pet_ids.push_front("pet1")
+		_deployed_pet_ids = _sanitize_pet_id_list(
+			save.get_value("pets", "deployed_ids", PetCatalog.STARTER_UNLOCKED_PETS),
+			_unlocked_pet_ids
+		)
+	else:
+		_unlocked_pet_ids = ["pet1"]
+		_deployed_pet_ids = ["pet1"]
+	if _deployed_pet_ids.is_empty():
+		_deployed_pet_ids = ["pet1"]
+	if not _selected_pet_id.is_empty() and not _unlocked_pet_ids.has(_selected_pet_id):
+		_selected_pet_id = ""
 	_pet_offering_buffs = _sanitize_loaded_offering_buffs(
 		save.get_value("offerings", "active_buffs", {})
 	)
 	_shop_owned_counts = _sanitize_owned_counts(save.get_value("shop", "owned_counts", {}))
-	_gacha_draw_count = clampi(int(save.get_value("gacha", "draw_count", 0)), 0, 1000000)
-	_gacha_pity_count = clampi(int(save.get_value("gacha", "pity_count", 0)), 0, 11)
-	_gacha_total_bonus = clampf(float(save.get_value("gacha", "total_bonus", 0.0)), 0.0, 1000.0)
-	_gacha_history = _sanitize_gacha_history(save.get_value("gacha", "history", []))
+	if loaded_save_version >= PET_UNLOCK_SAVE_VERSION:
+		_gacha_draw_count = clampi(int(save.get_value("gacha", "draw_count", 0)), 0, 1000000)
+		_gacha_pity_count = clampi(
+			int(save.get_value("gacha", "pity_count", 0)),
+			0,
+			GachaProgression.NEW_PET_PITY_DRAWS - 1
+		)
+		_gacha_history = _sanitize_gacha_history(save.get_value("gacha", "history", []))
+	else:
+		# Legacy draws granted global buffs, so their count cannot price the new pet pool.
+		_gacha_draw_count = 0
+		_gacha_pity_count = 0
+		_gacha_history.clear()
 	_loaded_news_state = {
 		"copy_version": save.get_value("news", "copy_version", 0),
 		"history": save.get_value("news", "history", []),
@@ -1176,10 +1206,11 @@ func _save_game() -> void:
 	save.set_value("economy", "followers", maxf(0.0, _follower_count))
 	save.set_value("pets", "selected_pet_id", _selected_pet_id)
 	save.set_value("pets", "states", _pet_states.duplicate(true))
+	save.set_value("pets", "unlocked_ids", _unlocked_pet_ids.duplicate())
+	save.set_value("pets", "deployed_ids", _deployed_pet_ids.duplicate())
 	save.set_value("shop", "owned_counts", _shop_owned_counts.duplicate(true))
 	save.set_value("gacha", "draw_count", _gacha_draw_count)
 	save.set_value("gacha", "pity_count", _gacha_pity_count)
-	save.set_value("gacha", "total_bonus", _gacha_total_bonus)
 	save.set_value("gacha", "history", _gacha_history.duplicate(true))
 	var news_state := _news_feed.get_state()
 	save.set_value("news", "copy_version", news_state.get("copy_version", NewsFeed.NEWS_COPY_VERSION))
@@ -1249,6 +1280,19 @@ func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
 	return sanitized
 
 
+static func _sanitize_pet_id_list(raw_value: Variant, allowed_ids: Array) -> Array[String]:
+	var requested := {}
+	if raw_value is Array:
+		for pet_id_value in raw_value:
+			requested[String(pet_id_value)] = true
+	var sanitized: Array[String] = []
+	for pet_id_value in allowed_ids:
+		var pet_id := String(pet_id_value)
+		if requested.has(pet_id) and not sanitized.has(pet_id):
+			sanitized.append(pet_id)
+	return sanitized
+
+
 static func _get_loaded_news_faith_tier(
 	save_version: int,
 	saved_tier: Variant,
@@ -1306,25 +1350,44 @@ func _sanitize_gacha_history(raw_value: Variant) -> Array[Dictionary]:
 		if not entry_value is Dictionary:
 			continue
 		var entry: Dictionary = entry_value
-		var entry_id := String(entry.get("id", ""))
-		for buff_value in GachaProgression.BUFFS:
-			var buff: Dictionary = buff_value
-			if String(buff.get("id", "")) == entry_id:
-				sanitized.append(buff.duplicate(true))
-				break
+		var pet_id := String(entry.get("pet_id", ""))
+		var pool_entry := GachaProgression.get_pool_entry(pet_id)
+		if pool_entry.is_empty():
+			continue
+		var is_new := bool(entry.get("is_new", false))
+		pool_entry["is_new"] = is_new
+		pool_entry["duplicate_faith"] = (
+			0
+			if is_new
+			else clampi(
+				int(entry.get("duplicate_faith", 0)),
+				0,
+				GachaProgression.MAX_DRAW_COST
+			)
+		)
+		pool_entry["name"] = String(
+			entry.get("name", PetCatalog.get_definition(pet_id).get("name", pet_id))
+		).strip_edges().left(40)
+		sanitized.append(pool_entry)
 		if sanitized.size() >= 10:
 			break
 	return sanitized
 
 
-func _get_campaign_progress() -> float:
-	var achieved := 0.0
-	var upgrades_per_pet := maxi(1, GachaProgression.CAMPAIGN_PET_LEVEL_TARGET - 1)
-	var total_target := float(PetCatalog.ACTIVE_DESKTOP_PETS.size() * upgrades_per_pet)
-	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
-		var level := PetProgression.progression_level(_get_pet_state(String(pet_id_value)))
-		achieved += float(clampi(level - 1, 0, upgrades_per_pet))
-	return clampf(achieved / maxf(1.0, total_target), 0.0, 1.0)
+func _is_pet_unlocked(pet_id: String) -> bool:
+	return not pet_id.is_empty() and _unlocked_pet_ids.has(pet_id)
+
+
+func _get_inventory_pet_entries() -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for pet_id_value in _unlocked_pet_ids:
+		var pet_id := String(pet_id_value)
+		if _deployed_pet_ids.has(pet_id):
+			continue
+		var entry := PetCatalog.make_inventory_entry(pet_id)
+		entry["name"] = _get_pet_display_name(pet_id)
+		entries.append(entry)
+	return entries
 
 
 func _select_pet(actor: Node2D) -> void:
@@ -1370,7 +1433,7 @@ func _get_pet_state(pet_id: String) -> Dictionary:
 
 func _get_pet_upgrade_entries() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
-	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+	for pet_id_value in _unlocked_pet_ids:
 		var pet_id := String(pet_id_value)
 		var state := _get_pet_state(pet_id)
 		var level := PetProgression.progression_level(state)
@@ -1417,7 +1480,7 @@ func _get_upgrade_cost(pet_id: String) -> int:
 
 func _get_faith_growth_rate() -> float:
 	var total_fps := 0.0
-	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+	for pet_id_value in _unlocked_pet_ids:
 		var pet_id := String(pet_id_value)
 		var state := _get_pet_state(pet_id)
 		total_fps += (
@@ -1471,7 +1534,7 @@ func _update_pet_offering_buffs() -> void:
 
 
 func _get_total_faith_multiplier() -> float:
-	return GLOBAL_FAITH_MULTIPLIER * BUFF_FAITH_MULTIPLIER * (1.0 + _gacha_total_bonus)
+	return GLOBAL_FAITH_MULTIPLIER * BUFF_FAITH_MULTIPLIER
 
 
 func _get_pet_display_name(pet_id: String) -> String:
@@ -1635,6 +1698,7 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 	if pet_id.is_empty():
 		return
 
+	_deployed_pet_ids.erase(pet_id)
 	if _inventory_window != null and _inventory_window.has_method("add_pet"):
 		_inventory_window.call("add_pet", pet_id, _get_pet_display_name(pet_id))
 
@@ -1650,6 +1714,7 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 	actor.queue_free()
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
+	_save_game()
 
 
 func _finish_pending_offering_for_actor(actor: Node2D) -> void:
@@ -1715,34 +1780,69 @@ func _on_news_requested() -> void:
 		_news_window.call("open_window")
 
 
-func _on_gacha_draw_requested() -> void:
+func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 	if _gacha_window == null:
 		return
-	var cost := GachaProgression.draw_cost(_gacha_draw_count)
-	if int(floor(_faith_points)) < cost:
+	var safe_draw_amount := 10 if draw_amount >= 10 else 1
+	var batch_cost := GachaProgression.draw_cost_total(_gacha_draw_count, safe_draw_amount)
+	if floor(_faith_points) < batch_cost:
 		_sync_gacha_state()
 		return
 
-	_faith_points -= float(cost)
-	var buff := GachaProgression.roll(_rng.randf(), _gacha_pity_count)
-	if buff.is_empty():
-		_faith_points += float(cost)
+	var results: Array[Dictionary] = []
+	var gross_cost_spent := 0.0
+	for _draw_index in safe_draw_amount:
+		var cost := GachaProgression.draw_cost(_gacha_draw_count)
+		_faith_points -= float(cost)
+		gross_cost_spent += float(cost)
+		var result := GachaProgression.roll_pet(
+			_rng.randf(),
+			_unlocked_pet_ids,
+			_gacha_pity_count
+		)
+		if result.is_empty():
+			_faith_points += float(cost)
+			gross_cost_spent -= float(cost)
+			break
+
+		var pet_id := String(result.get("pet_id", ""))
+		if pet_id.is_empty() or not PetCatalog.GACHA_PETS.has(pet_id):
+			_faith_points += float(cost)
+			gross_cost_spent -= float(cost)
+			break
+		_ensure_pet_state(pet_id)
+		result["name"] = _get_pet_display_name(pet_id)
+		if bool(result.get("is_new", false)):
+			_unlocked_pet_ids.append(pet_id)
+			_unlocked_pet_ids = _sanitize_pet_id_list(
+				_unlocked_pet_ids,
+				PetCatalog.ACTIVE_DESKTOP_PETS
+			)
+			if _inventory_window != null and _inventory_window.has_method("add_pet"):
+				_inventory_window.call("add_pet", pet_id, _get_pet_display_name(pet_id))
+		else:
+			var duplicate_faith := GachaProgression.duplicate_faith_reward(cost, result)
+			_faith_points += float(duplicate_faith)
+			result["duplicate_faith"] = duplicate_faith
+
+		_gacha_pity_count = GachaProgression.next_pity_count(_gacha_pity_count, result)
+		_gacha_draw_count += 1
+		_gacha_history.push_front(result.duplicate(true))
+		if _gacha_history.size() > 10:
+			_gacha_history.resize(10)
+		results.append(result.duplicate(true))
+		_try_queue_news_event(
+			"gacha",
+			{"item_name": String(result.get("name", "未知宠物"))},
+			"gacha",
+			5.0
+		)
+
+	if results.is_empty():
 		_sync_gacha_state()
 		return
-
-	_gacha_total_bonus = GachaProgression.apply_buff(_gacha_total_bonus, buff)
-	_gacha_pity_count = GachaProgression.next_pity_count(_gacha_pity_count, buff)
-	_gacha_draw_count += 1
-	_gacha_history.push_front(buff.duplicate(true))
-	if _gacha_history.size() > 10:
-		_gacha_history.resize(10)
-	_gacha_window.show_result(buff)
-	_try_queue_news_event(
-		"gacha",
-		{"item_name": String(buff.get("name", "未知赐福"))},
-		"gacha",
-		5.0
-	)
+	_show_faith_change_popup(_get_window_mouse_position(get_window()), -gross_cost_spent)
+	_gacha_window.show_results(results)
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
 	_sync_gacha_state()
@@ -1803,7 +1903,7 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 
 
 func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
-	if pet_id.is_empty():
+	if pet_id.is_empty() or not _is_pet_unlocked(pet_id) or _deployed_pet_ids.has(pet_id):
 		return
 
 	var actor := _spawn_desktop_pet(pet_id)
@@ -1811,10 +1911,12 @@ func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
 		return
 
 	_selected_pet_id = pet_id
+	_deployed_pet_ids.append(pet_id)
 	if _inventory_window != null and _inventory_window.has_method("remove_pet"):
 		_inventory_window.call("remove_pet", pet_id)
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
+	_save_game()
 
 
 func _on_inventory_pet_rename_requested(pet_id: String, custom_name: String) -> void:
@@ -2053,7 +2155,7 @@ func _finish_offering_consumed(
 
 
 func _apply_pet_offering_buff(pet_id: String, offering: Dictionary) -> void:
-	if pet_id.is_empty() or not PetCatalog.DEFINITIONS.has(pet_id):
+	if pet_id.is_empty() or not _is_pet_unlocked(pet_id):
 		return
 	var multiplier := clampf(float(offering.get("multiplier", 1.0)), 1.0, 100.0)
 	var duration_seconds := clampf(float(offering.get("duration_seconds", 60.0)), 1.0, 3600.0)
@@ -2172,7 +2274,7 @@ func _get_safe_control_position(raw_position: Vector2, size: Vector2, margin: fl
 
 # Upgrade and global commands
 func _on_pet_upgrade_requested(pet_id: String) -> void:
-	if pet_id.is_empty() or not PetCatalog.DEFINITIONS.has(pet_id):
+	if pet_id.is_empty() or not _is_pet_unlocked(pet_id):
 		return
 	var state := _get_pet_state(pet_id)
 	if PetProgression.progression_level(state) >= PetProgression.MAX_LEVEL:

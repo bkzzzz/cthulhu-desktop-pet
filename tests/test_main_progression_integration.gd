@@ -7,6 +7,8 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_legacy_state_migration(failures)
 	_test_explicit_level_migration(failures)
+	_test_starter_unlock_state(failures)
+	_test_pet_gacha_integration(failures)
 	_test_single_level_upgrade(failures)
 	_test_upgrade_entry_simplicity(failures)
 	_test_scaled_manual_click(failures)
@@ -19,6 +21,78 @@ static func _make_main() -> Node:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
 	return main
+
+
+static func _test_starter_unlock_state(failures: Array[String]) -> void:
+	var main := _make_main()
+	if main.get("_unlocked_pet_ids") != ["pet1"]:
+		failures.append("a fresh main state must unlock only pet1")
+	if main.get("_deployed_pet_ids") != ["pet1"]:
+		failures.append("a fresh main state must deploy only pet1")
+	var entries: Array[Dictionary] = main.call("_get_pet_upgrade_entries")
+	if entries.size() != 1 or String(entries[0].get("id", "")) != "pet1":
+		failures.append("locked gacha pets must stay out of the upgrade list")
+	if not main.call("_get_inventory_pet_entries").is_empty():
+		failures.append("the deployed starter pet must not also appear in storage")
+	var expected_rate := Main.PetProgression.faith_per_second(
+		Main.PetCatalog.get_definition("pet1"),
+		1
+	)
+	if not is_equal_approx(float(main.call("_get_faith_growth_rate")), expected_rate):
+		failures.append("locked pets must not produce faith before they are drawn")
+	main.free()
+
+
+static func _test_pet_gacha_integration(failures: Array[String]) -> void:
+	var main := _make_main()
+	var window := Main.GachaWindowScript.new()
+	window.setup()
+	main.set("_gacha_window", window)
+	main.set("_faith_points", 1000000.0)
+	var first_cost := Main.GachaProgression.draw_cost(0)
+	main.call("_on_gacha_draw_requested")
+	var unlocked_after_first: Array = main.get("_unlocked_pet_ids")
+	if unlocked_after_first.size() != 2 or not unlocked_after_first.has("pet1"):
+		failures.append("the first successful pet draw must unlock exactly one new non-starter pet")
+	if int(main.get("_gacha_draw_count")) != 1:
+		failures.append("a successful pet draw must advance the saved draw count")
+	if not is_equal_approx(float(main.get("_faith_points")), 1000000.0 - float(first_cost)):
+		failures.append("a successful pet draw must spend its displayed faith cost")
+	var history: Array = main.get("_gacha_history")
+	if history.is_empty() or not bool((history[0] as Dictionary).get("is_new", false)):
+		failures.append("new pet draws must be recorded as unlocks in gacha history")
+
+	var unlocked_all: Array = main.get("_unlocked_pet_ids")
+	unlocked_all.clear()
+	for pet_id_value in Main.PetCatalog.ACTIVE_DESKTOP_PETS:
+		unlocked_all.append(String(pet_id_value))
+	var faith_before_duplicate := float(main.get("_faith_points"))
+	var duplicate_draw_cost := Main.GachaProgression.draw_cost(1)
+	main.call("_on_gacha_draw_requested")
+	history = main.get("_gacha_history")
+	if history.is_empty() or bool((history[0] as Dictionary).get("is_new", true)):
+		failures.append("draws from a complete collection must be recorded as duplicate exchanges")
+	else:
+		var duplicate_faith := int((history[0] as Dictionary).get("duplicate_faith", 0))
+		if duplicate_faith <= 0:
+			failures.append("a duplicate pet must exchange directly into faith")
+		if not is_equal_approx(
+			float(main.get("_faith_points")),
+			faith_before_duplicate - float(duplicate_draw_cost) + float(duplicate_faith)
+		):
+			failures.append("duplicate faith must be credited immediately after paying the draw cost")
+
+	var draw_count_before_batch := int(main.get("_gacha_draw_count"))
+	main.set("_faith_points", 1.0e18)
+	main.call("_on_gacha_draw_requested", 10)
+	if int(main.get("_gacha_draw_count")) != draw_count_before_batch + 10:
+		failures.append("checking draw ten must resolve exactly ten sequential pet draws")
+	var pending_results: Array = window.get("_pending_results")
+	if pending_results.size() != 10:
+		failures.append("a ten-draw batch must queue all ten popup results in draw order")
+	main.set("_gacha_window", null)
+	window.free()
+	main.free()
 
 
 static func _test_legacy_state_migration(failures: Array[String]) -> void:
@@ -57,6 +131,8 @@ static func _test_explicit_level_migration(failures: Array[String]) -> void:
 
 static func _test_single_level_upgrade(failures: Array[String]) -> void:
 	var main := _make_main()
+	var unlocked: Array = main.get("_unlocked_pet_ids")
+	unlocked.append("pet2")
 	var state: Dictionary = main.call("_get_pet_state", "pet2")
 	state["upgrade_level"] = 100
 	main.set("_faith_points", 1.0e15)

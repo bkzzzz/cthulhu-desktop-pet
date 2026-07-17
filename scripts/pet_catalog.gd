@@ -1,7 +1,9 @@
 extends RefCounted
 
-const ACTIVE_DESKTOP_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6"]
-const INVENTORY_STARTER_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6"]
+const ACTIVE_DESKTOP_PETS := ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]
+const STARTER_UNLOCKED_PETS := ["pet1"]
+const GACHA_PETS := ["pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]
+const INVENTORY_STARTER_PETS := STARTER_UNLOCKED_PETS
 
 const DEFINITIONS := {
 	"pet1": {
@@ -272,6 +274,46 @@ const DEFINITIONS := {
 		"icon": "res://assets/NewCharacters/pet6/pet6.png",
 		"idle": "res://assets/NewCharacters/pet6/pet6Idle.png",
 		"walk": "res://assets/NewCharacters/pet6/pet6Walk.png"
+	},
+	"pet7": {
+		"id": "pet7",
+		"name": "窥渊古币",
+		"species": "活体钱币",
+		"description": "刻着眷族纹样的古币，静止时贴在任务栏边，移动时会朝前进方向滚动。",
+		"rarity_stars": 5,
+		"age": "年代无法考证",
+		"personality": "沉默、稳重，大部分时间原地待着，偶尔沿任务栏滚一段路。",
+		"desktop_scale": 0.42,
+		"behavior": "roller",
+		"walk_speed": 55.0,
+		"walk_speed_variance": 5.0,
+		"walk_distance_min": 70.0,
+		"walk_distance_max": 180.0,
+		"activity_chance": 0.15,
+		"idle_time_min": 12.0,
+		"idle_time_max": 24.0,
+		"special_chance": 0.0,
+		"doze_chance": 0.0,
+		"hide_chance": 0.0,
+		"can_hide": false,
+		"wall_chance": 0.0,
+		"can_wall_crawl": false,
+		"rolls_while_walking": true,
+		"walk_rotation_speed": 5.2,
+		"frame_center_y": 128.0,
+		"frame_foot_y": 214,
+		"ground_offset_y": 6.0,
+		"ambient_emotion_interval_min": 190.0,
+		"ambient_emotion_interval_max": 300.0,
+		"emotion_weights": {"confused": 0.40, "suprised": 0.30, "happy": 0.20, "sleepy": 0.10},
+		"petting_emotion_weights": {"suprised": 0.42, "happy": 0.30, "confused": 0.20, "sleepy": 0.08},
+		"upgrade_cost_base": 90,
+		"upgrade_cost_growth": 1.18,
+		"base_fps": 0.16,
+		"power_growth": 1.035,
+		"icon": "res://assets/NewCharacters/pet7/pet7.png",
+		"idle": "res://assets/NewCharacters/pet7/pet7Idle.png",
+		"walk": ""
 	}
 }
 
