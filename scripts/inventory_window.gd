@@ -479,7 +479,7 @@ func _show_detail_panel(pet_index: int) -> void:
 	_detail_icon.texture = PetCatalog.make_icon_texture(String(entry.get("texture", pet_data.get("icon", ""))), 6)
 	_detail_name_edit.text = String(entry.get("name", pet_data.get("name", pet_id)))
 	var rarity_stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
-	_detail_desc_label.text = "稀有度  %s\n年龄  %s\n性格  %s" % [
+	_detail_desc_label.text = "星级  %s\n年龄  %s\n性格  %s" % [
 		"★".repeat(rarity_stars),
 		String(pet_data.get("age_text", pet_data.get("age", "不详"))),
 		String(pet_data.get("personality", "不详"))

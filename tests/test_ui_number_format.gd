@@ -40,6 +40,28 @@ static func run() -> Array[String]:
 	var compact_layout: Vector2 = formatter.call("_get_bookmark_layout", 400.0)
 	if compact_layout.x + (SideDrawer.BOOKMARK_CONTAINER_HEIGHT * compact_layout.y) > 400.01:
 		failures.append("all five bookmarks must scale inside a short screen")
+	var screen_rect := Rect2i(0, 0, 1920, 1080)
+	var bottom_usable_rect := Rect2i(0, 0, 1920, 1040)
+	var bottom_position := SideDrawer._get_menu_position_for_anchor(
+		screen_rect,
+		bottom_usable_rect,
+		SideDrawer.MENU_WINDOW_SIZE,
+		0.5
+	)
+	if bottom_position.y + SideDrawer.MENU_WINDOW_SIZE.y != bottom_usable_rect.end.y:
+		failures.append("the draggable menu handle must stay attached to a bottom taskbar")
+	var left_usable_rect := Rect2i(48, 0, 1872, 1080)
+	var left_position := SideDrawer._get_menu_position_for_anchor(
+		screen_rect,
+		left_usable_rect,
+		SideDrawer.MENU_WINDOW_SIZE,
+		0.5
+	)
+	if left_position.x != left_usable_rect.position.x:
+		failures.append("the draggable menu handle must follow a left-side taskbar")
+	formatter.call("set_menu_handle_anchor", 2.0)
+	if not is_equal_approx(float(formatter.call("get_menu_handle_anchor")), 1.0):
+		failures.append("saved menu handle anchors must remain inside the taskbar span")
 
 	if not formatter.has_method("refresh_pet_upgrades") or formatter.has_method("refresh_pet_upgrade_counts"):
 		failures.append("the drawer must expose only the pure pet-upgrade refresh API")
@@ -47,6 +69,8 @@ static func run() -> Array[String]:
 		failures.append("the drawer must expose the pure pet-upgrade signal")
 	if not formatter.has_signal("pet_rename_requested"):
 		failures.append("the editable detail card must expose pet rename requests")
+	if not formatter.has_signal("menu_handle_moved"):
+		failures.append("dragging the desktop menu handle must expose a persistence signal")
 	if formatter.has_signal("offering_drop_requested") or formatter.has_method("get_offering_state"):
 		failures.append("the side drawer must not retain altar offering inventory APIs")
 

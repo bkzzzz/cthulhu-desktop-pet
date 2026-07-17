@@ -18,21 +18,28 @@ const EGG_MOTION_STEPS := 6
 const EGG_MOTION_STEP_SECONDS := 0.12
 const EGG_POSITION_BOUNDS := Rect2(115.0, 108.0, 193.0, 88.0)
 const EGG_HOME_POSITIONS := [
-	Vector2(118.0, 190.0),
-	Vector2(155.0, 190.0),
-	Vector2(192.0, 190.0),
-	Vector2(229.0, 190.0),
-	Vector2(266.0, 190.0),
-	Vector2(303.0, 190.0),
-	Vector2(136.0, 155.0),
-	Vector2(177.0, 155.0),
-	Vector2(218.0, 155.0),
-	Vector2(259.0, 155.0),
-	Vector2(300.0, 155.0),
-	Vector2(158.0, 120.0),
-	Vector2(203.0, 120.0),
-	Vector2(248.0, 120.0),
-	Vector2(293.0, 120.0)
+	Vector2(132.0, 176.0),
+	Vector2(164.0, 176.0),
+	Vector2(196.0, 176.0),
+	Vector2(228.0, 176.0),
+	Vector2(260.0, 176.0),
+	Vector2(292.0, 176.0),
+	Vector2(146.0, 150.0),
+	Vector2(180.0, 150.0),
+	Vector2(214.0, 150.0),
+	Vector2(248.0, 150.0),
+	Vector2(282.0, 150.0),
+	Vector2(164.0, 124.0),
+	Vector2(204.0, 124.0),
+	Vector2(244.0, 124.0),
+	Vector2(284.0, 124.0)
+]
+const STAR_COLORS := [
+	"#b8c4b2",
+	"#a9c6a0",
+	"#78c7b8",
+	"#8caee8",
+	"#f0cf86"
 ]
 
 var _result_title: Label
@@ -261,7 +268,7 @@ func _create_result_overlay() -> void:
 	_result_overlay.add_child(center)
 
 	var result_panel := PanelContainer.new()
-	result_panel.custom_minimum_size = Vector2(390.0, 450.0)
+	result_panel.custom_minimum_size = Vector2(390.0, 474.0)
 	result_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	result_panel.add_theme_stylebox_override("panel", _make_result_style())
 	center.add_child(result_panel)
@@ -299,7 +306,7 @@ func _create_result_overlay() -> void:
 	_result_detail.bbcode_enabled = true
 	_result_detail.fit_content = false
 	_result_detail.scroll_active = false
-	_result_detail.custom_minimum_size = Vector2(342.0, 58.0)
+	_result_detail.custom_minimum_size = Vector2(342.0, 82.0)
 	_result_detail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_result_detail.add_theme_font_size_override("normal_font_size", 16)
 	_result_detail.add_theme_color_override("default_color", Color(0.74, 0.8, 0.72))
@@ -439,26 +446,27 @@ func _reveal_current_result() -> void:
 	var pet_id := String(result.get("pet_id", ""))
 	var pet_data := PetCatalog.get_definition(pet_id)
 	var pet_name := String(result.get("name", pet_data.get("name", pet_id)))
-	var rarity := String(result.get("rarity", "普通"))
-	var color := String(result.get("color", "#b8c4b2"))
+	var stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
+	var stars_text := "★".repeat(stars)
+	var color := String(STAR_COLORS[stars - 1])
 	var is_new := bool(result.get("is_new", false))
 	_result_icon.texture = PetCatalog.make_icon_texture(String(pet_data.get("icon", "")), 10)
-	_result_title.text = "新宠物" if is_new else "重复转化"
+	_result_title.text = pet_name
 	_result_title.add_theme_color_override(
 		"font_color",
 		Color.from_string(color, Color(0.9, 0.84, 0.62))
 	)
 	if is_new:
 		_result_detail.text = (
-			"[center][color=%s][font_size=21]%s[/font_size][/color]  ·  %s"
-			+ "\n[color=#b8c8b5]已进入仓库[/color][/center]"
-		) % [color, pet_name, rarity]
+			"[center][color=%s][font_size=21]%s[/font_size][/color]"
+			+ "\n[color=#b8c8b5]新宠物  ·  已进入仓库[/color][/center]"
+		) % [color, stars_text]
 	else:
 		var duplicate_points := maxi(0, int(result.get("duplicate_faith", 0)))
 		_result_detail.text = (
-			"[center][color=%s][font_size=21]%s[/font_size][/color]  ·  %s"
-			+ "\n[color=#d8c675]重复获得  +%s 点数[/color][/center]"
-		) % [color, pet_name, rarity, _format_number(float(duplicate_points))]
+			"[center][color=%s][font_size=20]%s[/font_size][/color]"
+			+ "\n[color=#d8c675][font_size=29]重复获得  +%s 信仰[/font_size][/color][/center]"
+		) % [color, stars_text, _format_number(float(duplicate_points))]
 	_result_progress.text = (
 		"%d / %d" % [_result_index + 1, _pending_results.size()]
 		if _pending_results.size() > 1

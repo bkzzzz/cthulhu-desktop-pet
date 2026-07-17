@@ -113,6 +113,7 @@ var _gacha_pity_count := 0
 var _gacha_history: Array[Dictionary] = []
 var _autosave_timer := 0.0
 var _loaded_save_unix := 0.0
+var _loaded_menu_handle_anchor := -1.0
 var _persistence_enabled := true
 var _news_feed := NewsFeed.new()
 var _loaded_news_state: Dictionary = {}
@@ -429,6 +430,9 @@ func _create_side_drawer() -> void:
 	_side_drawer.pet_upgrade_requested.connect(_on_pet_upgrade_requested)
 	_side_drawer.pet_rename_requested.connect(_on_pet_detail_rename_requested)
 	_side_drawer.faith_add_requested.connect(_on_faith_add_requested)
+	_side_drawer.menu_handle_moved.connect(_on_menu_handle_moved)
+	if _loaded_menu_handle_anchor >= 0.0:
+		_side_drawer.set_menu_handle_anchor(_loaded_menu_handle_anchor)
 	_side_drawer.setup()
 	if not _carried_offering.is_empty():
 		_set_offering_cursor(String(_carried_offering.get("texture", "")))
@@ -1193,6 +1197,12 @@ func _load_game() -> void:
 	else:
 		_carried_offering.clear()
 	_loaded_save_unix = maxf(0.0, float(save.get_value("meta", "saved_unix", 0.0)))
+	var saved_menu_anchor := float(save.get_value("ui", "menu_handle_anchor", -1.0))
+	_loaded_menu_handle_anchor = (
+		clampf(saved_menu_anchor, 0.0, 1.0)
+		if is_finite(saved_menu_anchor) and saved_menu_anchor >= 0.0
+		else -1.0
+	)
 
 
 func _save_game() -> void:
@@ -1221,6 +1231,8 @@ func _save_game() -> void:
 	save.set_value("news", "recent_templates", news_state.get("recent_templates", []))
 	save.set_value("shop", "carried_offering", _carried_offering.duplicate(true))
 	save.set_value("offerings", "active_buffs", _pet_offering_buffs.duplicate(true))
+	if _side_drawer != null and _side_drawer.has_method("get_menu_handle_anchor"):
+		save.set_value("ui", "menu_handle_anchor", _side_drawer.call("get_menu_handle_anchor"))
 	var save_error := save.save(SAVE_PATH)
 	if save_error != OK:
 		push_warning("Could not save game data: %s" % error_string(save_error))
@@ -1362,7 +1374,7 @@ func _sanitize_gacha_history(raw_value: Variant) -> Array[Dictionary]:
 			else clampi(
 				int(entry.get("duplicate_faith", 0)),
 				0,
-				GachaProgression.MAX_DRAW_COST
+				GachaProgression.MAX_DUPLICATE_FAITH_REWARD
 			)
 		)
 		pool_entry["name"] = String(
@@ -2309,6 +2321,11 @@ func _on_faith_add_requested(amount: int) -> void:
 	_grant_faith(faith_gain)
 	_show_faith_change_popup(_get_window_mouse_position(get_window()), faith_gain)
 	_refresh_pet_stats(true)
+	_save_game()
+
+
+func _on_menu_handle_moved(anchor: float) -> void:
+	_loaded_menu_handle_anchor = clampf(anchor, 0.0, 1.0)
 	_save_game()
 
 

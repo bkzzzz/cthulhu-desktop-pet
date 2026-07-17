@@ -1,52 +1,38 @@
 extends RefCounted
 
+const PetCatalog = preload("res://scripts/pet_catalog.gd")
+
 const BASE_DRAW_COST := 5.0
 const DRAW_COST_GROWTH := 1.60
 const MAX_DRAW_COST := 8_000_000_000_000_000_000
+const MAX_DUPLICATE_FAITH_REWARD := 9_000_000_000_000_000_000
 const NEW_PET_PITY_DRAWS := 5
+const DUPLICATE_REWARD_RATIOS := [0.0, 0.50, 0.65, 0.80, 1.00, 1.25]
 
 const PET_POOL := [
 	{
 		"pet_id": "pet2",
-		"rarity": "普通",
-		"weight": 32.0,
-		"duplicate_refund_ratio": 0.30,
-		"color": "#b8c4b2"
+		"weight": 32.0
 	},
 	{
 		"pet_id": "pet3",
-		"rarity": "普通",
-		"weight": 32.0,
-		"duplicate_refund_ratio": 0.30,
-		"color": "#a9c6a0"
+		"weight": 32.0
 	},
 	{
 		"pet_id": "pet4",
-		"rarity": "稀有",
-		"weight": 18.0,
-		"duplicate_refund_ratio": 0.45,
-		"color": "#78c7b8"
+		"weight": 18.0
 	},
 	{
 		"pet_id": "pet5",
-		"rarity": "史诗",
-		"weight": 10.0,
-		"duplicate_refund_ratio": 0.60,
-		"color": "#8caee8"
+		"weight": 10.0
 	},
 	{
 		"pet_id": "pet6",
-		"rarity": "传说",
-		"weight": 5.0,
-		"duplicate_refund_ratio": 0.80,
-		"color": "#e8bd62"
+		"weight": 5.0
 	},
 	{
 		"pet_id": "pet7",
-		"rarity": "传说",
-		"weight": 3.0,
-		"duplicate_refund_ratio": 0.90,
-		"color": "#f0cf86"
+		"weight": 3.0
 	}
 ]
 
@@ -94,8 +80,13 @@ static func duplicate_faith_reward(draw_cost_value: int, result: Dictionary) -> 
 	var draw_cost := maxi(0, draw_cost_value)
 	if draw_cost <= 0 or bool(result.get("is_new", false)):
 		return 0
-	var refund_ratio := clampf(float(result.get("duplicate_refund_ratio", 0.30)), 0.0, 0.95)
-	return clampi(int(round(float(draw_cost) * refund_ratio)), 1, draw_cost)
+	var pet_data := PetCatalog.get_definition(String(result.get("pet_id", "")))
+	var stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
+	var reward_ratio := float(DUPLICATE_REWARD_RATIOS[stars])
+	var raw_reward := float(draw_cost) * reward_ratio
+	if not is_finite(raw_reward) or raw_reward >= float(MAX_DUPLICATE_FAITH_REWARD):
+		return MAX_DUPLICATE_FAITH_REWARD
+	return clampi(int(round(raw_reward)), 1, MAX_DUPLICATE_FAITH_REWARD)
 
 
 static func next_pity_count(current_pity: int, result: Dictionary) -> int:

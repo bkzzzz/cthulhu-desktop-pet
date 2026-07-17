@@ -59,14 +59,19 @@ static func _check_pet_pool(failures: Array[String]) -> void:
 		total_weight += float(entry.get("weight", 0.0))
 	_check_equal(failures, "gacha pool contains every non-starter pet", actual_ids, expected_ids)
 	_check_equal(failures, "catalog gacha list matches the roll pool", PetCatalog.GACHA_PETS, expected_ids)
-	_check_close(failures, "pet rarity weights total 100", total_weight, 100.0, 0.0001)
+	_check_close(failures, "pet draw weights total 100", total_weight, 100.0, 0.0001)
+	for entry_value in GachaProgression.PET_POOL:
+		var entry := entry_value as Dictionary
+		if entry.has("rarity") or entry.has("color") or entry.has("duplicate_refund_ratio"):
+			failures.append("the gacha pool must use catalog stars instead of a duplicate rarity model")
+			break
 
-	_check_roll_pet(failures, "first common boundary", 0.0, "pet2")
-	_check_roll_pet(failures, "second common boundary", 0.32, "pet3")
-	_check_roll_pet(failures, "rare boundary", 0.64, "pet4")
-	_check_roll_pet(failures, "epic boundary", 0.82, "pet5")
-	_check_roll_pet(failures, "first legendary boundary", 0.92, "pet6")
-	_check_roll_pet(failures, "pet7 legendary boundary", 0.97, "pet7")
+	_check_roll_pet(failures, "first two-star boundary", 0.0, "pet2")
+	_check_roll_pet(failures, "second two-star boundary", 0.32, "pet3")
+	_check_roll_pet(failures, "three-star boundary", 0.64, "pet4")
+	_check_roll_pet(failures, "four-star boundary", 0.82, "pet5")
+	_check_roll_pet(failures, "first five-star boundary", 0.92, "pet6")
+	_check_roll_pet(failures, "pet7 five-star boundary", 0.97, "pet7")
 	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet7")
 
 
@@ -80,8 +85,8 @@ static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
 	var duplicate_pet2 := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
 	if bool(duplicate_pet2.get("is_new", true)):
 		failures.append("drawing an unlocked pet must be a duplicate result")
-	if GachaProgression.duplicate_faith_reward(1000, duplicate_pet2) != 300:
-		failures.append("a duplicate common pet must convert into its configured faith refund")
+	if GachaProgression.duplicate_faith_reward(1000, duplicate_pet2) != 650:
+		failures.append("a duplicate two-star pet must return its star-based faith reward")
 
 
 static func _check_new_pet_pity(failures: Array[String]) -> void:
@@ -142,6 +147,15 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		if not GachaWindow.EGG_POSITION_BOUNDS.has_point(egg.position):
 			failures.append("egg pile positions must remain inside the machine chamber")
 			break
+	var min_home := Vector2(INF, INF)
+	var max_home := Vector2(-INF, -INF)
+	for home_value in GachaWindow.EGG_HOME_POSITIONS:
+		var home := home_value as Vector2
+		min_home = min_home.min(home)
+		max_home = max_home.max(home)
+	var home_span := max_home - min_home
+	if home_span.x > 160.01 or home_span.y > 52.01:
+		failures.append("the initial egg pile must stay tightly stacked inside the chamber")
 
 	window.set("_animation_playing", true)
 	var result := GachaProgression.roll_pet(0.0, ["pet1"], 0)
@@ -151,8 +165,13 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 	if result_title.text != "等待抽取":
 		failures.append("a pet result must remain hidden while the eggs are moving")
 	window.call("_finish_draw_animation")
-	if result_title.text != "新宠物":
+	if result_title.text != "测试宠物":
 		failures.append("the result popup must appear when the egg movement completes")
+	var result_detail: RichTextLabel = window.get("_result_detail")
+	if result_detail == null or not result_detail.text.contains("★★"):
+		failures.append("gacha results must present catalog stars instead of rarity names")
+	elif result_detail.text.contains("普通") or result_detail.text.contains("史诗") or result_detail.text.contains("传说"):
+		failures.append("gacha results must not show generic rarity copy")
 
 	var duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
 	duplicate["name"] = "测试宠物"
@@ -163,8 +182,10 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		failures.append("multi-draw results must expose a skip-to-next action")
 	else:
 		window.call("_on_result_advance_pressed")
-		if result_title.text != "重复转化":
-			failures.append("skip must advance to the next multi-draw result")
+		if result_detail == null or not result_detail.text.contains("重复获得  +30 信仰"):
+			failures.append("skip must advance to a direct duplicate faith result")
+		elif result_detail.text.contains("重复转化") or result_detail.text.contains("点数"):
+			failures.append("duplicate results must avoid redundant conversion copy")
 	window.free()
 
 

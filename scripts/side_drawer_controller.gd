@@ -8,6 +8,7 @@ signal quit_requested
 signal pet_upgrade_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
 signal faith_add_requested(amount: int)
+signal menu_handle_moved(anchor: float)
 
 # Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
@@ -23,8 +24,16 @@ const DRAWER_SLIDE_SPEED := 1800.0
 const DRAWER_CONTENT_TOP_MARGIN := 24
 const MENU_WINDOW_SIZE := Vector2i(228, 150)
 const MENU_TO_DRAWER_GAP := 2
+const MENU_DRAG_THRESHOLD := 6.0
 const RATE_SUFFIX := "/s"
 const POSITION_RETRY_FRAMES := 90
+
+enum TaskbarEdge {
+	BOTTOM,
+	TOP,
+	LEFT,
+	RIGHT
+}
 
 # UI assets
 const QUIT_BUTTON_TEXTURE := "res://assets/ui/testElements/Quit.png"
@@ -121,6 +130,12 @@ var _drawer_closed_x := 0
 var _drawer_screen_position := Vector2i.ZERO
 var _drawer_screen_size := Vector2i(DRAWER_WIDTH, 720)
 var _position_retry_frames := 0
+var _menu_handle_anchor := -1.0
+var _menu_drag_active := false
+var _menu_drag_moved := false
+var _menu_drag_suppress_click := false
+var _menu_drag_start_pointer := Vector2.ZERO
+var _menu_drag_pointer_offset := Vector2.ZERO
 
 # Faith and upgrade state
 var _faith_value_label: Label
@@ -160,6 +175,8 @@ func _process(delta: float) -> void:
 		_position_retry_frames -= 1
 		_place_menu_window()
 		_refresh_drawer_geometry()
+	if _menu_drag_active and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_finish_menu_drag()
 
 	_update_drawer_slide(delta)
 	_update_upgrade_detail_hover(delta)
@@ -237,6 +254,19 @@ func refresh_followers(follower_count: int, growth_rate: float) -> void:
 	_follower_growth_rate = maxf(0.0, growth_rate)
 
 
+func set_menu_handle_anchor(anchor: float) -> void:
+	_menu_handle_anchor = clampf(anchor, 0.0, 1.0) if is_finite(anchor) else -1.0
+	if _menu_window != null:
+		_place_menu_window()
+
+
+func get_menu_handle_anchor() -> float:
+	if _menu_handle_anchor >= 0.0:
+		return clampf(_menu_handle_anchor, 0.0, 1.0)
+	var usable_rect := _get_current_screen_usable_rect()
+	return _get_default_menu_anchor(_get_current_screen_rect(), usable_rect)
+
+
 # Menu and drawer windows
 func _create_toggle_button() -> void:
 	_menu_window = Window.new()
@@ -259,7 +289,7 @@ func _create_toggle_button() -> void:
 	_menu_window.add_child(menu_root)
 
 	_menu_button = TextureButton.new()
-	_menu_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_menu_button.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	_menu_button.name = "MenuBanner"
 	_menu_button.texture_normal = load(MENU_ICON_TEXTURE) as Texture2D
 	_menu_button.texture_hover = _menu_button.texture_normal
@@ -273,6 +303,7 @@ func _create_toggle_button() -> void:
 	_menu_button.z_index = 2
 	_menu_button.mouse_entered.connect(_on_menu_button_hovered.bind(true))
 	_menu_button.mouse_exited.connect(_on_menu_button_hovered.bind(false))
+	_menu_button.gui_input.connect(_on_menu_button_gui_input)
 	_menu_button.pressed.connect(_on_drawer_button_pressed)
 	menu_root.add_child(_menu_button)
 
@@ -1567,9 +1598,16 @@ func _place_menu_window() -> void:
 	var usable_rect := _get_current_screen_usable_rect()
 	var screen_rect := _get_current_screen_rect()
 	_menu_window.size = MENU_WINDOW_SIZE
-	_menu_window.position = Vector2i(
-		_get_menu_handle_x(screen_rect),
-		usable_rect.position.y + usable_rect.size.y - MENU_WINDOW_SIZE.y
+	var anchor := (
+		clampf(_menu_handle_anchor, 0.0, 1.0)
+		if _menu_handle_anchor >= 0.0
+		else _get_default_menu_anchor(screen_rect, usable_rect)
+	)
+	_menu_window.position = _get_menu_position_for_anchor(
+		screen_rect,
+		usable_rect,
+		MENU_WINDOW_SIZE,
+		anchor
 	)
 	if not _menu_window.visible:
 		_menu_window.visible = true
@@ -1685,6 +1723,131 @@ func _get_menu_handle_x(screen_rect: Rect2i) -> int:
 	return maxi(screen_rect.position.x, target_x)
 
 
+func _get_default_menu_anchor(screen_rect: Rect2i, usable_rect: Rect2i) -> float:
+	var edge := _get_taskbar_edge(screen_rect, usable_rect)
+	if edge == TaskbarEdge.LEFT or edge == TaskbarEdge.RIGHT:
+		return 1.0
+	var span := maxi(0, usable_rect.size.x - MENU_WINDOW_SIZE.x)
+	if span <= 0:
+		return 0.0
+	return clampf(
+		float(_get_menu_handle_x(screen_rect) - usable_rect.position.x) / float(span),
+		0.0,
+		1.0
+	)
+
+
+static func _get_taskbar_edge(screen_rect: Rect2i, usable_rect: Rect2i) -> int:
+	var gaps := [
+		maxi(0, screen_rect.end.y - usable_rect.end.y),
+		maxi(0, usable_rect.position.y - screen_rect.position.y),
+		maxi(0, usable_rect.position.x - screen_rect.position.x),
+		maxi(0, screen_rect.end.x - usable_rect.end.x)
+	]
+	var edge := TaskbarEdge.BOTTOM
+	var largest_gap := int(gaps[edge])
+	for candidate in range(1, gaps.size()):
+		if int(gaps[candidate]) > largest_gap:
+			edge = candidate
+			largest_gap = int(gaps[candidate])
+	return edge
+
+
+static func _get_menu_position_for_anchor(
+	screen_rect: Rect2i,
+	usable_rect: Rect2i,
+	window_size: Vector2i,
+	anchor: float
+) -> Vector2i:
+	var safe_anchor := clampf(anchor, 0.0, 1.0) if is_finite(anchor) else 0.0
+	var edge := _get_taskbar_edge(screen_rect, usable_rect)
+	if edge == TaskbarEdge.LEFT or edge == TaskbarEdge.RIGHT:
+		var vertical_span := maxi(0, usable_rect.size.y - window_size.y)
+		var y := usable_rect.position.y + int(round(float(vertical_span) * safe_anchor))
+		var x := (
+			usable_rect.position.x
+			if edge == TaskbarEdge.LEFT
+			else maxi(usable_rect.position.x, usable_rect.end.x - window_size.x)
+		)
+		return Vector2i(x, y)
+
+	var horizontal_span := maxi(0, usable_rect.size.x - window_size.x)
+	var x := usable_rect.position.x + int(round(float(horizontal_span) * safe_anchor))
+	var y := (
+		usable_rect.position.y
+		if edge == TaskbarEdge.TOP
+		else maxi(usable_rect.position.y, usable_rect.end.y - window_size.y)
+	)
+	return Vector2i(x, y)
+
+
+func _on_menu_button_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mouse_button := event as InputEventMouseButton
+		if mouse_button.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if mouse_button.pressed:
+			_menu_drag_active = true
+			_menu_drag_moved = false
+			_menu_drag_suppress_click = false
+			_menu_drag_start_pointer = Vector2(DisplayServer.mouse_get_position())
+			_menu_drag_pointer_offset = _menu_drag_start_pointer - Vector2(_menu_window.position)
+		else:
+			_finish_menu_drag()
+		return
+
+	if not event is InputEventMouseMotion or not _menu_drag_active:
+		return
+	var pointer := Vector2(DisplayServer.mouse_get_position())
+	if not _menu_drag_moved and pointer.distance_to(_menu_drag_start_pointer) >= MENU_DRAG_THRESHOLD:
+		_menu_drag_moved = true
+		_menu_drag_suppress_click = true
+	if not _menu_drag_moved:
+		return
+	_update_menu_anchor_from_pointer(pointer)
+	if _menu_button != null:
+		_menu_button.accept_event()
+
+
+func _update_menu_anchor_from_pointer(pointer: Vector2) -> void:
+	if _menu_window == null:
+		return
+	var screen_rect := _get_current_screen_rect()
+	var usable_rect := _get_current_screen_usable_rect()
+	var desired_position := pointer - _menu_drag_pointer_offset
+	var edge := _get_taskbar_edge(screen_rect, usable_rect)
+	if edge == TaskbarEdge.LEFT or edge == TaskbarEdge.RIGHT:
+		var span := maxi(0, usable_rect.size.y - MENU_WINDOW_SIZE.y)
+		_menu_handle_anchor = (
+			clampf((desired_position.y - usable_rect.position.y) / float(span), 0.0, 1.0)
+			if span > 0
+			else 0.0
+		)
+	else:
+		var span := maxi(0, usable_rect.size.x - MENU_WINDOW_SIZE.x)
+		_menu_handle_anchor = (
+			clampf((desired_position.x - usable_rect.position.x) / float(span), 0.0, 1.0)
+			if span > 0
+			else 0.0
+		)
+	_place_menu_window()
+
+
+func _finish_menu_drag() -> void:
+	if not _menu_drag_active:
+		return
+	_menu_drag_active = false
+	if not _menu_drag_moved:
+		return
+	menu_handle_moved.emit(get_menu_handle_anchor())
+	call_deferred("_clear_menu_drag_suppression")
+
+
+func _clear_menu_drag_suppression() -> void:
+	_menu_drag_moved = false
+	_menu_drag_suppress_click = false
+
+
 func _get_current_screen_usable_rect() -> Rect2i:
 	return DisplayServer.screen_get_usable_rect(_get_current_screen())
 
@@ -1746,6 +1909,8 @@ func _on_drawer_close_bookmark_pressed() -> void:
 
 
 func _on_drawer_button_pressed() -> void:
+	if _menu_drag_suppress_click:
+		return
 	_toggle_drawer()
 
 

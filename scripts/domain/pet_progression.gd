@@ -6,10 +6,20 @@ extends RefCounted
 const MAX_UPGRADE_COST := 8_000_000_000_000_000_000
 const MAX_FAITH_PER_SECOND := 1.0e300
 const MAX_LEVEL := 100_000
+const CAMPAIGN_TARGET_HOURS := 800.0
+const CAMPAIGN_PET_LEVEL_TARGET := 100
 
-# The original curve is preserved through level 100. Later levels approach an
-# effective exponent of 160 instead of growing without bound. This keeps the
-# established opening balance while making high-level upgrades viable.
+# Early levels stay deliberately restrained. From level 20 onward, each upgrade
+# contributes increasingly more power until the campaign target, creating a
+# visible slow-to-fast payoff without changing the established opening.
+const MOMENTUM_START_LEVEL := 20.0
+const MOMENTUM_TARGET_LEVEL := float(CAMPAIGN_PET_LEVEL_TARGET)
+const MOMENTUM_EXTRA_POWER_LEVELS := 70.0
+const POST_TARGET_EXTRA_POWER_LEVELS := 525.0
+const POST_TARGET_MOMENTUM_SPAN := 300.0
+
+# Upgrade prices retain their full exponential growth through level 100. Later
+# price exponents soften toward 160 so the accelerating output remains playable.
 const FULL_GROWTH_LEVEL := 100.0
 const SOFT_GROWTH_EXTRA_LEVELS := 60.0
 const SOFT_GROWTH_SPAN := 300.0
@@ -26,7 +36,7 @@ static func faith_per_second(pet_data: Dictionary, level: int) -> float:
 	var base_fps := maxf(0.0, float(pet_data.get("base_fps", 0.05)))
 	var power_growth := maxf(0.0, float(pet_data.get("power_growth", 1.035)))
 	var safe_level := maxi(0, level)
-	var power_multiplier := pow(power_growth, float(safe_level))
+	var power_multiplier := pow(power_growth, _accelerated_power_level(safe_level))
 	var result := base_fps * float(safe_level) * power_multiplier
 	if not is_finite(result):
 		return MAX_FAITH_PER_SECOND
@@ -51,4 +61,24 @@ static func _softened_growth_level(level: int) -> float:
 	var excess := safe_level - FULL_GROWTH_LEVEL
 	return FULL_GROWTH_LEVEL + SOFT_GROWTH_EXTRA_LEVELS * (
 		1.0 - exp(-excess / SOFT_GROWTH_SPAN)
+	)
+
+
+static func _accelerated_power_level(level: int) -> float:
+	var safe_level := float(maxi(0, level))
+	if safe_level <= MOMENTUM_START_LEVEL:
+		return safe_level
+	if safe_level <= MOMENTUM_TARGET_LEVEL:
+		var progress := (safe_level - MOMENTUM_START_LEVEL) / (
+			MOMENTUM_TARGET_LEVEL - MOMENTUM_START_LEVEL
+		)
+		return safe_level + MOMENTUM_EXTRA_POWER_LEVELS * progress * progress
+
+	var excess := safe_level - MOMENTUM_TARGET_LEVEL
+	return (
+		safe_level
+		+ MOMENTUM_EXTRA_POWER_LEVELS
+		+ POST_TARGET_EXTRA_POWER_LEVELS * (
+			1.0 - exp(-excess / POST_TARGET_MOMENTUM_SPAN)
+		)
 	)
