@@ -108,7 +108,7 @@ const BATTLE_INITIAL_DELAY_MIN_SECONDS := 150.0
 const BATTLE_INITIAL_DELAY_MAX_SECONDS := 270.0
 const BATTLE_INTERVAL_MIN_SECONDS := 360.0
 const BATTLE_INTERVAL_MAX_SECONDS := 600.0
-const BATTLE_DURATION_SECONDS := 34.0
+const BATTLE_DURATION_SECONDS := 42.0
 const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
 const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
 const SMOKE_SHEET_TEXTURE := "res://assets/enemyCharacter/smoke/smoke1_sheet.png"
@@ -164,6 +164,7 @@ var _battle_pet_health := {}
 var _battle_pet_max_health := {}
 var _battle_pet_attack_at := {}
 var _battle_pet_target_x := {}
+var _battle_pet_formed := {}
 var _last_era_display := ""
 var _recovery_ui_refresh_time := 0.0
 var _smoke_frames: SpriteFrames
@@ -382,6 +383,7 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	actor.recall_requested.connect(_on_pet_recall_requested)
 	actor.forced_target_reached.connect(_on_pet_forced_target_reached)
 	actor.notable_action.connect(_on_pet_notable_action)
+	actor.grabbed_changed.connect(_on_pet_grabbed_changed)
 	add_child(actor)
 	_pets.append(actor)
 	_schedule_pet_coin_drop(actor, _get_now_seconds())
@@ -833,6 +835,7 @@ func _start_battle() -> void:
 	_battle_pet_max_health.clear()
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
+	_battle_pet_formed.clear()
 	_update_actor_window_bounds()
 
 	var battle_pets: Array[Node2D] = []
@@ -854,6 +857,7 @@ func _start_battle() -> void:
 		_battle_pet_health[actor_key] = max_health
 		_battle_pet_max_health[actor_key] = max_health
 		_battle_pet_attack_at[actor_key] = _battle_started_at + _rng.randf_range(0.6, 1.2)
+		_battle_pet_formed[actor_key] = false
 		_battle_pet_target_x[actor_key] = lerpf(
 			float(_pet_window_size.x) * 0.70,
 			float(_pet_window_size.x) * 0.88,
@@ -904,25 +908,36 @@ func _update_battle(delta: float) -> void:
 
 	for pet in alive_pets:
 		var actor_key := str(pet.get_instance_id())
+		if pet.has_method("is_pointer_captured") and bool(pet.call("is_pointer_captured")):
+			continue
 		var target_x := float(_battle_pet_target_x.get(actor_key, float(_pet_window_size.x) * 0.78))
-		var ready_to_attack := true
-		if pet.has_method("battle_move_toward"):
-			ready_to_attack = bool(pet.call("battle_move_toward", target_x, delta, 235.0))
-		if not ready_to_attack or _battle_enemies.is_empty():
+		if not bool(_battle_pet_formed.get(actor_key, false)):
+			var reached_formation := true
+			if pet.has_method("battle_move_toward"):
+				reached_formation = bool(pet.call("battle_move_toward", target_x, delta, 235.0))
+			if not reached_formation:
+				continue
+			_battle_pet_formed[actor_key] = true
+		if pet.has_method("is_battle_ready") and not bool(pet.call("is_battle_ready")):
+			continue
+		if _battle_enemies.is_empty():
 			continue
 		if now < float(_battle_pet_attack_at.get(actor_key, now)):
 			continue
 		var enemy_target := _get_nearest_battle_enemy(pet)
 		if enemy_target == null:
 			continue
-		if absf(pet.position.x - enemy_target.position.x) > 225.0:
+		if absf(pet.position.x - enemy_target.position.x) > 155.0:
 			continue
 		var pet_id := _get_actor_pet_id(pet)
 		var pet_data := PetCatalog.get_definition(pet_id)
 		var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
 		var level := PetProgression.progression_level(_get_pet_state(pet_id))
 		var damage := 1.05 + float(rarity) * 0.24 + sqrt(float(level)) * 0.055
-		if pet.has_method("play_battle_attack"):
+		var attack_direction := signf(enemy_target.position.x - pet.position.x)
+		if pet.has_method("play_battle_attack_toward"):
+			pet.call("play_battle_attack_toward", attack_direction)
+		elif pet.has_method("play_battle_attack"):
 			pet.call("play_battle_attack")
 		if enemy_target.has_method("take_damage"):
 			enemy_target.call("take_damage", damage, 12.0 + float(rarity) * 1.5)
@@ -1045,6 +1060,7 @@ func _defeat_battle_pet(actor: Node2D) -> void:
 	_battle_pet_max_health.erase(actor_key)
 	_battle_pet_attack_at.erase(actor_key)
 	_battle_pet_target_x.erase(actor_key)
+	_battle_pet_formed.erase(actor_key)
 	_spawn_smoke_effect(actor.position + Vector2(0.0, -58.0))
 	if actor.has_method("hide_for_battle_defeat"):
 		actor.call("hide_for_battle_defeat")
@@ -1102,6 +1118,7 @@ func _finish_battle(victory: bool) -> void:
 	_battle_pet_max_health.clear()
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
+	_battle_pet_formed.clear()
 	_battle_wave_schedule.clear()
 	_update_actor_window_bounds()
 	var now := _get_now_seconds()
@@ -1682,9 +1699,12 @@ func _create_settings_window() -> void:
 	add_child(_settings_window)
 	_settings_window.activity_range_changed.connect(_on_activity_range_changed)
 	_settings_window.language_changed.connect(_on_language_changed)
+	_settings_window.debug_economy_requested.connect(_on_debug_economy_requested)
+	_settings_window.debug_event_requested.connect(_on_debug_event_requested)
 	_settings_window.quit_requested.connect(_on_quit_requested)
 	_settings_window.setup(_pet_activity_range, _language)
 	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
+	_settings_window.refresh_debug_values(_faith_points, _gold_coins)
 
 
 # Window clickthrough and hit testing
@@ -3056,6 +3076,15 @@ func _on_pet_petted(actor: Node2D) -> void:
 		)
 
 
+func _on_pet_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
+	if not _battle_active or actor == null or not is_instance_valid(actor):
+		return
+	if grabbed:
+		# Once the player takes command, stop the formation AI from pulling the
+		# pet back. Its dropped position becomes its new battle line.
+		_battle_pet_formed[str(actor.get_instance_id())] = true
+
+
 func _on_pet_notable_action(actor: Node2D, action_id: String) -> void:
 	if actor == null or not is_instance_valid(actor):
 		return
@@ -3171,6 +3200,8 @@ func _on_settings_requested() -> void:
 	if _settings_window == null:
 		return
 	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
+	if _settings_window.has_method("refresh_debug_values"):
+		_settings_window.call("refresh_debug_values", _faith_points, _gold_coins)
 	_settings_window.open_window()
 
 
@@ -3750,6 +3781,36 @@ func _on_activity_range_changed(range_mode: String) -> void:
 	_pet_activity_range = range_mode
 	_update_actor_window_bounds()
 	_save_game()
+
+
+func _on_debug_economy_requested(faith_points: float, gold_coins: int) -> void:
+	_faith_points = clampf(faith_points, 0.0, 1_000_000_000_000_000.0)
+	_lifetime_faith = maxf(_lifetime_faith, _faith_points)
+	_gold_coins = clampi(gold_coins, 0, 1_000_000_000_000_000)
+	_pet_upgrade_stats_dirty = true
+	_refresh_pet_stats(true)
+	_refresh_faith_display()
+	_refresh_coin_display()
+	_sync_shop_state()
+	if _settings_window != null and _settings_window.has_method("refresh_debug_values"):
+		_settings_window.call("refresh_debug_values", _faith_points, _gold_coins)
+	_save_game()
+
+
+func _on_debug_event_requested(event_type: String) -> void:
+	if event_type not in ["pilgrimage", "battle"]:
+		return
+	if _event_invitation != null and is_instance_valid(_event_invitation):
+		_event_invitation.queue_free()
+	_event_invitation = null
+	if _pilgrimage_active:
+		_finish_pilgrimage(false)
+	if _battle_active:
+		_finish_battle(true)
+	if event_type == "battle":
+		_start_battle()
+	else:
+		_start_pilgrimage()
 
 
 func _on_language_changed(language_code: String) -> void:

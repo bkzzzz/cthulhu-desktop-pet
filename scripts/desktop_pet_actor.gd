@@ -330,10 +330,13 @@ func set_battle_mode(enabled: bool) -> void:
 		cancel_pointer_capture()
 		_cancel_special_behavior()
 		set_autonomy_paused(true)
-		_set_interaction_enabled(false)
+		# Battle placement is part of the gameplay: players may still grab a pet
+		# and drop it beside a priority target.
+		_set_interaction_enabled(true)
 		z_index = 210
 		_face_direction(-1.0)
 	else:
+		cancel_pointer_capture()
 		z_index = 0
 		set_autonomy_paused(false)
 		_set_interaction_enabled(true)
@@ -363,16 +366,21 @@ func battle_move_toward(target_x: float, delta: float, speed := 230.0) -> bool:
 
 
 func play_battle_attack() -> void:
+	play_battle_attack_toward(-1.0)
+
+
+func play_battle_attack_toward(direction: float) -> void:
 	if not _battle_mode or _sprite == null:
 		return
 	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
 		_battle_motion_tween.kill()
 	var origin_x := position.x
-	_face_direction(-1.0)
+	var attack_direction := -1.0 if direction < 0.0 else 1.0
+	_face_direction(attack_direction)
 	_battle_motion_tween = create_tween()
 	_battle_motion_tween.set_trans(Tween.TRANS_QUAD)
 	_battle_motion_tween.set_ease(Tween.EASE_OUT)
-	_battle_motion_tween.tween_property(self, "position:x", origin_x - 22.0, 0.09)
+	_battle_motion_tween.tween_property(self, "position:x", origin_x + attack_direction * 22.0, 0.09)
 	_battle_motion_tween.tween_property(self, "position:x", origin_x, 0.14)
 
 
@@ -390,6 +398,14 @@ func hide_for_battle_defeat() -> void:
 	_set_interaction_enabled(false)
 	if _sprite != null:
 		_sprite.visible = false
+
+
+func is_battle_ready() -> bool:
+	return (
+		_battle_mode
+		and not _pointer_held
+		and _behavior not in [Behavior.GRABBED, Behavior.FALLING, Behavior.SWALLOWED]
+	)
 
 
 func can_be_swallowed() -> bool:
@@ -477,6 +493,8 @@ func _react_to_emotion(emotion: String) -> void:
 	if _pointer_held or _behavior == Behavior.GRABBED or _behavior == Behavior.FALLING:
 		return
 	if _forced_target_pending:
+		return
+	if _battle_mode:
 		return
 	if _behavior in [Behavior.HIDDEN, Behavior.POPPING]:
 		return
@@ -705,6 +723,8 @@ func _refresh_hover_hint_text() -> void:
 
 func _update_pet(delta: float) -> void:
 	_float_phase += delta * 2.15
+	if _pointer_held and _behavior != Behavior.GRABBED:
+		return
 	if _autonomy_paused and _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
 		if _behavior_style == "sleepy_floater":
 			_settle_floater_height(delta)
@@ -1400,11 +1420,19 @@ func _update_pointer_interaction(delta: float) -> void:
 		_finish_pointer_hold()
 		return
 	_pointer_hold_time += delta
+	if (
+		_behavior != Behavior.GRABBED
+		and _get_pointer_position().distance_to(_press_position) > GRAB_CLICK_TOLERANCE
+	):
+		_begin_grab()
 	if _pointer_hold_time >= POINTER_CAPTURE_TIMEOUT_SECONDS:
 		_finish_pointer_hold(true)
 
 
 func _begin_grab() -> void:
+	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
+		_battle_motion_tween.kill()
+		_battle_motion_tween = null
 	_cancel_special_behavior()
 	_behavior = Behavior.GRABBED
 	z_index = 500
@@ -1428,8 +1456,15 @@ func _finish_pointer_hold(force_cancel := false) -> void:
 	if not _pointer_held and _behavior != Behavior.GRABBED:
 		return
 	_pointer_held = false
+	if _behavior != Behavior.GRABBED:
+		var pointer_distance := INF if force_cancel else _get_pointer_position().distance_to(_press_position)
+		var is_petting_click := not force_cancel and _pointer_hold_time <= PETTING_CLICK_MAX_SECONDS and pointer_distance <= GRAB_CLICK_TOLERANCE
+		_pointer_hold_time = 0.0
+		if is_petting_click:
+			petted.emit(self)
+		return
 	if _behavior == Behavior.GRABBED:
-		z_index = 0
+		z_index = 210 if _battle_mode else 0
 		if _interaction_area != null:
 			_interaction_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		grabbed_changed.emit(self, false)
@@ -1671,12 +1706,11 @@ func _on_gui_input(event: InputEvent) -> void:
 			_press_position = window_position
 			_press_actor_position = position
 			_grab_offset = position - window_position
-			_begin_grab()
 			_interaction_area.accept_event()
 		elif _pointer_held:
 			_finish_pointer_hold()
 			_interaction_area.accept_event()
 	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT and mouse_event.pressed:
-		if is_point_over_opaque_pixel(window_position):
+		if not _battle_mode and is_point_over_opaque_pixel(window_position):
 			recall_requested.emit(self)
 			_interaction_area.accept_event()

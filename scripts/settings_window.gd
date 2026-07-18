@@ -3,6 +3,8 @@ extends Window
 signal activity_range_changed(range_mode: String)
 signal language_changed(language_code: String)
 signal quit_requested
+signal debug_economy_requested(faith_points: float, gold_coins: int)
+signal debug_event_requested(event_type: String)
 
 const WINDOW_SIZE := Vector2i(720, 720)
 const BACKGROUND_TEXTURE := "res://assets/ui/setting/settingUI.png"
@@ -24,6 +26,20 @@ var _total_title_label: Label
 var _total_value_label: Label
 var _exit_button: Button
 var _close_button: Button
+var _root: Control
+var _debug_button: Button
+var _debug_panel: PanelContainer
+var _debug_title_label: Label
+var _debug_hint_label: Label
+var _debug_faith_label: Label
+var _debug_coin_label: Label
+var _debug_faith_spin: SpinBox
+var _debug_coin_spin: SpinBox
+var _debug_apply_button: Button
+var _debug_event_title_label: Label
+var _debug_pilgrimage_button: Button
+var _debug_battle_button: Button
+var _debug_back_button: Button
 var _updating_controls := false
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
@@ -47,6 +63,8 @@ func open_window() -> void:
 func close_window() -> void:
 	visible = false
 	_dragging = false
+	if _debug_panel != null:
+		_debug_panel.visible = false
 
 
 func refresh_runtime(session_seconds: float, total_seconds: float) -> void:
@@ -56,6 +74,13 @@ func refresh_runtime(session_seconds: float, total_seconds: float) -> void:
 		_session_value_label.text = _format_duration(_session_seconds)
 	if _total_value_label != null:
 		_total_value_label.text = _format_duration(_total_seconds)
+
+
+func refresh_debug_values(faith_points: float, gold_coins: int) -> void:
+	if _debug_faith_spin != null:
+		_debug_faith_spin.value = clampf(faith_points, 0.0, _debug_faith_spin.max_value)
+	if _debug_coin_spin != null:
+		_debug_coin_spin.value = clampf(float(gold_coins), 0.0, _debug_coin_spin.max_value)
 
 
 func set_activity_range(activity_range: String) -> void:
@@ -93,12 +118,12 @@ func _configure_window() -> void:
 
 
 func _create_content() -> void:
-	var root := Control.new()
-	root.name = "SettingsRoot"
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root.mouse_filter = Control.MOUSE_FILTER_STOP
-	root.gui_input.connect(_on_root_gui_input)
-	add_child(root)
+	_root = Control.new()
+	_root.name = "SettingsRoot"
+	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_root.gui_input.connect(_on_root_gui_input)
+	add_child(_root)
 
 	var background := TextureRect.new()
 	background.name = "SettingsBackground"
@@ -107,7 +132,7 @@ func _create_content() -> void:
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	background.stretch_mode = TextureRect.STRETCH_SCALE
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(background)
+	_root.add_child(background)
 
 	var panel := PanelContainer.new()
 	panel.name = "SettingsPanel"
@@ -115,7 +140,7 @@ func _create_content() -> void:
 	panel.size = Vector2(436.0, 510.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_PASS
 	panel.add_theme_stylebox_override("panel", _make_panel_style())
-	root.add_child(panel)
+	_root.add_child(panel)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -176,6 +201,16 @@ func _create_content() -> void:
 	_total_value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	total_row.add_child(_total_value_label)
 
+	_debug_button = Button.new()
+	_debug_button.text = "调试选项"
+	_debug_button.custom_minimum_size = Vector2(360.0, 38.0)
+	_debug_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_debug_button.add_theme_font_size_override("font_size", 18)
+	_debug_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.06, 0.08, 0.07, 0.92), Color(0.42, 0.52, 0.38, 0.9)))
+	_debug_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.10, 0.14, 0.10, 0.98), Color(0.68, 0.76, 0.46, 1.0)))
+	_debug_button.pressed.connect(_open_debug_panel)
+	content.add_child(_debug_button)
+
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(spacer)
@@ -203,7 +238,123 @@ func _create_content() -> void:
 	_close_button.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
 	_close_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.18, 0.12, 0.08, 0.72), Color(0.72, 0.58, 0.36, 0.72)))
 	_close_button.pressed.connect(close_window)
-	root.add_child(_close_button)
+	_root.add_child(_close_button)
+	_create_debug_panel()
+
+
+func _create_debug_panel() -> void:
+	_debug_panel = PanelContainer.new()
+	_debug_panel.name = "DebugPanel"
+	_debug_panel.position = Vector2(142.0, 105.0)
+	_debug_panel.size = Vector2(436.0, 510.0)
+	_debug_panel.visible = false
+	_debug_panel.z_index = 20
+	_debug_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_debug_panel.add_theme_stylebox_override("panel", _make_panel_style())
+	_root.add_child(_debug_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 28)
+	margin.add_theme_constant_override("margin_top", 24)
+	margin.add_theme_constant_override("margin_right", 28)
+	margin.add_theme_constant_override("margin_bottom", 24)
+	_debug_panel.add_child(margin)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	margin.add_child(content)
+
+	_debug_title_label = _make_label("调试选项", 28, Color(0.94, 0.84, 0.62, 1.0))
+	_debug_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_debug_title_label)
+	_debug_hint_label = _make_label("数值会立即写入当前存档", 14, Color(0.68, 0.74, 0.66, 1.0))
+	_debug_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_debug_hint_label)
+
+	var faith_row := _make_setting_row()
+	_debug_faith_label = _make_label("信仰值", 18, Color(0.82, 0.86, 0.72, 1.0))
+	_debug_faith_label.custom_minimum_size = Vector2(120.0, 42.0)
+	faith_row.add_child(_debug_faith_label)
+	_debug_faith_spin = _make_debug_spin_box()
+	faith_row.add_child(_debug_faith_spin)
+	content.add_child(faith_row)
+
+	var coin_row := _make_setting_row()
+	_debug_coin_label = _make_label("金币", 18, Color(0.82, 0.86, 0.72, 1.0))
+	_debug_coin_label.custom_minimum_size = Vector2(120.0, 42.0)
+	coin_row.add_child(_debug_coin_label)
+	_debug_coin_spin = _make_debug_spin_box()
+	coin_row.add_child(_debug_coin_spin)
+	content.add_child(coin_row)
+
+	_debug_apply_button = Button.new()
+	_debug_apply_button.text = "应用数值"
+	_debug_apply_button.custom_minimum_size = Vector2(360.0, 38.0)
+	_debug_apply_button.pressed.connect(_on_debug_apply_pressed)
+	content.add_child(_debug_apply_button)
+
+	var divider := HSeparator.new()
+	content.add_child(divider)
+	_debug_event_title_label = _make_label("立即触发事件", 17, Color(0.82, 0.86, 0.72, 1.0))
+	_debug_event_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_debug_event_title_label)
+	var event_row := HBoxContainer.new()
+	event_row.add_theme_constant_override("separation", 10)
+	content.add_child(event_row)
+	_debug_pilgrimage_button = Button.new()
+	_debug_pilgrimage_button.text = "触发朝拜"
+	_debug_pilgrimage_button.custom_minimum_size = Vector2(174.0, 40.0)
+	_debug_pilgrimage_button.pressed.connect(_on_debug_event_pressed.bind("pilgrimage"))
+	event_row.add_child(_debug_pilgrimage_button)
+	_debug_battle_button = Button.new()
+	_debug_battle_button.text = "触发战斗"
+	_debug_battle_button.custom_minimum_size = Vector2(174.0, 40.0)
+	_debug_battle_button.pressed.connect(_on_debug_event_pressed.bind("battle"))
+	event_row.add_child(_debug_battle_button)
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(spacer)
+	_debug_back_button = Button.new()
+	_debug_back_button.text = "返回设置"
+	_debug_back_button.custom_minimum_size = Vector2(360.0, 38.0)
+	_debug_back_button.pressed.connect(_close_debug_panel)
+	content.add_child(_debug_back_button)
+
+
+func _make_debug_spin_box() -> SpinBox:
+	var spin := SpinBox.new()
+	spin.min_value = 0.0
+	spin.max_value = 1_000_000_000_000_000.0
+	spin.step = 1.0
+	spin.rounded = true
+	spin.allow_greater = true
+	spin.custom_minimum_size = Vector2(230.0, 42.0)
+	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spin.add_theme_font_size_override("font_size", 17)
+	return spin
+
+
+func _open_debug_panel() -> void:
+	if _debug_panel != null:
+		_debug_panel.visible = true
+
+
+func _close_debug_panel() -> void:
+	if _debug_panel != null:
+		_debug_panel.visible = false
+
+
+func _on_debug_apply_pressed() -> void:
+	if _debug_faith_spin == null or _debug_coin_spin == null:
+		return
+	debug_economy_requested.emit(_debug_faith_spin.value, int(round(_debug_coin_spin.value)))
+
+
+func _on_debug_event_pressed(event_type: String) -> void:
+	if event_type not in ["pilgrimage", "battle"]:
+		return
+	debug_event_requested.emit(event_type)
+	close_window()
 
 
 func _make_setting_row() -> HBoxContainer:
@@ -275,6 +426,26 @@ func _apply_language() -> void:
 	_session_title_label.text = "Current session" if english else "本次运行时长"
 	_total_title_label.text = "Total play time" if english else "总运行时长"
 	_exit_button.text = "EXIT GAME" if english else "退出游戏"
+	if _debug_button != null:
+		_debug_button.text = "DEBUG OPTIONS" if english else "调试选项"
+	if _debug_title_label != null:
+		_debug_title_label.text = "DEBUG OPTIONS" if english else "调试选项"
+	if _debug_hint_label != null:
+		_debug_hint_label.text = "Values are written to the current save immediately" if english else "数值会立即写入当前存档"
+	if _debug_faith_label != null:
+		_debug_faith_label.text = "Faith" if english else "信仰值"
+	if _debug_coin_label != null:
+		_debug_coin_label.text = "Gold" if english else "金币"
+	if _debug_apply_button != null:
+		_debug_apply_button.text = "APPLY VALUES" if english else "应用数值"
+	if _debug_event_title_label != null:
+		_debug_event_title_label.text = "START EVENT NOW" if english else "立即触发事件"
+	if _debug_pilgrimage_button != null:
+		_debug_pilgrimage_button.text = "START PILGRIMAGE" if english else "触发朝拜"
+	if _debug_battle_button != null:
+		_debug_battle_button.text = "START BATTLE" if english else "触发战斗"
+	if _debug_back_button != null:
+		_debug_back_button.text = "BACK TO SETTINGS" if english else "返回设置"
 
 	_updating_controls = true
 	_range_options.clear()

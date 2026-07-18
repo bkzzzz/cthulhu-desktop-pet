@@ -20,22 +20,22 @@ const DEFINITIONS := {
 	"villager1": {
 		"move": "res://assets/enemyCharacter/villagers/villager1Run.png",
 		"attack": "res://assets/enemyCharacter/villagers/villager1Attack.png",
-		"hp": 2.6, "damage": 0.16, "speed": 76.0, "reward": 7, "ranged": false
+		"hp": 2.6, "damage": 0.16, "speed": 154.0, "reward": 7, "ranged": false
 	},
 	"villager2": {
 		"move": "res://assets/enemyCharacter/villagers/villager2Run.png",
 		"attack": "res://assets/enemyCharacter/villagers/villager2Attack.png",
-		"hp": 2.8, "damage": 0.17, "speed": 72.0, "reward": 8, "ranged": false
+		"hp": 2.8, "damage": 0.17, "speed": 148.0, "reward": 8, "ranged": false
 	},
 	"soldier1": {
 		"move": "res://assets/enemyCharacter/soldiers/soldier1Idle.png",
 		"attack": "res://assets/enemyCharacter/soldiers/soldier1Attack.png",
-		"hp": 3.8, "damage": 0.23, "speed": 66.0, "reward": 11, "ranged": false
+		"hp": 3.8, "damage": 0.23, "speed": 136.0, "reward": 11, "ranged": false
 	},
 	"soldier2": {
 		"move": "res://assets/enemyCharacter/soldiers/soldier2Idle.png",
 		"attack": "res://assets/enemyCharacter/soldiers/soldier2Attack.png",
-		"hp": 3.1, "damage": 0.19, "speed": 56.0, "reward": 12, "ranged": true
+		"hp": 3.1, "damage": 0.19, "speed": 124.0, "reward": 12, "ranged": true
 	}
 }
 
@@ -54,6 +54,7 @@ var _sprite: AnimatedSprite2D
 var _attack_cooldown := 0.0
 var _attack_windup := 0.0
 var _attack_pending := false
+var _attack_animation_remaining := 0.0
 var _dead := false
 var _entered := false
 var _ground_y := 0.0
@@ -81,27 +82,39 @@ func _process(delta: float) -> void:
 		return
 	var safe_delta := maxf(0.0, delta)
 	_attack_cooldown = maxf(0.0, _attack_cooldown - safe_delta)
+	if _attack_animation_remaining > 0.0:
+		_attack_animation_remaining = maxf(0.0, _attack_animation_remaining - safe_delta)
 	if _attack_pending:
 		_attack_windup -= safe_delta
 		if _attack_windup <= 0.0:
 			_attack_pending = false
-			if _target != null and is_instance_valid(_target):
+			if _target != null and is_instance_valid(_target) and _is_target_in_attack_range():
 				attack_landed.emit(self, _target, _damage)
+	if _attack_animation_remaining > 0.0:
 		return
 	if _target == null or not is_instance_valid(_target):
-		_play_move()
+		_play_run()
 		return
 
-	var stop_distance := 190.0 if is_ranged else 68.0
+	var stop_distance := 145.0 if is_ranged else 68.0
 	var distance_x := _target.position.x - position.x
-	if distance_x > stop_distance:
-		position.x += minf(distance_x - stop_distance, _move_speed * safe_delta)
-		_play_move()
+	var distance_abs := absf(distance_x)
+	_face_target(distance_x)
+	if distance_abs > stop_distance:
+		position.x += signf(distance_x) * minf(distance_abs - stop_distance, _move_speed * safe_delta)
+		_play_run()
 		_entered = true
+	elif is_ranged and distance_abs < 92.0:
+		# Archers try to preserve a small firing lane. A player can still deny it
+		# by dropping a pet directly beside them.
+		position.x -= signf(distance_x) * _move_speed * 0.48 * safe_delta
+		_play_run()
 	elif _attack_cooldown <= 0.0:
 		_begin_attack()
 	else:
-		_play_move()
+		# No separate villager idle sheet exists; a slowed run/idle sheet keeps
+		# the line alive between attack cycles.
+		_play_run(0.42)
 	position.y = _ground_y
 
 
@@ -131,7 +144,9 @@ func _create_sprite(data: Dictionary) -> void:
 	_sprite.name = "EnemySprite"
 	_sprite.sprite_frames = _get_or_build_frames(enemy_id, data)
 	_sprite.centered = true
-	_sprite.position.y = -64.0
+	# The authored frame feet sit around +62 from frame centre. A small positive
+	# overlap places them on the taskbar instead of hovering above it.
+	_sprite.position.y = -55.0
 	_sprite.scale = Vector2.ONE * (0.82 if enemy_id.begins_with("villager") else 0.86)
 	_sprite.flip_h = false
 	_sprite.z_index = 180
@@ -144,7 +159,7 @@ func _create_sprite(data: Dictionary) -> void:
 			material.set_shader_parameter("key_color", image.get_pixel(0, 0))
 	_sprite.material = material
 	add_child(_sprite)
-	_play_move()
+	_play_run()
 
 
 static func _get_chroma_shader() -> Shader:
@@ -159,7 +174,7 @@ static func _get_or_build_frames(cache_key: String, data: Dictionary) -> SpriteF
 		return _frames_cache[cache_key]
 	var frames := SpriteFrames.new()
 	frames.remove_animation("default")
-	_add_atlas_animation(frames, "move", String(data.get("move", "")), 4, 3, 9.0, true)
+	_add_atlas_animation(frames, "run", String(data.get("move", "")), 4, 3, 10.0, true)
 	_add_atlas_animation(frames, "attack", String(data.get("attack", "")), 4, 4, 12.0, false)
 	_frames_cache[cache_key] = frames
 	return frames
@@ -189,16 +204,33 @@ static func _add_atlas_animation(
 			frames.add_frame(animation_name, atlas)
 
 
-func _play_move() -> void:
-	if _sprite.animation != "move" or not _sprite.is_playing():
-		_sprite.play("move")
+func _play_run(speed_scale := 1.0) -> void:
+	_sprite.speed_scale = maxf(0.05, speed_scale)
+	if _sprite.animation != "run" or not _sprite.is_playing():
+		_sprite.play("run")
 
 
 func _begin_attack() -> void:
-	_attack_cooldown = _rng.randf_range(1.65, 2.25) if is_ranged else _rng.randf_range(1.35, 1.9)
+	_attack_cooldown = _rng.randf_range(1.55, 1.85) if is_ranged else _rng.randf_range(1.30, 1.60)
 	_attack_windup = 0.48 if is_ranged else 0.28
 	_attack_pending = true
+	_attack_animation_remaining = 1.22
+	_sprite.speed_scale = 1.0
 	_sprite.play("attack")
+
+
+func _is_target_in_attack_range() -> bool:
+	if _target == null or not is_instance_valid(_target):
+		return false
+	var hit_range := 235.0 if is_ranged else 92.0
+	return absf(_target.position.x - position.x) <= hit_range
+
+
+func _face_target(distance_x: float) -> void:
+	if _sprite == null or is_zero_approx(distance_x):
+		return
+	# All current sheets are authored facing right.
+	_sprite.flip_h = distance_x < 0.0
 
 
 func _flash_red() -> void:

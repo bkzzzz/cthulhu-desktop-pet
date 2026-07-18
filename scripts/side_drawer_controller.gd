@@ -476,9 +476,9 @@ func _create_drawer_window() -> void:
 func _create_era_label() -> void:
 	_era_label = Label.new()
 	_era_label.name = "EraDisplay"
-	_era_label.position = Vector2(DRAWER_PANEL_WIDTH - 310.0, 8.0)
-	_era_label.size = Vector2(278.0, 32.0)
-	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_era_label.position = Vector2(DRAWER_CONTENT_MARGIN_X, 8.0)
+	_era_label.size = Vector2(300.0, 32.0)
+	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_era_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_era_label.z_index = 12

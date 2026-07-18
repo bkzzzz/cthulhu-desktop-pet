@@ -6,8 +6,7 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
-	if DesktopPetActor.GRAB_HOLD_SECONDS != 0.0:
-		failures.append("pet grabbing must begin on the press frame")
+	_test_click_waits_for_drag_threshold(failures)
 	_test_catalog_movement_tuning(failures)
 	_test_sleep_transition(failures)
 	_test_generic_doze(failures)
@@ -23,6 +22,20 @@ static func run() -> Array[String]:
 	_test_grab_offset(failures)
 	_test_burrow_reaction(failures)
 	return failures
+
+
+static func _test_click_waits_for_drag_threshold(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet1", Vector2i(820, 420), 72.0, 724.0, 320.0)
+	var start_position := actor.position
+	var start_behavior := int(actor.get("_behavior"))
+	actor.set("_pointer_held", true)
+	actor.call("_update_pet", 0.1)
+	if not actor.position.is_equal_approx(start_position):
+		failures.append("pressing a pet without crossing the drag threshold must not move it")
+	if int(actor.get("_behavior")) != start_behavior:
+		failures.append("a plain pet click must not enter grabbed behavior")
+	actor.free()
 
 
 static func _test_catalog_movement_tuning(failures: Array[String]) -> void:

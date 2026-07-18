@@ -206,7 +206,27 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("settings must display the current session runtime")
 	if total_label == null or total_label.text != "01:02:03":
 		failures.append("settings must display the persisted total runtime")
+	settings.refresh_debug_values(12345.0, 6789)
+	var faith_spin := settings.get("_debug_faith_spin") as SpinBox
+	var coin_spin := settings.get("_debug_coin_spin") as SpinBox
+	if faith_spin == null or not is_equal_approx(faith_spin.value, 12345.0):
+		failures.append("settings debug options must load the current faith value")
+	if coin_spin == null or int(coin_spin.value) != 6789:
+		failures.append("settings debug options must load the current gold value")
+	var debug_events: Array[String] = []
+	settings.debug_event_requested.connect(func(event_type: String) -> void: debug_events.append(event_type))
+	settings.call("_on_debug_event_pressed", "pilgrimage")
+	settings.call("_on_debug_event_pressed", "battle")
+	if debug_events != ["pilgrimage", "battle"]:
+		failures.append("settings debug options must expose direct pilgrimage and battle triggers")
 	settings.free()
+
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.call("_on_debug_economy_requested", 98765.0, 43210)
+	if not is_equal_approx(float(main.get("_faith_points")), 98765.0) or int(main.get("_gold_coins")) != 43210:
+		failures.append("debug economy changes must immediately replace faith and gold")
+	main.free()
 
 
 static func _test_believer_drop_signal(failures: Array[String]) -> void:
