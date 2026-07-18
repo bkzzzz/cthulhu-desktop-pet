@@ -13,6 +13,7 @@ signal menu_handle_moved(anchor: float)
 
 # Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
 
 # Window and drawer layout
 const DESKTOP_MARGIN_X := 24
@@ -108,6 +109,7 @@ var _drawer_background: TextureRect
 var _drawer_panel: PanelContainer
 var _drawer_symbol_layer: Control
 var _drawer_symbols: Array[TextureRect] = []
+var _era_label: Label
 var _upgrade_detail_panel: PanelContainer
 var _upgrade_detail_window: Window
 var _upgrade_detail_name_edit: LineEdit
@@ -157,6 +159,7 @@ var _upgrade_cost_labels := {}
 var _upgrade_bonus_labels := {}
 var _upgrade_last_levels := {}
 var _upgrade_affordables := {}
+var _upgrade_recovery_rings := {}
 var _ui_theme: Theme
 var _ui_font: Font
 var _upgrade_row_texture: Texture2D
@@ -222,6 +225,7 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		var level_label := _upgrade_level_labels.get(pet_id) as Label
 		var name_label := _upgrade_name_labels.get(pet_id) as Label
 		var level := _get_upgrade_level(entry)
+		var recovering := bool(entry.get("recovering", false))
 		if name_label != null:
 			name_label.text = String(entry.get("name", _get_pet_display_name(pet_id, PetCatalog.get_definition(pet_id))))
 			_fit_font_to_text(name_label, name_label.text, 19, 12, 12)
@@ -239,6 +243,11 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		if upgrade_button != null:
 			_set_upgrade_row_affordable(upgrade_button, affordable)
 			upgrade_button.tooltip_text = _get_upgrade_tooltip_text(entry)
+		var recovery_ring := _upgrade_recovery_rings.get(pet_id) as Control
+		if recovery_ring != null:
+			recovery_ring.visible = recovering
+			if recovering:
+				recovery_ring.call("set_progress", float(entry.get("recovery_progress", 0.0)))
 
 		if cost_label != null:
 			cost_label.text = _get_upgrade_cost_text(entry)
@@ -254,6 +263,11 @@ func refresh_pet_upgrades(entries: Array) -> void:
 	if _upgrade_detail_window != null and _upgrade_detail_window.visible and not _upgrade_detail_pet_id.is_empty():
 		if _upgrade_detail_source_button != null and is_instance_valid(_upgrade_detail_source_button):
 			_show_upgrade_detail_panel(_upgrade_detail_pet_id, _upgrade_detail_source_button)
+
+
+func refresh_era(display_text: String) -> void:
+	if _era_label != null:
+		_era_label.text = display_text
 
 
 func refresh_followers(follower_count: int, growth_rate: float) -> void:
@@ -426,6 +440,7 @@ func _create_drawer_window() -> void:
 	_drawer_root.add_child(_drawer_panel)
 	_create_drawer_symbol_layer()
 	_create_upgrade_detail_panel()
+	_create_era_label()
 
 	var margin := MarginContainer.new()
 	margin.z_index = 2
@@ -456,6 +471,22 @@ func _create_drawer_window() -> void:
 
 	set_language(_language)
 	_refresh_drawer_geometry(false)
+
+
+func _create_era_label() -> void:
+	_era_label = Label.new()
+	_era_label.name = "EraDisplay"
+	_era_label.position = Vector2(DRAWER_PANEL_WIDTH - 310.0, 8.0)
+	_era_label.size = Vector2(278.0, 32.0)
+	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_era_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_era_label.z_index = 12
+	_era_label.add_theme_font_size_override("font_size", 17)
+	_era_label.add_theme_color_override("font_color", Color(0.94, 0.82, 0.48, 0.98))
+	_era_label.add_theme_color_override("font_outline_color", Color(0.02, 0.025, 0.02, 1.0))
+	_era_label.add_theme_constant_override("outline_size", 3)
+	_drawer_panel.add_child(_era_label)
 
 
 func _make_drawer_background_texture() -> Texture2D:
@@ -814,6 +845,7 @@ func _make_upgrade_column() -> Control:
 	_upgrade_buttons.clear()
 	_upgrade_last_levels.clear()
 	_upgrade_affordables.clear()
+	_upgrade_recovery_rings.clear()
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		column.add_child(_make_pet_upgrade_row(String(pet_id_value)))
 	for index in UPGRADE_LOCKED_ROWS:
@@ -835,7 +867,7 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	button.pressed.connect(_on_pet_upgrade_pressed.bind(pet_id, button))
 	_upgrade_buttons[pet_id] = button
 
-	button.add_child(_make_upgrade_profile_box(pet_data))
+	button.add_child(_make_upgrade_profile_box(pet_id, pet_data))
 
 	var name_label := Label.new()
 	name_label.text = _get_pet_display_name(pet_id, pet_data)
@@ -947,7 +979,7 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	return button
 
 
-func _make_upgrade_profile_box(pet_data: Dictionary) -> Control:
+func _make_upgrade_profile_box(pet_id: String, pet_data: Dictionary) -> Control:
 	var slot := PanelContainer.new()
 	slot.name = "UpgradeProfileBox"
 	slot.position = Vector2(17, 28)
@@ -970,6 +1002,15 @@ func _make_upgrade_profile_box(pet_data: Dictionary) -> Control:
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	center.add_child(icon)
+
+	var recovery_ring: Control = RecoveryProgressRing.new()
+	recovery_ring.name = "%sRecoveryRing" % pet_id
+	recovery_ring.position = Vector2(3.0, 3.0)
+	recovery_ring.size = Vector2(62.0, 62.0)
+	recovery_ring.z_index = 5
+	recovery_ring.visible = false
+	slot.add_child(recovery_ring)
+	_upgrade_recovery_rings[pet_id] = recovery_ring
 
 	return slot
 
@@ -1306,6 +1347,12 @@ func _get_upgrade_gain_text(entry: Dictionary) -> String:
 
 
 func _get_money_rate_text(entry: Dictionary) -> String:
+	if bool(entry.get("recovering", false)):
+		return (
+			"RECOVERING  %s remaining\nProduction is paused until recovery finishes"
+			if _language == "en"
+			else "休整中  剩余 %s\n休整完成前暂停全部产出"
+		) % _format_duration(float(entry.get("recovery_seconds_remaining", 0.0)))
 	var current_rate := maxf(0.0, float(entry.get("current_money_rate", 0.0)))
 	var next_rate := maxf(current_rate, float(entry.get("next_money_rate", current_rate)))
 	var gain := maxf(0.0, float(entry.get("money_rate_gain", next_rate - current_rate)))
@@ -1314,6 +1361,11 @@ func _get_money_rate_text(entry: Dictionary) -> String:
 		if _language == "en"
 		else "金钱增速  $%s/分钟\n下一级  +$%s/分钟 · 需用鼠标收集掉落钱币"
 	) % [_format_number(current_rate, true), _format_number(gain, true)]
+
+
+func _format_duration(seconds: float) -> String:
+	var safe_seconds := maxi(0, int(ceil(seconds)))
+	return "%02d:%02d" % [int(safe_seconds / 60), safe_seconds % 60]
 
 
 func _get_rarity_stars(entry: Dictionary, pet_data: Dictionary) -> int:
@@ -1347,6 +1399,8 @@ func _get_pet_profile_text(entry: Dictionary, pet_data: Dictionary) -> String:
 
 
 func _get_upgrade_tooltip_text(entry: Dictionary) -> String:
+	if bool(entry.get("recovering", false)):
+		return ("Recovering · %s remaining" if _language == "en" else "休整中 · 剩余 %s") % _format_duration(float(entry.get("recovery_seconds_remaining", 0.0)))
 	if bool(entry.get("is_max_level", false)):
 		return "Maximum level" if _language == "en" else "宠物已满级"
 	return "Upgrade faith and dropped-money production" if _language == "en" else "点击升级宠物，提高信仰与金钱掉落"

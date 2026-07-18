@@ -14,6 +14,7 @@ static func run() -> Array[String]:
 	_test_hide_then_pop(failures)
 	_test_air_roaming(failures)
 	_test_floater_interaction_height(failures)
+	_test_new_pet_visible_boundaries(failures)
 	_test_ground_alignment(failures)
 	_test_pet6_taskbar_alignment_and_wall_rule(failures)
 	_test_pet7_directional_roll(failures)
@@ -299,6 +300,21 @@ static func _test_floater_interaction_height(failures: Array[String]) -> void:
 	if descended_height <= airborne_height or descended_height >= low_air_bounds.x:
 		failures.append("a flying pet dragged high must descend gradually toward low altitude")
 	actor.free()
+
+
+static func _test_new_pet_visible_boundaries(failures: Array[String]) -> void:
+	for pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+		var actor := DesktopPetActor.new()
+		actor.setup(pet_id, Vector2i(1600, 1000), 0.0, 1600.0, 800.0, 984.0, false)
+		actor.position = Vector2(float(actor.get("_min_x")), float(actor.call("_get_drag_min_y")))
+		var top_left_rect: Rect2 = actor.call("_get_sprite_visual_rect")
+		if top_left_rect.position.x < -0.01 or top_left_rect.position.y < -0.01:
+			failures.append("%s must keep its full head and side silhouette visible at movement boundaries" % pet_id)
+		actor.position = Vector2(float(actor.get("_max_x")), float(actor.call("_get_drag_max_y")))
+		var bottom_right_rect: Rect2 = actor.call("_get_sprite_visual_rect")
+		if bottom_right_rect.end.x > 1600.01 or bottom_right_rect.end.y > 984.01:
+			failures.append("%s must stay inside the usable desktop while moving or being dragged" % pet_id)
+		actor.free()
 
 
 static func _test_pet11_swallow_cycle(failures: Array[String]) -> void:

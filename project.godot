@@ -24,8 +24,8 @@ boot_splash/image="res://assets/ui/starterUi/加载图标.png"
 config/icon="res://assets/ui/starterUi/启动icon.png"
 boot_splash/minimum_display_time=0
 run/low_processor_mode=true
-run/low_processor_mode_sleep_usec=10000
-run/max_fps=30
+run/low_processor_mode_sleep_usec=2000
+run/max_fps=60
 
 [display]
 

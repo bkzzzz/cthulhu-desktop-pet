@@ -4,6 +4,7 @@ signal pet_deploy_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
 
 const WINDOW_SIZE := Vector2i(1160, 850)
 const DISPLAY_SIZE := Vector2(1128.0, 826.0)
@@ -28,6 +29,7 @@ var _root: Control
 var _page_label: Label
 var _slot_controls: Array[Control] = []
 var _slot_icons: Array[TextureRect] = []
+var _slot_recovery_rings: Array[Control] = []
 var _empty_label: Label
 var _detail_panel: PanelContainer
 var _detail_icon: TextureRect
@@ -72,6 +74,11 @@ func add_pet(pet_id: String, custom_name := "") -> void:
 		entry["name"] = custom_name.strip_edges()
 	_pets.append(entry)
 	_refresh_page()
+
+
+func set_pets(next_pets: Array[Dictionary]) -> void:
+	_pets = next_pets.duplicate(true)
+	_refresh_page(true)
 
 
 func remove_pet(pet_id: String) -> bool:
@@ -163,6 +170,7 @@ func _create_content() -> void:
 func _create_slot_layer() -> void:
 	_slot_controls.clear()
 	_slot_icons.clear()
+	_slot_recovery_rings.clear()
 	_root.add_child(_make_slot_grid("LeftInventorySlots", LEFT_GRID_POSITION, 0))
 	_root.add_child(_make_slot_grid("RightInventorySlots", RIGHT_GRID_POSITION, SLOTS_PER_SIDE))
 
@@ -200,6 +208,15 @@ func _make_slot_grid(grid_name: String, grid_position: Vector2, slot_offset: int
 		icon.visible = false
 		center.add_child(icon)
 		_slot_icons.append(icon)
+
+		var recovery_ring: Control = RecoveryProgressRing.new()
+		recovery_ring.name = "RecoveryRing%d" % (slot_offset + index)
+		recovery_ring.position = Vector2(5.0, 5.0)
+		recovery_ring.size = Vector2(72.0, 72.0)
+		recovery_ring.z_index = 4
+		recovery_ring.visible = false
+		slot.add_child(recovery_ring)
+		_slot_recovery_rings.append(recovery_ring)
 
 	return grid
 
@@ -385,7 +402,10 @@ func _make_arrow_button(direction: int) -> TextureButton:
 	return button
 
 
-func _refresh_page() -> void:
+func _refresh_page(keep_detail := false) -> void:
+	var detail_pet_id := ""
+	if keep_detail and _detail_panel != null and _detail_panel.visible and _detail_slot_index >= 0 and _detail_slot_index < _pets.size():
+		detail_pet_id = String(_pets[_detail_slot_index].get("id", ""))
 	var page_count := _get_page_count()
 	_page = clampi(_page, 0, page_count - 1)
 
@@ -402,19 +422,33 @@ func _refresh_page() -> void:
 		var pet_index := page_start + slot_index
 		var slot := _slot_controls[slot_index]
 		var icon := _slot_icons[slot_index]
+		var recovery_ring := _slot_recovery_rings[slot_index]
 		var has_pet := pet_index < _pets.size()
 		slot.mouse_filter = Control.MOUSE_FILTER_STOP if has_pet else Control.MOUSE_FILTER_IGNORE
 		slot.tooltip_text = ""
 		icon.visible = has_pet
+		recovery_ring.visible = false
 		if has_pet:
 			var pet_data := _pets[pet_index]
 			icon.texture = PetCatalog.make_icon_texture(String(pet_data.get("texture", "")))
-			slot.tooltip_text = ("View: %s" if _language == "en" else "查看：%s") % String(pet_data.get("name", pet_data.get("id", "")))
+			var recovering := bool(pet_data.get("recovering", false))
+			if recovering:
+				recovery_ring.visible = true
+				recovery_ring.call("set_progress", float(pet_data.get("recovery_progress", 0.0)))
+				var remaining_text := _format_duration(float(pet_data.get("recovery_seconds_remaining", 0.0)))
+				slot.tooltip_text = ("Recovering · %s remaining" if _language == "en" else "休整中 · 剩余 %s") % remaining_text
+			else:
+				slot.tooltip_text = ("View: %s" if _language == "en" else "查看：%s") % String(pet_data.get("name", pet_data.get("id", "")))
 			pet_count_on_page += 1
 
 	if _empty_label != null:
 		_empty_label.visible = pet_count_on_page == 0
 	if _detail_panel != null and _detail_panel.visible:
+		if keep_detail and not detail_pet_id.is_empty():
+			for pet_index in _pets.size():
+				if String(_pets[pet_index].get("id", "")) == detail_pet_id:
+					_show_detail_panel(pet_index)
+					return
 		_hide_detail_panel()
 
 
@@ -513,6 +547,16 @@ func _show_detail_panel(pet_index: int) -> void:
 		String(pet_data.get("age_text", pet_data.get("age", "不详"))),
 		String(pet_data.get("personality", "不详"))
 	]
+	var recovering := bool(entry.get("recovering", false))
+	if recovering:
+		var remaining_text := _format_duration(float(entry.get("recovery_seconds_remaining", 0.0)))
+		_detail_desc_label.text += ("\nRecovery remaining  %s" if _language == "en" else "\n休整剩余  %s") % remaining_text
+	_detail_deploy_button.disabled = recovering
+	_detail_deploy_button.text = (
+		("Recovering" if _language == "en" else "休整中")
+		if recovering
+		else ("Return to desktop" if _language == "en" else "放回桌面")
+	)
 	_detail_panel.visible = true
 
 
@@ -555,12 +599,19 @@ func _deploy_detail_pet() -> void:
 		return
 
 	var entry := _pets[_detail_slot_index]
+	if bool(entry.get("recovering", false)):
+		return
 	var pet_id := String(entry.get("id", ""))
 	if pet_id.is_empty():
 		return
 
 	pet_deploy_requested.emit(pet_id)
 	_hide_detail_panel()
+
+
+func _format_duration(seconds: float) -> String:
+	var safe_seconds := maxi(0, int(ceil(seconds)))
+	return "%02d:%02d" % [int(safe_seconds / 60), safe_seconds % 60]
 
 
 func _on_root_gui_input(event: InputEvent) -> void:

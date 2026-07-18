@@ -152,6 +152,8 @@ var _interaction_enabled := true
 var _activity_restricted := false
 var _autonomy_paused := false
 var _autonomy_previous_speed_scale := 1.0
+var _battle_mode := false
+var _battle_motion_tween: Tween
 var _swallow_phase := SwallowPhase.NONE
 var _swallow_progress := 0.0
 var _swallow_hold_time := 0.0
@@ -291,7 +293,7 @@ func set_window_bounds(
 	_target_x = clampf(_target_x, _min_x, _max_x)
 	_pop_target_position.x = clampf(_pop_target_position.x, _min_x, _max_x)
 	if _behavior_style == "sleepy_floater":
-		_float_anchor_y = clampf(_float_anchor_y, 32.0, _get_rest_y())
+		_float_anchor_y = clampf(_float_anchor_y, _get_drag_min_y(), _get_rest_y())
 	_update_interaction_area()
 
 
@@ -315,6 +317,79 @@ func set_autonomy_paused(paused: bool) -> void:
 
 func is_autonomy_paused() -> bool:
 	return _autonomy_paused
+
+
+func set_battle_mode(enabled: bool) -> void:
+	if _battle_mode == enabled:
+		return
+	_battle_mode = enabled
+	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
+		_battle_motion_tween.kill()
+		_battle_motion_tween = null
+	if enabled:
+		cancel_pointer_capture()
+		_cancel_special_behavior()
+		set_autonomy_paused(true)
+		_set_interaction_enabled(false)
+		z_index = 210
+		_face_direction(-1.0)
+	else:
+		z_index = 0
+		set_autonomy_paused(false)
+		_set_interaction_enabled(true)
+		if _behavior_style != "sleepy_floater":
+			position.y = _get_rest_y()
+		_start_idle()
+
+
+func battle_move_toward(target_x: float, delta: float, speed := 230.0) -> bool:
+	if not _battle_mode or _sprite == null:
+		return false
+	var safe_target := clampf(target_x, _min_x, _max_x)
+	var step := maxf(1.0, speed) * maxf(0.0, delta)
+	position.x = move_toward(position.x, safe_target, step)
+	_face_direction(safe_target - position.x if not is_equal_approx(position.x, safe_target) else -1.0)
+	if absf(position.x - safe_target) > 2.0:
+		if _sprite.animation != "walk":
+			_sprite.play("walk")
+	else:
+		_sprite.play("idle")
+	if _behavior_style != "sleepy_floater":
+		position.y = _get_rest_y()
+	else:
+		_settle_floater_height(maxf(0.0, delta))
+		_apply_floating_position(_float_bob_amplitude)
+	return absf(position.x - safe_target) <= 2.0
+
+
+func play_battle_attack() -> void:
+	if not _battle_mode or _sprite == null:
+		return
+	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
+		_battle_motion_tween.kill()
+	var origin_x := position.x
+	_face_direction(-1.0)
+	_battle_motion_tween = create_tween()
+	_battle_motion_tween.set_trans(Tween.TRANS_QUAD)
+	_battle_motion_tween.set_ease(Tween.EASE_OUT)
+	_battle_motion_tween.tween_property(self, "position:x", origin_x - 22.0, 0.09)
+	_battle_motion_tween.tween_property(self, "position:x", origin_x, 0.14)
+
+
+func receive_battle_hit(knockback := 14.0) -> void:
+	if not _battle_mode or _sprite == null:
+		return
+	position.x = clampf(position.x + maxf(0.0, knockback), _min_x, _max_x)
+	var flash := create_tween()
+	flash.tween_property(_sprite, "modulate", Color(1.0, 0.18, 0.18, 1.0), 0.05)
+	flash.tween_property(_sprite, "modulate", Color.WHITE, 0.16)
+
+
+func hide_for_battle_defeat() -> void:
+	_battle_mode = false
+	_set_interaction_enabled(false)
+	if _sprite != null:
+		_sprite.visible = false
 
 
 func can_be_swallowed() -> bool:
@@ -1045,7 +1120,7 @@ func _choose_air_roam_destination() -> Vector2:
 
 func _get_air_roam_y_bounds() -> Vector2:
 	var rest_y := _get_rest_y()
-	var upper_y := maxf(32.0, rest_y - AIR_ROAM_MAX_HEIGHT)
+	var upper_y := maxf(_get_drag_min_y(), rest_y - AIR_ROAM_MAX_HEIGHT)
 	var lower_y := clampf(rest_y - AIR_ROAM_MIN_HEIGHT, upper_y, rest_y)
 	return Vector2(upper_y, lower_y)
 
@@ -1345,7 +1420,7 @@ func _update_grabbed_position() -> void:
 	var mouse_position := _get_pointer_position()
 	var target := mouse_position + _grab_offset
 	target.x = clampf(target.x, _get_drag_min_x(), _get_drag_max_x())
-	target.y = clampf(target.y, 32.0, float(_window_size.y) - 12.0)
+	target.y = clampf(target.y, _get_drag_min_y(), _get_drag_max_y())
 	position = target
 
 
@@ -1367,7 +1442,7 @@ func _finish_pointer_hold(force_cancel := false) -> void:
 			_start_idle()
 			petted.emit(self)
 		elif _behavior_style == "sleepy_floater":
-			_float_anchor_y = clampf(position.y, 32.0, _get_rest_y())
+			_float_anchor_y = clampf(position.y, _get_drag_min_y(), _get_rest_y())
 			position.y = _float_anchor_y
 			_start_idle()
 		else:
@@ -1425,6 +1500,27 @@ func _get_drag_min_x() -> float:
 
 func _get_drag_max_x() -> float:
 	return _max_x
+
+
+func _get_drag_min_y() -> float:
+	if _stable_hit_image == null or _stable_hit_image.is_empty():
+		return 32.0
+	var bounds := _stable_hit_image.get_used_rect()
+	if bounds.size == Vector2i.ZERO:
+		return 32.0
+	var local_top := float(bounds.position.y) - (float(_stable_hit_image.get_height()) * 0.5)
+	return maxf(24.0, (-local_top * _pet_scale) + 6.0)
+
+
+func _get_drag_max_y() -> float:
+	if _stable_hit_image == null or _stable_hit_image.is_empty():
+		return float(_window_size.y) - 12.0
+	var bounds := _stable_hit_image.get_used_rect()
+	if bounds.size == Vector2i.ZERO:
+		return float(_window_size.y) - 12.0
+	var local_bottom := float(bounds.end.y) - (float(_stable_hit_image.get_height()) * 0.5)
+	var bottom_inset := maxf(12.0, (local_bottom * _pet_scale) + 6.0)
+	return maxf(_get_drag_min_y(), clampf(_stage_ground_y, 0.0, float(_window_size.y)) - bottom_inset)
 
 
 func _get_wall_x() -> float:

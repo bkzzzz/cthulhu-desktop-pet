@@ -5,14 +5,23 @@ signal collected(actor: Node2D, coin_type: String, value: int)
 const COIN_TEXTURES := {
 	"R": "res://assets/ui/coins/MonedaR.png",
 	"P": "res://assets/ui/coins/MonedaP.png",
-	"D": "res://assets/ui/coins/MonedaD.png"
+	"D": "res://assets/ui/coins/MonedaD.png",
+	"C": "res://assets/ui/coins/spr_coin_roj.png",
+	"S": "res://assets/ui/coins/spr_coin_gri.png",
+	"G": "res://assets/ui/coins/spr_coin_ama.png"
 }
 const COIN_VALUES := {
 	"R": 1,
 	"P": 5,
-	"D": 50
+	"D": 50,
+	"C": 100,
+	"S": 250,
+	"G": 500
 }
+const CRYSTAL_NAMES_ZH := {"C": "铜晶", "S": "银晶", "G": "金晶"}
+const CRYSTAL_NAMES_EN := {"C": "COPPER CRYSTAL", "S": "SILVER CRYSTAL", "G": "GOLD CRYSTAL"}
 const SHEET_FRAMES := 5
+const CRYSTAL_SHEET_FRAMES := 4
 const COIN_SCALE := 2.65
 const GRAVITY := 980.0
 const MAGNET_RADIUS := 150.0
@@ -47,6 +56,17 @@ static func get_coin_value(type_id: String) -> int:
 
 static func get_coin_texture(type_id: String) -> String:
 	return String(COIN_TEXTURES.get(type_id.to_upper(), ""))
+
+
+static func get_sheet_frame_count(type_id: String) -> int:
+	return CRYSTAL_SHEET_FRAMES if type_id.to_upper() in ["C", "S", "G"] else SHEET_FRAMES
+
+
+static func get_drop_label(type_id: String, language_code := "zh") -> String:
+	var safe_type := type_id.to_upper()
+	if language_code == "en":
+		return String(CRYSTAL_NAMES_EN.get(safe_type, safe_type))
+	return String(CRYSTAL_NAMES_ZH.get(safe_type, safe_type))
 
 
 func setup(type_id: String, start_position: Vector2, window_size: Vector2i, ground_y: float) -> void:
@@ -133,12 +153,15 @@ static func _get_shared_frames(type_id: String) -> SpriteFrames:
 	var cached := _frames_cache.get(safe_type) as SpriteFrames
 	if cached != null:
 		return cached
-	var frames := _build_frames(get_coin_texture(safe_type))
+	var frames := _build_frames(
+		get_coin_texture(safe_type),
+		get_sheet_frame_count(safe_type)
+	)
 	_frames_cache[safe_type] = frames
 	return frames
 
 
-static func _build_frames(texture_path: String) -> SpriteFrames:
+static func _build_frames(texture_path: String, frame_count: int) -> SpriteFrames:
 	var frames := SpriteFrames.new()
 	frames.remove_animation("default")
 	frames.add_animation("spin")
@@ -147,8 +170,9 @@ static func _build_frames(texture_path: String) -> SpriteFrames:
 	var texture := load(texture_path) as Texture2D
 	if texture == null:
 		return frames
-	var frame_width := float(texture.get_width()) / float(SHEET_FRAMES)
-	for frame_index in SHEET_FRAMES:
+	var safe_frame_count := maxi(1, frame_count)
+	var frame_width := float(texture.get_width()) / float(safe_frame_count)
+	for frame_index in safe_frame_count:
 		var atlas := AtlasTexture.new()
 		atlas.atlas = texture
 		atlas.region = Rect2(frame_width * frame_index, 0.0, frame_width, float(texture.get_height()))

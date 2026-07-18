@@ -90,6 +90,7 @@ static func run() -> Array[String]:
 	for new_pet_id in ["pet8", "pet9", "pet10", "pet11"]:
 		if float(PetCatalog.get_definition(new_pet_id).get("desktop_scale", 0.0)) < 0.90:
 			failures.append("%s must visually match the established desktop pet size" % new_pet_id)
+	_test_new_pet_animation_preserves_pixels(failures)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
 	if behavior_styles.size() < 6:
@@ -151,6 +152,43 @@ static func run() -> Array[String]:
 		if not String(PetCatalog.get_definition(idle_mover_id).get("walk", "")).is_empty():
 			failures.append("%s must move by reusing its idle animation" % idle_mover_id)
 	return failures
+
+
+static func _test_new_pet_animation_preserves_pixels(failures: Array[String]) -> void:
+	for pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+		var definition := PetCatalog.get_definition(pet_id)
+		var built_frames := PetCatalog.build_frames(pet_id)
+		var animations := ["idle", "walk"] if pet_id == "pet9" else ["idle"]
+		for animation_name in animations:
+			var sheet_path := String(definition.get(animation_name, ""))
+			var sheet_texture := load(sheet_path) as Texture2D
+			if sheet_texture == null:
+				continue
+			var sheet_image := sheet_texture.get_image()
+			sheet_image.convert(Image.FORMAT_RGBA8)
+			var frame_size := Vector2i(sheet_image.get_width() / 4, sheet_image.get_height() / 3)
+			var key_color := sheet_image.get_pixel(0, 0)
+			for frame_index in built_frames.get_frame_count(animation_name):
+				var source_frame := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
+				source_frame.blit_rect(
+					sheet_image,
+					Rect2i(Vector2i((frame_index % 4) * frame_size.x, (frame_index / 4) * frame_size.y), frame_size),
+					Vector2i.ZERO
+				)
+				PetCatalog._apply_chroma_key(source_frame, key_color)
+				var built_image := built_frames.get_frame_texture(animation_name, frame_index).get_image()
+				if _count_visible_pixels(built_image) < _count_visible_pixels(source_frame):
+					failures.append("%s %s frame %d must not crop the creature's head or silhouette" % [pet_id, animation_name, frame_index])
+					break
+
+
+static func _count_visible_pixels(image: Image) -> int:
+	var count := 0
+	for y in image.get_height():
+		for x in image.get_width():
+			if image.get_pixel(x, y).a > 0.02:
+				count += 1
+	return count
 
 
 static func _check_frame_count(failures: Array[String], frames: SpriteFrames, animation_name: String, expected: int) -> void:

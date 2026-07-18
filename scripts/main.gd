@@ -7,8 +7,11 @@ const FollowerProgression = preload("res://scripts/domain/follower_progression.g
 const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
 const NewsFeed = preload("res://scripts/domain/news_feed.gd")
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
+const EraProgression = preload("res://scripts/domain/era_progression.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
+const EnemyActor = preload("res://scripts/enemy_actor.gd")
+const EventInvitation = preload("res://scripts/event_invitation.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
 const ShopWindowScript = preload("res://scripts/shop_window.gd")
 const GachaWindowScript = preload("res://scripts/gacha_window.gd")
@@ -71,6 +74,8 @@ const PET_AUTO_COIN_INTERVAL_MAX := 62.0
 const PET_AUTO_COIN_PILE_MIN := 4
 const PET_AUTO_COIN_PILE_MAX := 10
 const DESKTOP_COIN_LIMIT := 96
+const CRYSTAL_UNLOCK_SCORES := {"C": 80, "S": 180, "G": 320}
+const CRYSTAL_RARITY_BONUSES := {1: 0, 2: 15, 3: 35, 4: 65, 5: 100}
 const PET11_ABSORB_INITIAL_MIN_SECONDS := 24.0
 const PET11_ABSORB_INITIAL_MAX_SECONDS := 42.0
 const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
@@ -80,7 +85,7 @@ const PET11_ABSORB_HOLD_MAX_SECONDS := 7.0
 const UI_REFRESH_INTERVAL := 0.25
 const MANUAL_CLICK_RATE_SECONDS := 0.25
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 9
+const SAVE_VERSION := 10
 const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const AUTOSAVE_INTERVAL_SECONDS := 30.0
@@ -96,6 +101,18 @@ const NEWS_BROADCAST_SIZE := Vector2(700.0, 68.0)
 const NEWS_BROADCAST_FONT_SIZE := 24
 const PILGRIMAGE_BROADCAST_SIZE := Vector2(760.0, 132.0)
 const PILGRIMAGE_BROADCAST_FONT_SIZE := 46
+const PILGRIMAGE_INVITE_TEXTURE := "res://assets/ui/items/prayIcon.png"
+const BATTLE_INVITE_TEXTURE := "res://assets/ui/items/fightIcon.png"
+const BATTLE_UNLOCK_RUNTIME_SECONDS := 300.0
+const BATTLE_INITIAL_DELAY_MIN_SECONDS := 150.0
+const BATTLE_INITIAL_DELAY_MAX_SECONDS := 270.0
+const BATTLE_INTERVAL_MIN_SECONDS := 360.0
+const BATTLE_INTERVAL_MAX_SECONDS := 600.0
+const BATTLE_DURATION_SECONDS := 34.0
+const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
+const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
+const SMOKE_SHEET_TEXTURE := "res://assets/enemyCharacter/smoke/smoke1_sheet.png"
+const SMOKE_FRAME_COUNT := 10
 
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
@@ -135,6 +152,21 @@ var _last_believer_spawn_at := 0.0
 var _pilgrimage_active := false
 var _pilgrimage_ends_at := 0.0
 var _next_pilgrimage_at := 0.0
+var _event_invitation: Node2D
+var _battle_active := false
+var _battle_started_at := 0.0
+var _battle_ends_at := 0.0
+var _next_battle_at := 0.0
+var _battle_enemies: Array[Node2D] = []
+var _battle_wave_schedule: Array[Dictionary] = []
+var _battle_next_wave_index := 0
+var _battle_pet_health := {}
+var _battle_pet_max_health := {}
+var _battle_pet_attack_at := {}
+var _battle_pet_target_x := {}
+var _last_era_display := ""
+var _recovery_ui_refresh_time := 0.0
+var _smoke_frames: SpriteFrames
 var _inventory_window: Window
 var _shop_window: Window
 var _gacha_window: Window
@@ -218,8 +250,10 @@ func _ready() -> void:
 	_last_believer_spawn_at = now
 	_schedule_next_believer_spawn(now)
 	_schedule_next_pilgrimage(now, true)
+	_schedule_next_battle(now, true)
 	_schedule_next_ambient_coin_drop(now)
 	_refresh_coin_display()
+	_refresh_era_display(true)
 	_apply_language()
 
 	_position_retry_frames = POSITION_RETRY_FRAMES
@@ -250,12 +284,15 @@ func _process(delta: float) -> void:
 	var logic_delta := _background_logic_time
 	_background_logic_time = 0.0
 	_update_pet_offering_buffs()
+	_update_recovery_states(logic_delta)
 	_update_faith(logic_delta)
 	_update_followers(logic_delta)
 	_update_news(logic_delta)
 	_update_pet_emotions()
 	_update_pet11_absorb_ability()
 	_update_pilgrimage()
+	_update_event_invitations()
+	_update_battle(logic_delta)
 	_update_believers()
 	_update_pending_offerings()
 	_update_coin_drops()
@@ -352,6 +389,8 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 		_schedule_next_pet11_absorb(_get_now_seconds(), true)
 	if _pilgrimage_active and actor.has_method("set_autonomy_paused"):
 		actor.call("set_autonomy_paused", true)
+	elif _battle_active and actor.has_method("set_battle_mode"):
+		actor.call("set_battle_mode", true)
 	_schedule_next_ambient_emotion(pet_id)
 	if _selected_pet_id.is_empty():
 		_selected_pet_id = pet_id
@@ -381,7 +420,7 @@ func _get_pet_stage_max_x() -> float:
 
 
 func _get_effective_pet_activity_range() -> String:
-	return "full" if _pilgrimage_active else _pet_activity_range
+	return "full" if _pilgrimage_active or _battle_active else _pet_activity_range
 
 
 # Believers
@@ -391,7 +430,7 @@ func _update_believers() -> void:
 	for believer in _believers:
 		if is_instance_valid(believer) and believer.has_method("set_threat_positions"):
 			believer.call("set_threat_positions", threat_positions)
-	if _pilgrimage_active:
+	if _pilgrimage_active or _battle_active:
 		return
 
 	var now := _get_now_seconds()
@@ -466,6 +505,8 @@ func _update_pilgrimage() -> void:
 		elif not _has_pending_pilgrims():
 			_finish_pilgrimage(true)
 		return
+	if _battle_active:
+		return
 
 	if _total_runtime_seconds < PILGRIMAGE_UNLOCK_RUNTIME_SECONDS:
 		return
@@ -473,14 +514,93 @@ func _update_pilgrimage() -> void:
 		_schedule_next_pilgrimage(now, true)
 		return
 	if now >= _next_pilgrimage_at:
-		if _has_valid_desktop_pet():
-			_start_pilgrimage()
+		if _has_valid_desktop_pet() and _event_invitation == null:
+			_spawn_event_invitation("pilgrimage")
 		else:
 			_next_pilgrimage_at = now + 60.0
 
 
+func _schedule_next_battle(now: float, initial := false) -> void:
+	var delay_min := BATTLE_INITIAL_DELAY_MIN_SECONDS if initial else BATTLE_INTERVAL_MIN_SECONDS
+	var delay_max := BATTLE_INITIAL_DELAY_MAX_SECONDS if initial else BATTLE_INTERVAL_MAX_SECONDS
+	_next_battle_at = now + _rng.randf_range(delay_min, delay_max)
+
+
+func _update_event_invitations() -> void:
+	_refresh_era_display()
+	if _battle_active or _pilgrimage_active:
+		return
+	if _event_invitation != null and not is_instance_valid(_event_invitation):
+		_event_invitation = null
+	if _event_invitation != null:
+		return
+	if _total_runtime_seconds < BATTLE_UNLOCK_RUNTIME_SECONDS:
+		return
+	var now := _get_now_seconds()
+	if _next_battle_at <= 0.0:
+		_schedule_next_battle(now, true)
+	elif now >= _next_battle_at and _has_valid_desktop_pet():
+		_spawn_event_invitation("battle")
+
+
+func _spawn_event_invitation(event_type: String) -> void:
+	if _event_invitation != null or _battle_active or _pilgrimage_active:
+		return
+	var invite: Node2D = EventInvitation.new()
+	var texture_path := BATTLE_INVITE_TEXTURE if event_type == "battle" else PILGRIMAGE_INVITE_TEXTURE
+	var safe_margin := 120.0
+	var spawn_x := _rng.randf_range(
+		minf(safe_margin, float(_pet_window_size.x) * 0.25),
+		maxf(safe_margin + 1.0, float(_pet_window_size.x) - safe_margin)
+	)
+	invite.call(
+		"setup",
+		event_type,
+		texture_path,
+		_pet_window_size,
+		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
+		spawn_x,
+		_language
+	)
+	invite.connect("accepted", Callable(self, "_on_event_invitation_accepted"))
+	invite.connect("discarded", Callable(self, "_on_event_invitation_discarded"))
+	invite.connect("expired", Callable(self, "_on_event_invitation_expired"))
+	add_child(invite)
+	_event_invitation = invite
+
+
+func _on_event_invitation_accepted(event_type: String) -> void:
+	_event_invitation = null
+	if event_type == "battle":
+		_start_battle()
+	else:
+		_start_pilgrimage()
+
+
+func _on_event_invitation_discarded(event_type: String) -> void:
+	_event_invitation = null
+	_reschedule_declined_event(event_type)
+	_publish_news({
+		"category": "公告",
+		"headline": "The invitation was discarded." if _language == "en" else "事件邀请已被丢弃。"
+	}, false, false)
+
+
+func _on_event_invitation_expired(event_type: String) -> void:
+	_event_invitation = null
+	_reschedule_declined_event(event_type)
+
+
+func _reschedule_declined_event(event_type: String) -> void:
+	var now := _get_now_seconds()
+	if event_type == "battle":
+		_schedule_next_battle(now)
+	else:
+		_schedule_next_pilgrimage(now)
+
+
 func _start_pilgrimage() -> void:
-	if _pilgrimage_active or not _has_valid_desktop_pet():
+	if _pilgrimage_active or _battle_active or not _has_valid_desktop_pet():
 		return
 	for believer in _believers:
 		if is_instance_valid(believer):
@@ -694,6 +814,370 @@ func _set_pet_autonomy_paused(paused: bool) -> void:
 			pet.call("set_autonomy_paused", paused)
 
 
+# Battle event
+func _start_battle() -> void:
+	if _battle_active or _pilgrimage_active or not _has_valid_desktop_pet():
+		_schedule_next_battle(_get_now_seconds())
+		return
+	for believer in _believers:
+		if is_instance_valid(believer):
+			believer.queue_free()
+	_believers.clear()
+
+	_battle_active = true
+	_battle_started_at = _get_now_seconds()
+	_battle_ends_at = _battle_started_at + BATTLE_DURATION_SECONDS
+	_battle_wave_schedule = EraProgression.get_wave_schedule(_total_runtime_seconds)
+	_battle_next_wave_index = 0
+	_battle_pet_health.clear()
+	_battle_pet_max_health.clear()
+	_battle_pet_attack_at.clear()
+	_battle_pet_target_x.clear()
+	_update_actor_window_bounds()
+
+	var battle_pets: Array[Node2D] = []
+	for pet in _pets:
+		if is_instance_valid(pet):
+			battle_pets.append(pet)
+	for pet_index in battle_pets.size():
+		var pet := battle_pets[pet_index]
+		var pet_id := _get_actor_pet_id(pet)
+		var level := PetProgression.progression_level(_get_pet_state(pet_id))
+		var rarity := clampi(int(PetCatalog.get_definition(pet_id).get("rarity_stars", 1)), 1, 5)
+		var max_health := 7.0 + float(rarity) * 1.8 + sqrt(float(level)) * 0.42
+		var actor_key := str(pet.get_instance_id())
+		var formation_weight := (
+			0.5
+			if battle_pets.size() <= 1
+			else float(pet_index) / float(battle_pets.size() - 1)
+		)
+		_battle_pet_health[actor_key] = max_health
+		_battle_pet_max_health[actor_key] = max_health
+		_battle_pet_attack_at[actor_key] = _battle_started_at + _rng.randf_range(0.6, 1.2)
+		_battle_pet_target_x[actor_key] = lerpf(
+			float(_pet_window_size.x) * 0.70,
+			float(_pet_window_size.x) * 0.88,
+			formation_weight
+		)
+		if pet.has_method("set_battle_mode"):
+			pet.call("set_battle_mode", true)
+
+	_show_pilgrimage_broadcast(
+		"BATTLE EVENT" if _language == "en" else "战斗事件",
+		"Enemies are advancing from the left" if _language == "en" else "敌军正从桌面左侧推进"
+	)
+	_publish_news({
+		"category": "公告",
+		"headline": (
+			"BATTLE: The pets have formed a defensive line on the right side of the desktop."
+			if _language == "en"
+			else "战斗事件：宠物已在桌面右侧组成防线，敌军正在入场！"
+		)
+	}, true, false)
+	_update_battle(0.0)
+
+
+func _update_battle(delta: float) -> void:
+	if not _battle_active:
+		return
+	_cleanup_battle_enemies()
+	var now := _get_now_seconds()
+	var elapsed := maxf(0.0, now - _battle_started_at)
+	while _battle_next_wave_index < _battle_wave_schedule.size():
+		var wave: Dictionary = _battle_wave_schedule[_battle_next_wave_index]
+		if elapsed + 0.001 < float(wave.get("time", 0.0)):
+			break
+		_spawn_battle_wave(wave, _battle_next_wave_index)
+		_battle_next_wave_index += 1
+
+	var alive_pets := _get_alive_battle_pets()
+	if alive_pets.is_empty():
+		_finish_battle(false)
+		return
+
+	for enemy in _battle_enemies:
+		if not is_instance_valid(enemy):
+			continue
+		var target := _get_nearest_battle_pet(enemy, alive_pets)
+		if enemy.has_method("set_target"):
+			enemy.call("set_target", target)
+
+	for pet in alive_pets:
+		var actor_key := str(pet.get_instance_id())
+		var target_x := float(_battle_pet_target_x.get(actor_key, float(_pet_window_size.x) * 0.78))
+		var ready_to_attack := true
+		if pet.has_method("battle_move_toward"):
+			ready_to_attack = bool(pet.call("battle_move_toward", target_x, delta, 235.0))
+		if not ready_to_attack or _battle_enemies.is_empty():
+			continue
+		if now < float(_battle_pet_attack_at.get(actor_key, now)):
+			continue
+		var enemy_target := _get_nearest_battle_enemy(pet)
+		if enemy_target == null:
+			continue
+		if absf(pet.position.x - enemy_target.position.x) > 225.0:
+			continue
+		var pet_id := _get_actor_pet_id(pet)
+		var pet_data := PetCatalog.get_definition(pet_id)
+		var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
+		var level := PetProgression.progression_level(_get_pet_state(pet_id))
+		var damage := 1.05 + float(rarity) * 0.24 + sqrt(float(level)) * 0.055
+		if pet.has_method("play_battle_attack"):
+			pet.call("play_battle_attack")
+		if enemy_target.has_method("take_damage"):
+			enemy_target.call("take_damage", damage, 12.0 + float(rarity) * 1.5)
+		_battle_pet_attack_at[actor_key] = now + _rng.randf_range(0.95, 1.35)
+
+	_update_battle_status(now)
+	if _battle_next_wave_index >= _battle_wave_schedule.size() and _battle_enemies.is_empty():
+		_finish_battle(true)
+	elif now >= _battle_ends_at:
+		_finish_battle(true)
+
+
+func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
+	var enemy_types: Array = wave.get("types", [])
+	for enemy_index in enemy_types.size():
+		var enemy_id := String(enemy_types[enemy_index])
+		var spawn_position := Vector2(
+			-82.0 - float(enemy_index) * 52.0,
+			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+		)
+		var enemy: Node2D = EnemyActor.new()
+		var era_scale := 1.0 + float(EraProgression.get_era_index(_total_runtime_seconds)) * 0.08
+		var wave_scale := 1.0 + float(wave_index) * 0.025
+		enemy.call(
+			"setup",
+			enemy_id,
+			spawn_position,
+			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
+			era_scale * wave_scale
+		)
+		enemy.connect("attack_landed", Callable(self, "_on_enemy_attack_landed"))
+		enemy.connect("defeated", Callable(self, "_on_enemy_defeated"))
+		add_child(enemy)
+		_battle_enemies.append(enemy)
+
+
+func _cleanup_battle_enemies() -> void:
+	for index in range(_battle_enemies.size() - 1, -1, -1):
+		if not is_instance_valid(_battle_enemies[index]) or _battle_enemies[index].is_queued_for_deletion():
+			_battle_enemies.remove_at(index)
+
+
+func _get_alive_battle_pets() -> Array[Node2D]:
+	var alive: Array[Node2D] = []
+	for pet in _pets:
+		if not is_instance_valid(pet):
+			continue
+		if _battle_pet_health.has(str(pet.get_instance_id())):
+			alive.append(pet)
+	return alive
+
+
+func _get_nearest_battle_pet(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
+	var nearest: Node2D
+	var nearest_distance := INF
+	for pet in candidates:
+		var distance := absf(pet.position.x - enemy.position.x)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = pet
+	return nearest
+
+
+func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
+	var nearest: Node2D
+	var nearest_distance := INF
+	for enemy in _battle_enemies:
+		if not is_instance_valid(enemy):
+			continue
+		if enemy.has_method("is_defeated") and bool(enemy.call("is_defeated")):
+			continue
+		var distance := absf(pet.position.x - enemy.position.x)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = enemy
+	return nearest
+
+
+func _on_enemy_attack_landed(_enemy: Node2D, target: Node2D, damage: float) -> void:
+	if not _battle_active or target == null or not is_instance_valid(target):
+		return
+	var actor_key := str(target.get_instance_id())
+	if not _battle_pet_health.has(actor_key):
+		return
+	var next_health := float(_battle_pet_health[actor_key]) - maxf(0.0, damage)
+	_battle_pet_health[actor_key] = next_health
+	if target.has_method("receive_battle_hit"):
+		target.call("receive_battle_hit", 13.0)
+	if next_health <= 0.0:
+		_defeat_battle_pet(target)
+
+
+func _on_enemy_defeated(enemy: Node2D, reward_count: int) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	var defeat_position := enemy.position + Vector2(0.0, -62.0)
+	_battle_enemies.erase(enemy)
+	_spawn_smoke_effect(defeat_position)
+	_spawn_battle_reward(defeat_position, reward_count)
+	enemy.queue_free()
+
+
+func _spawn_battle_reward(drop_position: Vector2, reward_count: int) -> void:
+	var safe_count := clampi(reward_count, 3, 16)
+	for coin_index in safe_count:
+		var coin_type := "D" if coin_index < 2 else "P" if coin_index % 3 == 0 else "R"
+		var spread := float(coin_index) - float(safe_count - 1) * 0.5
+		_spawn_coin(coin_type, drop_position + Vector2(
+			spread * 12.0 + _rng.randf_range(-9.0, 9.0),
+			_rng.randf_range(-18.0, 12.0)
+		))
+
+
+func _defeat_battle_pet(actor: Node2D) -> void:
+	if actor == null or not is_instance_valid(actor):
+		return
+	var pet_id := _get_actor_pet_id(actor)
+	var actor_key := str(actor.get_instance_id())
+	_battle_pet_health.erase(actor_key)
+	_battle_pet_max_health.erase(actor_key)
+	_battle_pet_attack_at.erase(actor_key)
+	_battle_pet_target_x.erase(actor_key)
+	_spawn_smoke_effect(actor.position + Vector2(0.0, -58.0))
+	if actor.has_method("hide_for_battle_defeat"):
+		actor.call("hide_for_battle_defeat")
+	_set_pet_recovery(pet_id)
+	_deployed_pet_ids.erase(pet_id)
+	_pets.erase(actor)
+	_next_pet_coin_drop_at.erase(actor_key)
+	_pet_coin_drop_intervals.erase(actor_key)
+	_clear_pet_runtime_effects(pet_id)
+	if _hovered_pet == actor:
+		_hovered_pet = null
+	if _selected_pet_id == pet_id:
+		_selected_pet_id = _get_first_desktop_pet_id()
+	actor.queue_free()
+	_sync_inventory_window()
+	_pet_upgrade_stats_dirty = true
+	_refresh_pet_stats(true)
+	_save_game()
+
+
+func _set_pet_recovery(pet_id: String) -> void:
+	if pet_id.is_empty():
+		return
+	var state := _get_pet_state(pet_id)
+	var rarity := clampi(int(PetCatalog.get_definition(pet_id).get("rarity_stars", 1)), 1, 5)
+	var duration := clampf(
+		BATTLE_PET_RECOVERY_MIN_SECONDS + float(rarity - 1) * 18.0,
+		BATTLE_PET_RECOVERY_MIN_SECONDS,
+		BATTLE_PET_RECOVERY_MAX_SECONDS
+	)
+	var now := _get_now_seconds()
+	state["recovery_started_at"] = now
+	state["recover_until"] = now + duration
+	state["recovery_duration"] = duration
+	_pet_states[pet_id] = state
+
+
+func _finish_battle(victory: bool) -> void:
+	if not _battle_active:
+		return
+	_battle_active = false
+	_battle_started_at = 0.0
+	_battle_ends_at = 0.0
+	if _pilgrimage_status_label != null:
+		_pilgrimage_status_label.visible = false
+	for enemy in _battle_enemies:
+		if is_instance_valid(enemy):
+			_spawn_smoke_effect(enemy.position + Vector2(0.0, -62.0))
+			enemy.queue_free()
+	_battle_enemies.clear()
+	for pet in _pets:
+		if is_instance_valid(pet) and pet.has_method("set_battle_mode"):
+			pet.call("set_battle_mode", false)
+	_battle_pet_health.clear()
+	_battle_pet_max_health.clear()
+	_battle_pet_attack_at.clear()
+	_battle_pet_target_x.clear()
+	_battle_wave_schedule.clear()
+	_update_actor_window_bounds()
+	var now := _get_now_seconds()
+	_schedule_next_battle(now)
+	_last_believer_spawn_at = now
+	_schedule_next_believer_spawn(now)
+	var title := "BATTLE WON" if victory and _language == "en" else "BATTLE ENDED" if _language == "en" else "战斗胜利" if victory else "防线失守"
+	var subtitle := "The desktop is safe again" if victory and _language == "en" else "Surviving pets have left the field" if _language == "en" else "桌面重新恢复平静" if victory else "受伤宠物已返回仓库休整"
+	_show_pilgrimage_broadcast(title, subtitle)
+	_publish_news({
+		"category": "公告",
+		"headline": (
+			"The battle ended. Defeated pets are recovering in storage."
+			if _language == "en"
+			else "战斗结束。被击倒的宠物已返回仓库休整。"
+		)
+	}, true, false)
+	_sync_inventory_window()
+	_refresh_pet_stats(true)
+
+
+func _update_battle_status(now: float) -> void:
+	if _pilgrimage_status_label == null:
+		return
+	var seconds_left := maxi(0, int(ceil(_battle_ends_at - now)))
+	_pilgrimage_status_label.text = (
+		"BATTLE  %02d:%02d  ·  %d ENEMIES"
+		if _language == "en"
+		else "战斗  %02d:%02d  ·  敌人 %d"
+	) % [int(seconds_left / 60), seconds_left % 60, _battle_enemies.size()]
+	_pilgrimage_status_label.visible = _battle_active
+
+
+func _spawn_smoke_effect(effect_position: Vector2) -> void:
+	var frames := _get_smoke_frames()
+	if frames == null:
+		return
+	var smoke := AnimatedSprite2D.new()
+	smoke.sprite_frames = frames
+	smoke.position = effect_position
+	smoke.scale = Vector2.ONE * 1.35
+	smoke.z_index = 350
+	add_child(smoke)
+	smoke.animation_finished.connect(smoke.queue_free)
+	smoke.play("smoke")
+
+
+func _get_smoke_frames() -> SpriteFrames:
+	if _smoke_frames != null:
+		return _smoke_frames
+	var sheet := load(SMOKE_SHEET_TEXTURE) as Texture2D
+	if sheet == null:
+		return null
+	_smoke_frames = SpriteFrames.new()
+	_smoke_frames.remove_animation("default")
+	_smoke_frames.add_animation("smoke")
+	_smoke_frames.set_animation_loop("smoke", false)
+	_smoke_frames.set_animation_speed("smoke", 14.0)
+	var frame_width := float(sheet.get_width()) / float(SMOKE_FRAME_COUNT)
+	for frame_index in SMOKE_FRAME_COUNT:
+		var atlas := AtlasTexture.new()
+		atlas.atlas = sheet
+		atlas.region = Rect2(frame_width * frame_index, 0.0, frame_width, float(sheet.get_height()))
+		_smoke_frames.add_frame("smoke", atlas)
+	return _smoke_frames
+
+
+func _refresh_era_display(force := false) -> void:
+	if _side_drawer == null or not _side_drawer.has_method("refresh_era"):
+		return
+	var display_text := EraProgression.get_display_text(_total_runtime_seconds, _language)
+	if force or display_text != _last_era_display:
+		_last_era_display = display_text
+		_side_drawer.call("refresh_era", display_text)
+
+
 func _schedule_next_pet11_absorb(now: float, initial := false) -> void:
 	var delay_min := PET11_ABSORB_INITIAL_MIN_SECONDS if initial else PET11_ABSORB_COOLDOWN_MIN_SECONDS
 	var delay_max := PET11_ABSORB_INITIAL_MAX_SECONDS if initial else PET11_ABSORB_COOLDOWN_MAX_SECONDS
@@ -701,7 +1185,7 @@ func _schedule_next_pet11_absorb(now: float, initial := false) -> void:
 
 
 func _update_pet11_absorb_ability() -> void:
-	if _pilgrimage_active:
+	if _pilgrimage_active or _battle_active:
 		return
 	var pet11: Node2D
 	for pet in _pets:
@@ -789,7 +1273,7 @@ func _update_ambient_coin_drops() -> void:
 			continue
 		var interval := float(_pet_coin_drop_intervals.get(actor_key, 40.0))
 		_schedule_pet_coin_drop(pet, now)
-		if _pilgrimage_active:
+		if _pilgrimage_active or _battle_active:
 			continue
 		if pet.has_method("is_swallowed") and bool(pet.call("is_swallowed")):
 			continue
@@ -823,11 +1307,19 @@ func _spawn_pet_coin_pile(actor: Node2D, interval_seconds: float) -> void:
 	if actor.has_method("get_emotion_anchor"):
 		drop_anchor = actor.call("get_emotion_anchor")
 	var remaining_value := target_value
+	var crystal_budget := maxf(0.0, target_value - float(maxi(0, pile_count - 1)))
+	var crystal_type := _choose_crystal_drop_type(
+		PetCatalog.get_definition(pet_id),
+		level,
+		crystal_budget
+	)
 	for coin_index in pile_count:
 		var slots_left := pile_count - coin_index
 		var average_value := remaining_value / float(maxi(1, slots_left))
 		var coin_type := "R"
-		if average_value >= 24.0:
+		if coin_index == 0 and not crystal_type.is_empty():
+			coin_type = crystal_type
+		elif average_value >= 24.0:
 			coin_type = "D"
 		elif average_value >= 3.0:
 			coin_type = "P"
@@ -837,6 +1329,21 @@ func _spawn_pet_coin_pile(actor: Node2D, interval_seconds: float) -> void:
 			spread_weight * 13.0 + _rng.randf_range(-8.0, 8.0),
 			_rng.randf_range(-14.0, 10.0)
 		))
+
+
+static func _choose_crystal_drop_type(
+	pet_data: Dictionary,
+	level: int,
+	available_value: float
+) -> String:
+	var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
+	var progression_score := maxi(1, level) + int(CRYSTAL_RARITY_BONUSES.get(rarity, 0))
+	for crystal_type in ["G", "S", "C"]:
+		if progression_score < int(CRYSTAL_UNLOCK_SCORES[crystal_type]):
+			continue
+		if available_value + 0.001 >= float(CoinDrop.get_coin_value(crystal_type)):
+			return crystal_type
+	return ""
 
 
 func _update_coin_drops() -> void:
@@ -1139,6 +1646,11 @@ func _create_inventory_window() -> void:
 	_inventory_window.setup(_get_inventory_pet_entries())
 
 
+func _sync_inventory_window() -> void:
+	if _inventory_window != null and _inventory_window.has_method("set_pets"):
+		_inventory_window.call("set_pets", _get_inventory_pet_entries())
+
+
 func _create_shop_window() -> void:
 	_shop_window = ShopWindowScript.new()
 	_shop_window.visible = false
@@ -1231,6 +1743,13 @@ func _update_actor_window_bounds() -> void:
 				_pet_window_size,
 				float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
 			)
+
+	if _event_invitation != null and is_instance_valid(_event_invitation) and _event_invitation.has_method("set_window_bounds"):
+		_event_invitation.call(
+			"set_window_bounds",
+			_pet_window_size,
+			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+		)
 
 
 func _update_pet_hover() -> void:
@@ -1904,8 +2423,14 @@ func _load_game() -> void:
 	else:
 		_unlocked_pet_ids = ["pet1"]
 		_deployed_pet_ids = ["pet1"]
+	for deployed_pet_id in _deployed_pet_ids.duplicate():
+		if _is_pet_recovering(String(deployed_pet_id)):
+			_deployed_pet_ids.erase(deployed_pet_id)
 	if _deployed_pet_ids.is_empty():
-		_deployed_pet_ids = ["pet1"]
+		for unlocked_pet_id in _unlocked_pet_ids:
+			if not _is_pet_recovering(String(unlocked_pet_id)):
+				_deployed_pet_ids.append(String(unlocked_pet_id))
+				break
 	if not _selected_pet_id.is_empty() and not _unlocked_pet_ids.has(_selected_pet_id):
 		_selected_pet_id = ""
 	_pet_offering_buffs = _sanitize_loaded_offering_buffs(
@@ -2037,6 +2562,13 @@ func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
 				PetProgression.MAX_LEVEL
 			)
 		}
+		var recover_until := maxf(0.0, float(raw_state.get("recover_until", 0.0)))
+		var recovery_duration := clampf(float(raw_state.get("recovery_duration", 0.0)), 0.0, 3600.0)
+		var recovery_started_at := maxf(0.0, float(raw_state.get("recovery_started_at", recover_until - recovery_duration)))
+		if recover_until > Time.get_unix_time_from_system() and recovery_duration > 0.0:
+			state["recovery_started_at"] = recovery_started_at
+			state["recover_until"] = recover_until
+			state["recovery_duration"] = recovery_duration
 		var custom_name := String(raw_state.get("name", "")).strip_edges().left(40)
 		if custom_name.is_empty():
 			state.erase("name")
@@ -2152,6 +2684,7 @@ func _get_inventory_pet_entries() -> Array[Dictionary]:
 			continue
 		var entry := PetCatalog.make_inventory_entry(pet_id)
 		entry["name"] = _get_pet_display_name(pet_id)
+		entry.merge(_get_pet_recovery_info(pet_id), true)
 		entries.append(entry)
 	return entries
 
@@ -2181,7 +2714,7 @@ func _ensure_pet_state(pet_id: String) -> void:
 		PetProgression.MAX_LEVEL
 	)
 	for key in state.keys():
-		if key not in ["upgrade_level", "name"]:
+		if key not in ["upgrade_level", "name", "recovery_started_at", "recover_until", "recovery_duration"]:
 			state.erase(key)
 	state["upgrade_level"] = level
 	var custom_name := String(state.get("name", "")).strip_edges().left(40)
@@ -2189,12 +2722,74 @@ func _ensure_pet_state(pet_id: String) -> void:
 		state.erase("name")
 	else:
 		state["name"] = custom_name
+	var recover_until := maxf(0.0, float(state.get("recover_until", 0.0)))
+	var recovery_duration := clampf(float(state.get("recovery_duration", 0.0)), 0.0, 3600.0)
+	if recover_until <= _get_now_seconds() or recovery_duration <= 0.0:
+		state.erase("recovery_started_at")
+		state.erase("recover_until")
+		state.erase("recovery_duration")
+	else:
+		state["recovery_started_at"] = maxf(0.0, float(state.get("recovery_started_at", recover_until - recovery_duration)))
+		state["recover_until"] = recover_until
+		state["recovery_duration"] = recovery_duration
 	_pet_states[pet_id] = state
 
 
 func _get_pet_state(pet_id: String) -> Dictionary:
 	_ensure_pet_state(pet_id)
 	return _pet_states[pet_id]
+
+
+func _is_pet_recovering(pet_id: String, now := -1.0) -> bool:
+	if pet_id.is_empty() or not _pet_states.has(pet_id):
+		return false
+	var check_time := _get_now_seconds() if now < 0.0 else now
+	var state: Dictionary = _pet_states[pet_id]
+	return float(state.get("recover_until", 0.0)) > check_time
+
+
+func _get_pet_recovery_info(pet_id: String) -> Dictionary:
+	var state := _get_pet_state(pet_id)
+	var now := _get_now_seconds()
+	var recover_until := float(state.get("recover_until", 0.0))
+	var duration := maxf(0.0, float(state.get("recovery_duration", 0.0)))
+	var remaining := maxf(0.0, recover_until - now)
+	var recovering := remaining > 0.0 and duration > 0.0
+	return {
+		"recovering": recovering,
+		"recovery_seconds_remaining": remaining,
+		"recovery_progress": clampf(1.0 - remaining / maxf(0.001, duration), 0.0, 1.0) if recovering else 1.0
+	}
+
+
+func _update_recovery_states(delta: float) -> void:
+	_recovery_ui_refresh_time += maxf(0.0, delta)
+	if _recovery_ui_refresh_time < 0.5:
+		return
+	_recovery_ui_refresh_time = 0.0
+	var now := _get_now_seconds()
+	var has_active_recovery := false
+	var recovery_completed := false
+	for pet_id_value in _pet_states.keys():
+		var pet_id := String(pet_id_value)
+		var state: Dictionary = _pet_states[pet_id]
+		var recover_until := float(state.get("recover_until", 0.0))
+		if recover_until <= 0.0:
+			continue
+		if recover_until > now:
+			has_active_recovery = true
+			continue
+		state.erase("recovery_started_at")
+		state.erase("recover_until")
+		state.erase("recovery_duration")
+		_pet_states[pet_id] = state
+		recovery_completed = true
+	if has_active_recovery or recovery_completed:
+		_pet_upgrade_stats_dirty = true
+		_sync_inventory_window()
+	if recovery_completed:
+		_refresh_pet_stats(true)
+		_save_game()
 
 
 func _get_pet_upgrade_entries() -> Array[Dictionary]:
@@ -2207,6 +2802,8 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 		var is_max_level := level >= PetProgression.MAX_LEVEL
 		var cost := 0 if is_max_level else _get_upgrade_cost(pet_id)
 		var offering_multiplier := _get_pet_offering_multiplier(pet_id)
+		var recovery_info := _get_pet_recovery_info(pet_id)
+		var recovering := bool(recovery_info.get("recovering", false))
 		var current_fps := (
 			_get_pet_faith_per_second(pet_id, level)
 			* offering_multiplier
@@ -2221,6 +2818,9 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			pet_id,
 			mini(PetProgression.MAX_LEVEL, level + 1)
 		)
+		if recovering:
+			current_fps = 0.0
+			current_money_rate = 0.0
 		entries.append({
 			"id": pet_id,
 			"name": _get_pet_display_name(pet_id),
@@ -2242,6 +2842,7 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			"offering_seconds_remaining": _get_pet_offering_seconds_remaining(pet_id),
 			"affordable": not is_max_level and int(floor(_faith_points)) >= cost
 		})
+		entries[entries.size() - 1].merge(recovery_info, true)
 
 	return entries
 
@@ -2256,6 +2857,8 @@ func _get_faith_growth_rate() -> float:
 	var total_fps := 0.0
 	for pet_id_value in _unlocked_pet_ids:
 		var pet_id := String(pet_id_value)
+		if _is_pet_recovering(pet_id):
+			continue
 		var state := _get_pet_state(pet_id)
 		total_fps += (
 			_get_pet_faith_per_second(pet_id, PetProgression.progression_level(state))
@@ -2699,6 +3302,9 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
 	if pet_id.is_empty() or not _is_pet_unlocked(pet_id) or _deployed_pet_ids.has(pet_id):
 		return
+	if _battle_active or _pilgrimage_active or _is_pet_recovering(pet_id):
+		_sync_inventory_window()
+		return
 
 	var actor := _spawn_desktop_pet(pet_id)
 	if actor == null:
@@ -3011,8 +3617,20 @@ func _show_coin_change_popup(anchor: Vector2, amount: int, coin_type := "") -> v
 	if amount == 0:
 		return
 	var prefix := "+" if amount > 0 else "-"
-	var type_hint := " %s" % coin_type if not coin_type.is_empty() and amount > 0 else ""
+	var type_hint := (
+		" %s" % CoinDrop.get_drop_label(coin_type, _language)
+		if not coin_type.is_empty() and amount > 0
+		else ""
+	)
 	var color := Color(1.0, 0.84, 0.32, 1.0) if amount > 0 else Color(1.0, 0.58, 0.46, 1.0)
+	if amount > 0:
+		match coin_type:
+			"C":
+				color = Color(0.94, 0.47, 0.28, 1.0)
+			"S":
+				color = Color(0.78, 0.86, 0.94, 1.0)
+			"G":
+				color = Color(1.0, 0.92, 0.24, 1.0)
 	_show_status_popup(
 		anchor,
 		("%s$%d GOLD%s" if _language == "en" else "%s$%d 金币%s") % [prefix, absi(amount), type_hint],
@@ -3157,6 +3775,8 @@ func _apply_language() -> void:
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("set_language"):
 			pet.call("set_language", _language)
+	_last_era_display = ""
+	_refresh_era_display(true)
 
 
 func _get_manual_faith_click_gain(base_amount := 1) -> float:

@@ -13,6 +13,7 @@ static func run() -> Array[String]:
 	_test_coin_ground_first_pickup(failures)
 	_test_coin_collection(failures)
 	_test_pet_money_pile(failures)
+	_test_crystal_progression_gates(failures)
 	_test_coin_retention_limits(failures)
 	_test_activity_ranges(failures)
 	_test_settings_runtime(failures)
@@ -30,19 +31,33 @@ static func _test_coin_definitions(failures: Array[String]) -> void:
 	var r_value := CoinDrop.get_coin_value("R")
 	var p_value := CoinDrop.get_coin_value("P")
 	var d_value := CoinDrop.get_coin_value("D")
-	if not (r_value > 0 and p_value > r_value and d_value >= p_value * 10):
-		failures.append("coin values must satisfy R < P << D")
-	for coin_type in ["R", "P", "D"]:
+	var copper_value := CoinDrop.get_coin_value("C")
+	var silver_value := CoinDrop.get_coin_value("S")
+	var gold_value := CoinDrop.get_coin_value("G")
+	if not (
+		r_value > 0
+		and p_value > r_value
+		and d_value >= p_value * 10
+		and copper_value > d_value
+		and silver_value > copper_value
+		and gold_value > silver_value
+	):
+		failures.append("drop values must satisfy R < P << D < copper crystal < silver crystal < gold crystal")
+	for coin_type in ["R", "P", "D", "C", "S", "G"]:
 		var texture_path := CoinDrop.get_coin_texture(coin_type)
 		if texture_path.is_empty() or not FileAccess.file_exists(texture_path):
-			failures.append("coin %s must use its provided sprite sheet" % coin_type)
+			failures.append("drop %s must use its provided sprite sheet" % coin_type)
 
-	var coin := CoinDrop.new()
-	coin.setup("P", Vector2(200.0, 100.0), Vector2i(820, 420), 400.0)
-	var sprite := coin.get_node_or_null("CoinPSprite") as AnimatedSprite2D
-	if sprite == null or sprite.sprite_frames.get_frame_count("spin") != CoinDrop.SHEET_FRAMES:
-		failures.append("coin drops must animate every frame in the provided five-frame sheet")
-	coin.free()
+	for drop_type in ["P", "C", "S", "G"]:
+		var drop := CoinDrop.new()
+		drop.setup(drop_type, Vector2(200.0, 100.0), Vector2i(820, 420), 400.0)
+		var sprite := drop.get_node_or_null("Coin%sSprite" % drop_type) as AnimatedSprite2D
+		if (
+			sprite == null
+			or sprite.sprite_frames.get_frame_count("spin") != CoinDrop.get_sheet_frame_count(drop_type)
+		):
+			failures.append("drop %s must animate every authored sprite-sheet frame" % drop_type)
+		drop.free()
 
 
 static func _test_coin_ground_first_pickup(failures: Array[String]) -> void:
@@ -88,6 +103,41 @@ static func _test_pet_money_pile(failures: Array[String]) -> void:
 	main.free()
 
 
+static func _test_crystal_progression_gates(failures: Array[String]) -> void:
+	var common_pet := {"rarity_stars": 1}
+	var rare_pet := {"rarity_stars": 5}
+	if not Main._choose_crystal_drop_type(common_pet, 1, 1000.0).is_empty():
+		failures.append("a low-level common pet must not produce crystals even with an oversized pile budget")
+	if Main._choose_crystal_drop_type(rare_pet, 1, 100.0) != "C":
+		failures.append("a sufficiently valuable rare-pet pile must unlock the copper crystal first")
+	if Main._choose_crystal_drop_type(rare_pet, 80, 250.0) != "S":
+		failures.append("silver crystals must require more rarity/level progression than copper")
+	if Main._choose_crystal_drop_type(rare_pet, 220, 500.0) != "G":
+		failures.append("gold crystals must be reserved for the rarest, most progressed pets")
+	if Main._choose_crystal_drop_type(common_pet, 320, 500.0) != "G":
+		failures.append("very high pet levels must eventually overcome low base rarity")
+
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	(main.get("_pet_states") as Dictionary)["pet11"] = {"upgrade_level": 300}
+	var pet11 := DesktopPetActor.new()
+	pet11.setup("pet11", Vector2i(1200, 720), 0.0, 1200.0, 500.0, 704.0, false)
+	main.add_child(pet11)
+	(main.get("_pets") as Array).append(pet11)
+	main.call("_spawn_pet_coin_pile", pet11, 16.0)
+	var found_copper := false
+	for drop in main.get("_coin_drops") as Array:
+		if String(drop.get("coin_type")) == "C":
+			found_copper = true
+			break
+	if not found_copper:
+		failures.append("a high-level five-star pet must produce a copper crystal in a qualifying pile")
+	if int(main.get("_gold_coins")) != 0:
+		failures.append("crystals must remain collectible drops instead of directly crediting money")
+	main.free()
+
+
 static func _test_coin_retention_limits(failures: Array[String]) -> void:
 	if CoinDrop.MAX_LIFETIME_SECONDS > 120.0:
 		failures.append("uncollected desktop coins must expire before they can accumulate indefinitely")
@@ -109,8 +159,11 @@ static func _test_background_resource_settings(failures: Array[String]) -> void:
 	if not bool(ProjectSettings.get_setting("application/run/low_processor_mode", false)):
 		failures.append("the desktop game must opt into low-processor mode")
 	var max_fps := int(ProjectSettings.get_setting("application/run/max_fps", 0))
-	if max_fps <= 0 or max_fps > 30:
-		failures.append("the always-running desktop game must cap its rendering frame rate")
+	if max_fps < 45 or max_fps > 60:
+		failures.append("desktop motion must use a smooth but still bounded rendering frame rate")
+	var processor_sleep := int(ProjectSettings.get_setting("application/run/low_processor_mode_sleep_usec", 10000))
+	if processor_sleep > 3000:
+		failures.append("low-processor sleep must not be long enough to cause visible frame pacing stalls")
 
 
 static func _test_activity_ranges(failures: Array[String]) -> void:
