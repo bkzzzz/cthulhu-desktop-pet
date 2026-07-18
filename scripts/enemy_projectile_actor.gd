@@ -44,7 +44,7 @@ func setup(
 	damage: float,
 	power_scale := 1.0
 ) -> void:
-	projectile_kind = new_kind if new_kind in ["arrow", "victorian_bullet", "modern_shell", "modern_orb"] else "arrow"
+	projectile_kind = new_kind if new_kind in ["arrow", "victorian_bullet", "modern_shell", "modern_orb", "outer_bolt"] else "arrow"
 	position = start_position
 	_start_position = start_position
 	_target = target
@@ -68,11 +68,16 @@ func setup(
 		_splash_radius = clampf(138.0 + sqrt(maxf(0.0, power_scale)) * 28.0, 138.0, 260.0)
 		_knockback = clampf(22.0 + sqrt(maxf(0.0, power_scale)) * 3.0, 22.0, 36.0)
 		_swallowable = false
-	else:
+	elif projectile_kind == "modern_orb":
 		_flight_duration = clampf(distance / 1080.0, 0.16, 0.68)
 		_splash_radius = clampf(112.0 + sqrt(maxf(0.0, power_scale)) * 22.0, 112.0, 220.0)
 		_knockback = clampf(18.0 + sqrt(maxf(0.0, power_scale)) * 2.5, 18.0, 32.0)
 		_swallowable = _rng.randf() < 0.18
+	else:
+		_flight_duration = clampf(distance / 1320.0, 0.12, 0.54)
+		_splash_radius = clampf(48.0 + sqrt(maxf(0.0, power_scale)) * 10.0, 48.0, 105.0)
+		_knockback = clampf(8.0 + sqrt(maxf(0.0, power_scale)) * 1.5, 8.0, 18.0)
+		_swallowable = _rng.randf() < 0.08
 	_create_sprite()
 
 
@@ -137,11 +142,15 @@ func _create_sprite() -> void:
 			projectile_scale = 0.42
 		elif projectile_kind == "modern_orb":
 			projectile_scale = 0.34
+		elif projectile_kind == "outer_bolt":
+			projectile_scale = 0.22
 		_sprite.scale = Vector2.ONE * projectile_scale
 		if projectile_kind == "modern_shell":
 			_sprite.modulate = Color(1.0, 0.62, 0.24)
 		elif projectile_kind == "modern_orb":
 			_sprite.modulate = Color(0.48, 0.86, 1.0)
+		elif projectile_kind == "outer_bolt":
+			_sprite.modulate = Color(0.34, 0.78, 1.0)
 		var material := ShaderMaterial.new()
 		var shader := Shader.new()
 		shader.code = BULLET_CHROMA_SHADER

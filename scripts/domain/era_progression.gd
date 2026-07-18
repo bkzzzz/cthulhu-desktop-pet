@@ -7,6 +7,7 @@ const SECONDS_PER_YEAR := 300.0
 const SOLDIER_ERA_START_YEAR := 3
 const VICTORIAN_ERA_START_YEAR := 6
 const MODERN_ERA_START_YEAR := 10
+const OUTER_SPACE_ERA_START_YEAR := 14
 
 # The compact game timeline uses recognizable real-world dates instead of a
 # fictional "Year 1" calendar. Early/late medieval chapters move by centuries;
@@ -15,6 +16,7 @@ const MEDIEVAL_START_CALENDAR_YEAR := 1066
 const SOLDIER_ERA_START_CALENDAR_YEAR := 1300
 const VICTORIAN_ERA_START_CALENDAR_YEAR := 1837
 const MODERN_ERA_START_CALENDAR_YEAR := 1914
+const OUTER_SPACE_ERA_START_CALENDAR_YEAR := 2200
 const MEDIEVAL_CALENDAR_STEP_YEARS := 100
 
 
@@ -24,6 +26,8 @@ static func get_year(total_runtime_seconds: float) -> int:
 
 static func get_calendar_year(total_runtime_seconds: float) -> int:
 	var progression_year := get_year(total_runtime_seconds)
+	if progression_year >= OUTER_SPACE_ERA_START_YEAR:
+		return OUTER_SPACE_ERA_START_CALENDAR_YEAR + progression_year - OUTER_SPACE_ERA_START_YEAR
 	if progression_year >= MODERN_ERA_START_YEAR:
 		return MODERN_ERA_START_CALENDAR_YEAR + progression_year - MODERN_ERA_START_YEAR
 	if progression_year >= VICTORIAN_ERA_START_YEAR:
@@ -45,6 +49,8 @@ static func get_elapsed_calendar_years(total_runtime_seconds: float) -> int:
 
 static func get_era_index(total_runtime_seconds: float) -> int:
 	var progression_year := get_year(total_runtime_seconds)
+	if progression_year >= OUTER_SPACE_ERA_START_YEAR:
+		return 4
 	if progression_year >= MODERN_ERA_START_YEAR:
 		return 3
 	if progression_year >= VICTORIAN_ERA_START_YEAR:
@@ -54,6 +60,8 @@ static func get_era_index(total_runtime_seconds: float) -> int:
 
 static func get_era_name(total_runtime_seconds: float, language := "zh") -> String:
 	var era_index := get_era_index(total_runtime_seconds)
+	if era_index >= 4:
+		return "OUTER SPACE" if language == "en" else "外太空时代"
 	if era_index >= 3:
 		return "MODERN WAR" if language == "en" else "现代战争"
 	if era_index >= 2:
@@ -99,5 +107,12 @@ static func get_wave_schedule(total_runtime_seconds: float) -> Array[Dictionary]
 			{"time": 5.0, "types": ["modern3", "modern2"]},
 			{"time": 10.5, "types": ["modern2", "modern3", "victorian_boss"]},
 			{"time": 17.5, "types": ["modern3", "modern2", "modern3"]}
+		]
+	if get_era_index(total_runtime_seconds) >= 4:
+		schedule = [
+			{"time": 0.0, "types": ["outerspace1"]},
+			{"time": 4.5, "types": ["outerspace1", "outerspace2"]},
+			{"time": 9.5, "types": ["outerspace2", "outerspace3"]},
+			{"time": 15.5, "types": ["outerspace3", "outerspace2", "outerspace1"]}
 		]
 	return schedule

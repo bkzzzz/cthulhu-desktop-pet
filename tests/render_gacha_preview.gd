@@ -17,16 +17,27 @@ func _render_previews() -> void:
 	await process_frame
 	var initial_path := OS.get_user_data_dir().path_join("gacha_initial_preview.png")
 	window.get_texture().get_image().save_png(initial_path)
+	window.call("_apply_egg_shuffle_step", 0)
+	var selector: OptionButton = window.get("_draw_amount_selector")
+	selector.select(3)
+	window.call("_update_draw_button")
+	await process_frame
+	var shuffle_path := OS.get_user_data_dir().path_join("gacha_shuffle_preview.png")
+	window.get_texture().get_image().save_png(shuffle_path)
 
 	var duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
 	duplicate["name"] = "深渊凝视"
 	duplicate["duplicate_faith"] = 650
-	window.show_result(duplicate)
+	var new_pet := GachaProgression.roll_pet(0.5, ["pet1"], 4)
+	new_pet["name"] = "新宠物"
+	window.show_results([new_pet, duplicate])
+	window.call("_show_batch_summary")
 	await process_frame
 	await process_frame
 	var result_path := OS.get_user_data_dir().path_join("gacha_result_preview.png")
 	window.get_texture().get_image().save_png(result_path)
 	print("PREVIEW_INITIAL=%s" % initial_path)
+	print("PREVIEW_SHUFFLE=%s" % shuffle_path)
 	print("PREVIEW_RESULT=%s" % result_path)
 	window.queue_free()
 	quit(0)

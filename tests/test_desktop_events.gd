@@ -15,6 +15,7 @@ static func run() -> Array[String]:
 	_test_enemy_projectiles_and_special_defeats(failures)
 	_test_pet11_cross_screen_battle_swallow(failures)
 	_test_pet_combat_assets(failures)
+	_test_pet6_dragged_combat(failures)
 	_test_era_age_and_difficulty(failures)
 	_test_recovery_pauses_production(failures)
 	_test_battle_activity_override(failures)
@@ -78,20 +79,35 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	for expected_type in ["modern2", "modern3"]:
 		if not modern_types.has(expected_type):
 			failures.append("the modern era must schedule %s" % expected_type)
+	var outer_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.OUTER_SPACE_ERA_START_YEAR - 1)
+	if EraProgression.get_era_index(outer_time) != 4:
+		failures.append("elapsed desktop time must advance into the outer-space era")
+	var outer_types: Array[String] = []
+	for wave in EraProgression.get_wave_schedule(outer_time):
+		for enemy_type in (wave as Dictionary).get("types", []):
+			outer_types.append(String(enemy_type))
+	for expected_type in ["outerspace1", "outerspace2", "outerspace3"]:
+		if not outer_types.has(expected_type):
+			failures.append("the outer-space era must schedule %s" % expected_type)
 
 
 static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
-	var ranged_ids := ["soldier2", "victorian1", "modern2", "modern3"]
-	for enemy_id in ["villager1", "villager2", "soldier1", "soldier2", "victorian1", "victorian2", "victorian_boss", "modern2", "modern3"]:
+	var ranged_ids := ["soldier2", "victorian1", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]
+	for enemy_id in ["villager1", "villager2", "soldier1", "soldier2", "victorian1", "victorian2", "victorian_boss", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]:
 		var enemy := EnemyActor.new()
 		enemy.setup(enemy_id, Vector2.ZERO, 400.0, 1.0, 80.0)
+		var emitted_projectiles := [0]
+		enemy.projectile_requested.connect(
+			func(_actor: Node2D, _target: Node2D, _damage: float, _kind: String, _power: float) -> void:
+				emitted_projectiles[0] += 1
+		)
 		var sprite := enemy.get_node_or_null("EnemySprite") as AnimatedSprite2D
 		if sprite == null:
 			failures.append("%s must build a battle sprite" % enemy_id)
 		else:
 			if sprite.sprite_frames.get_frame_count("run") != 12:
 				failures.append("%s must use all 12 authored movement frames" % enemy_id)
-			var expected_attack_frames := 1 if enemy_id == "modern3" else (12 if enemy_id in ["victorian2", "victorian_boss", "modern2"] else 16)
+			var expected_attack_frames := 12 if enemy_id in ["victorian2", "victorian_boss", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"] else 16
 			if sprite.sprite_frames.get_frame_count("attack") != expected_attack_frames:
 				failures.append("%s must use all %d authored attack frames" % [enemy_id, expected_attack_frames])
 			if sprite.animation != "run" or not sprite.is_playing():
@@ -102,6 +118,11 @@ static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
 			failures.append("all declared gunner and modern enemies must hold ranged attack distance")
 		if enemy_id.begins_with("modern") and float(enemy.get("max_health")) <= 10.5:
 			failures.append("%s must be tougher than every earlier enemy" % enemy_id)
+		if enemy_id.begins_with("outerspace"):
+			if not bool(enemy.get("_flying")) or enemy.position.y >= 400.0:
+				failures.append("%s must fight above the taskbar as a flying object" % enemy_id)
+			if EnemyActor.get_combat_power(enemy_id) <= EnemyActor.get_combat_power("modern3"):
+				failures.append("%s must carry more hidden combat power than modern enemies" % enemy_id)
 		var target := Node2D.new()
 		target.position = Vector2(500.0, 400.0)
 		enemy.set_target(target)
@@ -126,6 +147,8 @@ static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
 			failures.append("%s attack animation must remain visible through its hit frame" % enemy_id)
 		if enemy_id in ranged_ids and not is_equal_approx(enemy.position.x, firing_post_x):
 			failures.append("%s must shoot from its entry post instead of chasing a pet" % enemy_id)
+		if enemy_id.begins_with("outerspace") and emitted_projectiles[0] != int(enemy.get("_projectiles_per_attack")):
+			failures.append("%s must emit its entire authored projectile barrage" % enemy_id)
 		target.free()
 		enemy.free()
 
@@ -159,6 +182,11 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 	if float(modern_shell.get("_splash_radius")) <= victorian_splash:
 		failures.append("modern heavy shells must outclass Victorian splash damage")
 	modern_shell.free()
+	var outer_bolt := EnemyProjectileActor.new()
+	outer_bolt.setup("outer_bolt", Vector2(80.0, 180.0), target, 1.0, 1.0)
+	if float(outer_bolt.get("_splash_radius")) <= 0.0:
+		failures.append("outer-space barrage bolts must trigger impact effects")
+	outer_bolt.free()
 
 	var enemy := EnemyActor.new()
 	enemy.setup("villager1", Vector2(180.0, 400.0), 400.0, 1.0, 180.0)
@@ -199,15 +227,16 @@ static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 		failures.append("pet detail ages must advance by the real calendar years shown in the menu")
 	main.set("_total_runtime_seconds", EraProgression.SECONDS_PER_YEAR * float(EraProgression.VICTORIAN_ERA_START_YEAR - 1))
 	main.set("_debug_enemy_power_scale", 2.0)
+	var base_difficulty := float(main.call("_get_base_battle_difficulty_scale"))
 	var difficulty_text := String(main.call("_get_battle_difficulty_text"))
-	if not difficulty_text.contains("难度") or not difficulty_text.contains("×3.28"):
-		failures.append("battle invitations must expose difficulty from era and debug enemy power")
+	if not difficulty_text.contains("难度") or not difficulty_text.contains("×%.2f" % base_difficulty):
+		failures.append("battle invitations must expose difficulty derived from hidden combat-power difference")
 	var rolled_values: Array[float] = []
 	(main.get("_rng") as RandomNumberGenerator).seed = 71218
 	for _roll_index in 4:
 		rolled_values.append(float(main.call("_roll_battle_difficulty_scale")))
 	for rolled_value in rolled_values:
-		if rolled_value < 3.28 * Main.BATTLE_DIFFICULTY_VARIANCE_MIN - 0.001 or rolled_value > 3.28 * Main.BATTLE_DIFFICULTY_VARIANCE_MAX + 0.001:
+		if rolled_value < base_difficulty * Main.BATTLE_DIFFICULTY_VARIANCE_MIN - 0.001 or rolled_value > base_difficulty * Main.BATTLE_DIFFICULTY_VARIANCE_MAX + 0.001:
 			failures.append("random battle difficulty must stay inside the advertised variance range")
 			break
 	if is_equal_approx(rolled_values[0], rolled_values[1]):
@@ -290,9 +319,47 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	var pet6_sprite := pet6.get_node_or_null("pet6Sprite") as AnimatedSprite2D
 	if pet6_sprite == null or pet6_sprite.animation != "attack" or pet6_sprite.sprite_frames.get_frame_count("attack") != 12:
 		failures.append("pet6 must play all twelve frames of its corrected attack animation in battle")
-	if bool(PetCatalog.get_definition("pet6").get("attack_align_to_floor", true)):
+	if bool(Main.PetCatalog.get_definition("pet6").get("attack_align_to_floor", true)):
 		failures.append("pet6 attack frames must preserve their authored center instead of following tentacle bottoms")
 	pet6.free()
+
+
+static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_battle_active", true)
+	main.set("_simulation_now_seconds", 1000.0)
+	main.set("_battle_started_at", 1000.0)
+	main.set("_battle_ends_at", 1100.0)
+	main.set("_battle_wave_schedule", [])
+	main.set("_battle_next_wave_index", 0)
+	var pet6 := Main.DesktopPetActor.new()
+	pet6.setup("pet6", Vector2i(1000, 720), 0.0, 1000.0, 720.0, 704.0, false)
+	pet6.position.x = 620.0
+	pet6.set_autonomy_paused(true)
+	pet6.set("_behavior", Main.DesktopPetActor.Behavior.DOZING)
+	pet6.set_battle_mode(true)
+	main.add_child(pet6)
+	(main.get("_pets") as Array).append(pet6)
+	var actor_key := str(pet6.get_instance_id())
+	(main.get("_battle_pet_health") as Dictionary)[actor_key] = 10.0
+	(main.get("_battle_pet_max_health") as Dictionary)[actor_key] = 10.0
+	(main.get("_battle_pet_formed") as Dictionary)[actor_key] = true
+	(main.get("_battle_pet_attack_at") as Dictionary)[actor_key] = 0.0
+	var enemy := EnemyActor.new()
+	enemy.setup("villager1", Vector2(530.0, 704.0), 704.0, 1.0, 530.0)
+	main.add_child(enemy)
+	(main.get("_battle_enemies") as Array).append(enemy)
+	var health_before := enemy.get_health()
+	main.call("_update_battle", 0.016)
+	var sprite := pet6.get_node_or_null("pet6Sprite") as AnimatedSprite2D
+	if sprite == null or sprite.animation != "attack":
+		failures.append(
+			"a dragged pet6 beside an enemy must visibly attack instead of sleeping (animation=%s ready=%s formed=%s distance=%.1f)"
+			% [String(sprite.animation) if sprite != null else "missing", pet6.is_battle_ready(), (main.get("_battle_pet_formed") as Dictionary).get(actor_key, false), absf(pet6.position.x - enemy.position.x)]
+		)
+	if enemy.get_health() >= health_before:
+		failures.append("a dragged pet6 attack must apply real enemy damage")
+	main.free()
 	if BattleEffectActor.PROJECTILE_CONFIG.has("pet11") or Main.RANGED_BATTLE_PET_IDS.has("pet11"):
 		failures.append("pet11 must be a suction-only fighter with no friendly projectile configuration")
 	for pet_id in Main.RANGED_BATTLE_PET_IDS:

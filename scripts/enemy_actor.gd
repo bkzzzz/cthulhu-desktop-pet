@@ -77,14 +77,51 @@ const DEFINITIONS := {
 	},
 	"modern3": {
 		"move": "res://assets/enemyCharacter/modern/modern3Run.png",
-		"attack": "res://assets/enemyCharacter/modern/modern3.png",
+		"attack": "res://assets/enemyCharacter/modern/modern3Attack.png",
 		"hp": 12.8, "damage": 0.78, "speed": 178.0, "reward": 34, "ranged": true,
 		"projectile": "modern_orb", "run_columns": 4, "run_rows": 3,
-		"attack_columns": 1, "attack_rows": 1, "visual_scale": 0.94,
-		"attack_visual_scale": 0.52, "attack_windup": 0.24, "attack_duration": 0.82,
+		"attack_columns": 4, "attack_rows": 3, "visual_scale": 0.94,
+		"attack_windup": 0.24, "attack_duration": 0.82,
 		"attack_cooldown_min": 0.88, "attack_cooldown_max": 1.12,
 		"projectile_height": 94.0
+	},
+	"outerspace1": {
+		"move": "res://assets/enemyCharacter/outerSpace/outerSpace1Idle.png",
+		"attack": "res://assets/enemyCharacter/outerSpace/outerSpace1Idle.png",
+		"hp": 24.0, "damage": 0.36, "speed": 205.0, "reward": 48, "ranged": true,
+		"projectile": "outer_bolt", "run_columns": 4, "run_rows": 3,
+		"attack_columns": 4, "attack_rows": 3, "visual_scale": 0.82,
+		"flying": true, "flight_height": 118.0, "projectiles_per_attack": 5,
+		"projectile_spread": 16.0, "attack_windup": 0.22, "attack_duration": 0.78,
+		"attack_cooldown_min": 1.08, "attack_cooldown_max": 1.28
+	},
+	"outerspace2": {
+		"move": "res://assets/enemyCharacter/outerSpace/outerSpace2Idle.png",
+		"attack": "res://assets/enemyCharacter/outerSpace/outerSpace2Idle.png",
+		"hp": 31.0, "damage": 0.34, "speed": 192.0, "reward": 58, "ranged": true,
+		"projectile": "outer_bolt", "run_columns": 4, "run_rows": 3,
+		"attack_columns": 4, "attack_rows": 3, "visual_scale": 0.88,
+		"flying": true, "flight_height": 154.0, "projectiles_per_attack": 7,
+		"projectile_spread": 18.0, "attack_windup": 0.28, "attack_duration": 0.86,
+		"attack_cooldown_min": 1.18, "attack_cooldown_max": 1.38
+	},
+	"outerspace3": {
+		"move": "res://assets/enemyCharacter/outerSpace/outerSpace3Idle.png",
+		"attack": "res://assets/enemyCharacter/outerSpace/outerSpace3Idle.png",
+		"hp": 42.0, "damage": 0.32, "speed": 184.0, "reward": 72, "ranged": true,
+		"projectile": "outer_bolt", "run_columns": 4, "run_rows": 3,
+		"attack_columns": 4, "attack_rows": 3, "visual_scale": 0.96,
+		"flying": true, "flight_height": 182.0, "projectiles_per_attack": 9,
+		"projectile_spread": 21.0, "attack_windup": 0.34, "attack_duration": 0.96,
+		"attack_cooldown_min": 1.32, "attack_cooldown_max": 1.52
 	}
+}
+
+const COMBAT_POWER := {
+	"villager1": 10.0, "villager2": 12.0, "soldier1": 18.0, "soldier2": 22.0,
+	"victorian1": 30.0, "victorian2": 34.0, "victorian_boss": 50.0,
+	"modern2": 65.0, "modern3": 78.0,
+	"outerspace1": 120.0, "outerspace2": 150.0, "outerspace3": 190.0
 }
 
 const MELEE_STOP_DISTANCE := 68.0
@@ -124,6 +161,11 @@ var _attack_duration_seconds := 1.30
 var _attack_cooldown_min := 1.36
 var _attack_cooldown_max := 1.62
 var _projectile_height := 0.0
+var _flying := false
+var _flight_height := 0.0
+var _projectiles_per_attack := 1
+var _projectile_spread := 0.0
+var _barrage_shot_index := 0
 var _run_motion_active := false
 var _run_phase := 0.0
 var _run_bob_amount := 2.2
@@ -166,10 +208,14 @@ func setup(
 	_swallow_resistant = bool(data.get("swallow_resistant", false))
 	_run_bob_amount = float(data.get("run_bob", 2.2))
 	_run_tilt_amount = float(data.get("run_tilt", 0.018))
+	_flying = bool(data.get("flying", false))
+	_flight_height = maxf(0.0, float(data.get("flight_height", 0.0)))
+	_projectiles_per_attack = maxi(1, int(data.get("projectiles_per_attack", 1)))
+	_projectile_spread = maxf(0.0, float(data.get("projectile_spread", 0.0)))
 	_ground_y = ground_y
 	_entry_x = entry_x
 	position = spawn_position
-	position.y = _ground_y
+	position.y = _ground_y - _flight_height
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id())
 	_create_sprite(data)
 
@@ -186,7 +232,7 @@ func _process(delta: float) -> void:
 		return
 	if _dead:
 		return
-	position.y = _ground_y
+	position.y = _ground_y - _flight_height
 	_run_motion_active = false
 	_attack_cooldown = maxf(0.0, _attack_cooldown - safe_delta)
 	if _attack_animation_remaining > 0.0:
@@ -197,7 +243,9 @@ func _process(delta: float) -> void:
 			_attack_pending = false
 			if _target != null and is_instance_valid(_target) and _is_target_in_attack_range():
 				if is_ranged and not _projectile_kind.is_empty():
-					projectile_requested.emit(self, _target, _damage, _projectile_kind, _power_scale)
+					for shot_index in _projectiles_per_attack:
+						_barrage_shot_index = shot_index
+						projectile_requested.emit(self, _target, _damage, _projectile_kind, _power_scale)
 				else:
 					attack_landed.emit(self, _target, _damage)
 	if _attack_animation_remaining > 0.0:
@@ -336,11 +384,16 @@ func get_battle_hit_position() -> Vector2:
 func get_projectile_origin() -> Vector2:
 	var height := _projectile_height
 	if height <= 0.0:
-		height = 66.0 if enemy_id == "soldier2" else 78.0
+		height = 0.0 if _flying else (66.0 if enemy_id == "soldier2" else 78.0)
 	var direction := 1.0
 	if _target != null and is_instance_valid(_target) and _target.position.x < position.x:
 		direction = -1.0
-	return position + Vector2(direction * 38.0, -height)
+	var centered_shot := float(_barrage_shot_index) - float(_projectiles_per_attack - 1) * 0.5
+	return position + Vector2(direction * (52.0 if _flying else 38.0), -height + centered_shot * _projectile_spread)
+
+
+static func get_combat_power(type_id: String) -> float:
+	return float(COMBAT_POWER.get(type_id, 10.0))
 
 
 func _create_sprite(data: Dictionary) -> void:
@@ -480,14 +533,18 @@ func _get_animation_alignment(animation_name: String, animation_scale := 1.0) ->
 				if bounds.size != Vector2i.ZERO:
 					var half_size := Vector2(frame_image.get_size()) * 0.5
 					var visible_center_x := float(bounds.position.x) + float(bounds.size.x) * 0.5
-					var visible_foot_y := float(bounds.position.y + bounds.size.y - 1)
-					alignment = Vector2(visible_center_x - half_size.x, visible_foot_y - half_size.y)
+					var visible_anchor_y := (
+						float(bounds.position.y) + float(bounds.size.y) * 0.5
+						if _flying
+						else float(bounds.position.y + bounds.size.y - 1)
+					)
+					alignment = Vector2(visible_center_x - half_size.x, visible_anchor_y - half_size.y)
 		_alignment_cache[cache_key] = alignment
 	var local_alignment: Vector2 = _alignment_cache[cache_key]
 	var effective_scale := _visual_scale * animation_scale
 	return Vector2(
 		-local_alignment.x * effective_scale,
-		FOOT_TASKBAR_OVERLAP - local_alignment.y * effective_scale
+		(0.0 if _flying else FOOT_TASKBAR_OVERLAP) - local_alignment.y * effective_scale
 	)
 
 

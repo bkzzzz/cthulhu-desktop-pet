@@ -138,7 +138,16 @@ static func _test_battle_blocks_sleep(failures: Array[String]) -> void:
 	pet2.free()
 	var pet6 := DesktopPetActor.new()
 	pet6.setup("pet6", Vector2i(1000, 600), 72.0, 920.0, 700.0)
+	pet6.set_autonomy_paused(true)
+	pet6.set("_behavior", DesktopPetActor.Behavior.DOZING)
+	var pet6_sprite := pet6.get_node_or_null("pet6Sprite") as AnimatedSprite2D
+	pet6_sprite.speed_scale = DesktopPetActor.DOZE_ANIMATION_SPEED_SCALE
 	pet6.set_battle_mode(true)
+	if int(pet6.get("_behavior")) != DesktopPetActor.Behavior.IDLE or not is_equal_approx(pet6_sprite.speed_scale, 1.0):
+		failures.append("pet6 must wake even when autonomy was already paused before battle")
+	pet6.play_battle_attack_toward(-1.0)
+	if pet6_sprite.animation != "attack":
+		failures.append("a woken pet6 must visibly use its attack sheet in battle")
 	pet6.call("_start_dozing")
 	if int(pet6.get("_behavior")) == DesktopPetActor.Behavior.DOZING:
 		failures.append("generic pets must not doze during battle")

@@ -7,6 +7,7 @@ const DRAW_COST_INCREASE_INTERVAL := 10
 const MAX_DRAW_COST := 20
 const MAX_DUPLICATE_FAITH_REWARD := 9_000_000_000_000_000_000
 const NEW_PET_PITY_DRAWS := 5
+const MAX_BATCH_DRAWS := 10_000
 const DUPLICATE_REWARD_RATIOS := [0.0, 0.50, 0.65, 0.80, 1.00, 1.25]
 
 const PET_POOL := [
@@ -61,10 +62,19 @@ static func draw_cost(draw_count: int) -> int:
 
 static func draw_cost_total(draw_count: int, draw_amount: int) -> float:
 	var safe_count := maxi(0, draw_count)
-	var safe_amount := clampi(draw_amount, 1, 10)
+	var safe_amount := clampi(draw_amount, 1, MAX_BATCH_DRAWS)
 	var total := 0.0
-	for draw_offset in safe_amount:
-		total += float(draw_cost(safe_count + draw_offset))
+	var remaining := safe_amount
+	var cursor := safe_count
+	while remaining > 0:
+		var cost := draw_cost(cursor)
+		var draws_at_cost := remaining
+		if cost < MAX_DRAW_COST:
+			var next_increase := (int(floor(float(cursor) / DRAW_COST_INCREASE_INTERVAL)) + 1) * DRAW_COST_INCREASE_INTERVAL
+			draws_at_cost = mini(remaining, maxi(1, next_increase - cursor))
+		total += float(draws_at_cost * cost)
+		remaining -= draws_at_cost
+		cursor += draws_at_cost
 	return total
 
 

@@ -340,6 +340,11 @@ func set_battle_mode(enabled: bool) -> void:
 		cancel_pointer_capture()
 		_cancel_special_behavior()
 		set_autonomy_paused(true)
+		# set_autonomy_paused() returns early when another window already paused
+		# this pet. Battle mode must still replace a stale sleep pose with idle.
+		if _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
+			_start_idle()
+			_sprite.speed_scale = 1.0
 		# Battle placement is part of the gameplay: players may still grab a pet
 		# and drop it beside a priority target.
 		_set_interaction_enabled(true)

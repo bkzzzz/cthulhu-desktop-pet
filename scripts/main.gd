@@ -604,8 +604,34 @@ func _spawn_event_invitation(event_type: String) -> void:
 
 
 func _get_base_battle_difficulty_scale() -> float:
-	var era_scale := 1.0 + float(EraProgression.get_era_index(_total_runtime_seconds)) * 0.32
-	return maxf(0.0, _debug_enemy_power_scale * era_scale)
+	var pet_power := _get_pet_roster_combat_power()
+	var enemy_power := _get_enemy_schedule_combat_power()
+	var normalized_difference := (enemy_power - pet_power) / maxf(25.0, (enemy_power + pet_power) * 0.5)
+	var difference_scale := pow(2.0, clampf(normalized_difference, -2.0, 3.0) * 0.85)
+	return clampf(_debug_enemy_power_scale * difference_scale, 0.0, 1_000_000_000_000_000.0)
+
+
+func _get_pet_roster_combat_power() -> float:
+	var total := 0.0
+	for pet in _pets:
+		if not is_instance_valid(pet):
+			continue
+		var pet_id := _get_actor_pet_id(pet)
+		var level := PetProgression.progression_level(_get_pet_state(pet_id))
+		total += PetCatalog.get_combat_power(pet_id, level)
+	if total <= 0.0:
+		total = PetCatalog.get_combat_power("pet1", 1)
+	return total
+
+
+func _get_enemy_schedule_combat_power() -> float:
+	var strongest_wave := 0.0
+	for wave in EraProgression.get_wave_schedule(_total_runtime_seconds):
+		var wave_power := 0.0
+		for enemy_id_value in (wave as Dictionary).get("types", []):
+			wave_power += EnemyActor.get_combat_power(String(enemy_id_value))
+		strongest_wave = maxf(strongest_wave, wave_power)
+	return maxf(1.0, strongest_wave)
 
 
 func _roll_battle_difficulty_scale() -> float:
@@ -943,7 +969,9 @@ func _start_battle() -> void:
 		var pet_id := _get_actor_pet_id(pet)
 		var level := PetProgression.progression_level(_get_pet_state(pet_id))
 		var rarity := clampi(int(PetCatalog.get_definition(pet_id).get("rarity_stars", 1)), 1, 5)
-		var max_health := 7.0 + float(rarity) * 1.8 + sqrt(float(level)) * 0.42
+		var pet_combat_power := PetCatalog.get_combat_power(pet_id, level)
+		var health_power_scale := clampf(sqrt(pet_combat_power / 20.0), 0.70, 3.0)
+		var max_health := (7.0 + float(rarity) * 1.8 + sqrt(float(level)) * 0.42) * health_power_scale
 		var actor_key := str(pet.get_instance_id())
 		var formation_weight := (
 			0.5
@@ -1026,7 +1054,9 @@ func _update_battle(delta: float) -> void:
 		var pet_data := PetCatalog.get_definition(pet_id)
 		var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
 		var level := PetProgression.progression_level(_get_pet_state(pet_id))
-		var damage := 1.05 + float(rarity) * 0.24 + sqrt(float(level)) * 0.055
+		var pet_combat_power := PetCatalog.get_combat_power(pet_id, level)
+		var damage_power_scale := clampf(pow(pet_combat_power / 20.0, 0.35), 0.80, 2.5)
+		var damage := (1.05 + float(rarity) * 0.24 + sqrt(float(level)) * 0.055) * damage_power_scale
 		var is_ranged_pet := pet_id in RANGED_BATTLE_PET_IDS
 		if not is_ranged_pet and absf(pet.position.x - enemy_target.position.x) > 155.0:
 			continue
@@ -1103,7 +1133,7 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 		var wave_scale := 1.0 + float(wave_index) * 0.025
 		var entry_x := (
 			clampf(float(_pet_window_size.x) * 0.17 + float(enemy_index) * 32.0, 110.0, float(_pet_window_size.x) * 0.30)
-			if enemy_id in ["soldier2", "victorian1", "modern2", "modern3"]
+			if enemy_id in ["soldier2", "victorian1", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]
 			else clampf(float(_pet_window_size.x) * 0.065 + float(enemy_index) * 18.0, 72.0, 150.0)
 		)
 		enemy.call(
@@ -3619,7 +3649,7 @@ func _on_settings_requested() -> void:
 func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 	if _gacha_window == null:
 		return
-	var safe_draw_amount := 10 if draw_amount >= 10 else 1
+	var safe_draw_amount := clampi(draw_amount, 1, GachaProgression.MAX_BATCH_DRAWS)
 	var batch_cost := GachaProgression.draw_cost_total(_gacha_draw_count, safe_draw_amount)
 	if float(_gold_coins) < batch_cost:
 		_sync_gacha_state()

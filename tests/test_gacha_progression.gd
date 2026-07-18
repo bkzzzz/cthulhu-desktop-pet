@@ -37,6 +37,12 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 		GachaProgression.draw_cost_total(0, 10),
 		20.0
 	)
+	_check_equal(
+		failures,
+		"one thousand draws use the full batch instead of clamping to ten",
+		GachaProgression.draw_cost_total(0, 1000),
+		18_290.0
+	)
 
 	var previous_cost := GachaProgression.draw_cost(0)
 	for draw_count in range(1, 241):
@@ -163,6 +169,16 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		if not GachaWindow.EGG_POSITION_BOUNDS.has_point(egg.position):
 			failures.append("egg pile positions must remain inside the machine chamber")
 			break
+		if egg.z_index <= 0 or (machine != null and egg.z_index >= machine.z_index):
+			failures.append("eggs must render above the UI background and below the machine face")
+			break
+	var amount_selector: OptionButton = window.get("_draw_amount_selector")
+	if amount_selector == null or amount_selector.item_count != 5:
+		failures.append("gacha must offer 1, 10, 100, 1000 and custom draw counts")
+	else:
+		amount_selector.select(3)
+		if int(window.call("_selected_draw_amount")) != 1000:
+			failures.append("the 1000-draw option must request all one thousand rolls")
 	var min_home := Vector2(INF, INF)
 	var max_home := Vector2(-INF, -INF)
 	for home_value in GachaWindow.EGG_HOME_POSITIONS:
@@ -218,6 +234,10 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 			failures.append("skip must advance to a direct duplicate faith result")
 		elif result_detail.text.contains("重复转化") or result_detail.text.contains("点数"):
 			failures.append("duplicate results must avoid redundant conversion copy")
+	window.show_results([result, duplicate])
+	window.call("_show_batch_summary")
+	if not result_detail.text.contains("+30") or not result_detail.text.contains("新宠物"):
+		failures.append("skip all must show only new pets and combined duplicate faith")
 	window.free()
 
 

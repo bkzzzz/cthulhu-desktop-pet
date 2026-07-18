@@ -1,4 +1,4 @@
 @echo off
 setlocal
-call "%~dp0run_game.cmd" -Headless --script res://tests/run_tests.gd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0run_tests.ps1"
 exit /b %ERRORLEVEL%

@@ -90,6 +90,13 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	var pending_results: Array = window.get("_pending_results")
 	if pending_results.size() != 10:
 		failures.append("a ten-draw batch must queue all ten popup results in draw order")
+	var draw_count_before_hundred := int(main.get("_gacha_draw_count"))
+	main.call("_on_gacha_draw_requested", 100)
+	if int(main.get("_gacha_draw_count")) != draw_count_before_hundred + 100:
+		failures.append("the 100-draw option must resolve one hundred sequential draws")
+	pending_results = window.get("_pending_results")
+	if pending_results.size() != 100:
+		failures.append("large batches must remain available to skip-all result aggregation")
 	main.set("_gacha_window", null)
 	window.free()
 	main.free()

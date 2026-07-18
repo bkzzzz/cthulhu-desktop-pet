@@ -11,6 +11,13 @@ const GACHA_PETS := [
 ]
 const INVENTORY_STARTER_PETS := STARTER_UNLOCKED_PETS
 
+# Hidden authored baselines keep combat balance independent from faith output.
+const BASE_COMBAT_POWER := {
+	"pet1": 12.0, "pet2": 17.0, "pet3": 22.0, "pet4": 28.0,
+	"pet5": 34.0, "pet6": 40.0, "pet7": 45.0, "pet8": 52.0,
+	"pet9": 60.0, "pet10": 70.0, "pet11": 82.0
+}
+
 const DEFINITIONS := {
 	"pet1": {
 		"id": "pet1",
@@ -535,6 +542,12 @@ static func get_definition(pet_id: String) -> Dictionary:
 		return DEFINITIONS[pet_id]
 
 	return DEFINITIONS[ACTIVE_DESKTOP_PETS[0]]
+
+
+static func get_combat_power(pet_id: String, level := 1) -> float:
+	var base_power := float(BASE_COMBAT_POWER.get(pet_id, 10.0))
+	var safe_level := maxi(1, level)
+	return base_power * (1.0 + log(float(safe_level)) / log(10.0) * 0.32)
 
 
 static func make_inventory_entry(pet_id: String) -> Dictionary:
