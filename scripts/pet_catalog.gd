@@ -19,6 +19,7 @@ const DEFINITIONS := {
 		"description": "伏地蠕行的腐生眷族，擅长稳定积累信仰。",
 		"rarity_stars": 1,
 		"age": "3岁",
+		"base_age_years": 3,
 		"personality": "安静谨慎，通常趴在任务栏边休息，偶尔换个位置。",
 		"desktop_scale": 0.92,
 		"behavior": "skitterer",
@@ -61,6 +62,7 @@ const DEFINITIONS := {
 		"description": "睁开巨眼的深渊眷族，以凝视汇聚更强的信仰。",
 		"rarity_stars": 2,
 		"age": "8岁",
+		"base_age_years": 8,
 		"personality": "困倦而温吞，偶尔躲进桌面左侧的文件夹区域，再突然跳出来。",
 		"desktop_scale": 0.62,
 		"behavior": "sleepy_floater",
@@ -113,6 +115,7 @@ const DEFINITIONS := {
 		"description": "喜欢钻入阴影的穴居幼兽，会从地底收集散落的信仰。",
 		"rarity_stars": 2,
 		"age": "5岁",
+		"base_age_years": 5,
 		"personality": "好奇又怕生，大部分时间贴着任务栏休息，偶尔短暂钻地。",
 		"desktop_scale": 1.08,
 		"behavior": "burrower",
@@ -148,6 +151,10 @@ const DEFINITIONS := {
 		"icon": "res://assets/NewCharacters/pet3/pet3.png",
 		"idle": "res://assets/NewCharacters/pet3/pet3Idle.png",
 		"walk": "res://assets/NewCharacters/pet3/pet3Walk.png",
+		"attack": "res://assets/NewCharacters/pet3/pet3Attack.png",
+		"attack_columns": 4,
+		"attack_rows": 4,
+		"attack_frame_foot_y": 172,
 		"burrow": "res://assets/NewCharacters/pet3/pet3BurrowUnder.png"
 	},
 	"pet4": {
@@ -157,6 +164,7 @@ const DEFINITIONS := {
 		"description": "从群星间漂来的柔软眷族，步伐迟缓却能放大低语。",
 		"rarity_stars": 3,
 		"age": "12岁",
+		"base_age_years": 12,
 		"personality": "安静且爱观察，能盯着同一个图标看上很久。",
 		"desktop_scale": 0.78,
 		"behavior": "watcher",
@@ -190,7 +198,11 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet4/pet4.png",
 		"idle": "res://assets/NewCharacters/pet4/pet4Idle.png",
-		"walk": "res://assets/NewCharacters/pet4/pet4Walk.png"
+		"walk": "res://assets/NewCharacters/pet4/pet4Walk.png",
+		"attack": "res://assets/NewCharacters/pet4/pet4Attack.png",
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_frame_foot_y": 172
 	},
 	"pet5": {
 		"id": "pet5",
@@ -199,6 +211,7 @@ const DEFINITIONS := {
 		"description": "吞食噩梦与月光的古怪生灵，饱餐后会散播浓烈的信仰。",
 		"rarity_stars": 4,
 		"age": "19岁",
+		"base_age_years": 19,
 		"personality": "胆大但不吵闹，通常守在任务栏附近，偶尔沿屏幕边缘活动。",
 		"desktop_scale": 1.25,
 		"behavior": "wall_climber",
@@ -234,7 +247,11 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet5/pet5.png",
 		"idle": "res://assets/NewCharacters/pet5/pet5Idle.png",
-		"walk": "res://assets/NewCharacters/pet5/pet5Walk.png"
+		"walk": "res://assets/NewCharacters/pet5/pet5Walk.png",
+		"attack": "res://assets/NewCharacters/pet5/rika_d80c62be.png",
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_frame_foot_y": 172
 	},
 	"pet6": {
 		"id": "pet6",
@@ -243,6 +260,8 @@ const DEFINITIONS := {
 		"description": "习惯蹲在桌面角落的人形眷族，安静时像一件被忘掉的旧外套。",
 		"rarity_stars": 5,
 		"age": "约27岁",
+		"base_age_years": 27,
+		"age_qualifier": "about",
 		"personality": "寡言、嗜睡，喜欢安静地待在任务栏角落。",
 		"desktop_scale": 0.58,
 		"behavior": "lurker",
@@ -279,7 +298,11 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet6/pet6.png",
 		"idle": "res://assets/NewCharacters/pet6/pet6Idle.png",
-		"walk": "res://assets/NewCharacters/pet6/pet6Walk.png"
+		"walk": "res://assets/NewCharacters/pet6/pet6Walk.png",
+		"attack": "res://assets/NewCharacters/pet6/rika_72dcf180.png",
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_frame_foot_y": 296
 	},
 	"pet7": {
 		"id": "pet7",
@@ -328,6 +351,8 @@ const DEFINITIONS := {
 		"description": "披着棘刺外壳的浮游眼球，没有肢体，会安静地滑过桌面。",
 		"rarity_stars": 3,
 		"age": "约31岁",
+		"base_age_years": 31,
+		"age_qualifier": "about",
 		"personality": "警觉而克制，喜欢在半空缓慢巡游。",
 		"desktop_scale": 0.98,
 		"behavior": "sleepy_floater",
@@ -370,6 +395,8 @@ const DEFINITIONS := {
 		"description": "背负环冠的古老根系，移动时会使用专门的行走姿态。",
 		"rarity_stars": 4,
 		"age": "至少400岁",
+		"base_age_years": 400,
+		"age_qualifier": "at_least",
 		"personality": "沉稳而固执，会缓慢巡视自己认定的领地。",
 		"desktop_scale": 1.00,
 		"behavior": "watcher",
@@ -551,6 +578,18 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 	var align_frames_to_floor := bool(pet_data.get("align_frames_to_floor", true))
 	_add_sheet_animation(frames, "idle", String(pet_data.get("idle", "")), 4.8, frame_foot_y, align_frames_to_floor)
 	_add_sheet_animation(frames, "walk", String(pet_data.get("walk", "")), 9.0, frame_foot_y, align_frames_to_floor)
+	_add_sheet_animation(
+		frames,
+		"attack",
+		String(pet_data.get("attack", "")),
+		12.0,
+		int(pet_data.get("attack_frame_foot_y", frame_foot_y)),
+		align_frames_to_floor,
+		maxi(1, int(pet_data.get("attack_columns", SHEET_COLUMNS))),
+		maxi(1, int(pet_data.get("attack_rows", SHEET_ROWS))),
+		false,
+		true
+	)
 	_add_sheet_animation(frames, "close_eye", String(pet_data.get("closing_eye", "")), 10.0, frame_foot_y, align_frames_to_floor, 4, 4, false)
 	_add_sheet_animation(frames, "sleep", String(pet_data.get("sleep", "")), 3.5, frame_foot_y, align_frames_to_floor, 4, 2, true, true)
 	_add_sheet_animation(frames, "burrow", String(pet_data.get("burrow", "")), 9.0, frame_foot_y, align_frames_to_floor, 4, 3, false)

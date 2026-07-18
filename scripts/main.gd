@@ -11,6 +11,8 @@ const EraProgression = preload("res://scripts/domain/era_progression.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
 const EnemyActor = preload("res://scripts/enemy_actor.gd")
+const EnemyProjectileActor = preload("res://scripts/enemy_projectile_actor.gd")
+const BattleEffectActor = preload("res://scripts/battle_effect_actor.gd")
 const EventInvitation = preload("res://scripts/event_invitation.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
 const ShopWindowScript = preload("res://scripts/shop_window.gd")
@@ -82,6 +84,9 @@ const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
 const PET11_ABSORB_COOLDOWN_MAX_SECONDS := 115.0
 const PET11_ABSORB_HOLD_MIN_SECONDS := 4.0
 const PET11_ABSORB_HOLD_MAX_SECONDS := 7.0
+const PET11_BATTLE_ABSORB_MIN_SECONDS := 2.8
+const PET11_BATTLE_ABSORB_MAX_SECONDS := 5.5
+const PET11_BATTLE_ABSORB_RANGE := 420.0
 const UI_REFRESH_INTERVAL := 0.25
 const MANUAL_CLICK_RATE_SECONDS := 0.25
 const SAVE_PATH := "user://cthulu_save.cfg"
@@ -111,8 +116,9 @@ const BATTLE_INTERVAL_MAX_SECONDS := 600.0
 const BATTLE_DURATION_SECONDS := 42.0
 const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
 const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
-const SMOKE_SHEET_TEXTURE := "res://assets/enemyCharacter/smoke/smoke1_sheet.png"
+const SMOKE_SHEET_TEXTURE := "res://assets/effects/smoke/smoke1_sheet.png"
 const SMOKE_FRAME_COUNT := 10
+const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10", "pet11"]
 
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
@@ -158,6 +164,7 @@ var _battle_started_at := 0.0
 var _battle_ends_at := 0.0
 var _next_battle_at := 0.0
 var _battle_enemies: Array[Node2D] = []
+var _battle_effects: Array[Node2D] = []
 var _battle_wave_schedule: Array[Dictionary] = []
 var _battle_next_wave_index := 0
 var _battle_pet_health := {}
@@ -211,12 +218,16 @@ var _total_runtime_seconds := 0.0
 var _settings_refresh_timer := 0.0
 var _pet_activity_range := "full"
 var _language := "zh"
+var _debug_enemy_power_scale := 1.0
+var _debug_game_speed := 1.0
+var _simulation_now_seconds := 0.0
 
 
 # Lifecycle
 func _ready() -> void:
 	Input.use_accumulated_input = false
 	_rng.randomize()
+	_simulation_now_seconds = Time.get_unix_time_from_system()
 	_persistence_enabled = (
 		DisplayServer.get_name() != "headless"
 		and not OS.get_cmdline_user_args().has(NO_SAVE_ARGUMENT)
@@ -265,8 +276,13 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var safe_delta := maxf(0.0, delta)
+	_simulation_now_seconds += safe_delta
 	_session_runtime_seconds += safe_delta
 	_total_runtime_seconds += safe_delta
+	# Formation is visual movement and must run at render cadence. It used to be
+	# buried in the 10 Hz background simulation, making a healthy frame rate look
+	# like severe stutter whenever several pets crossed the desktop together.
+	_update_battle_pet_formation(safe_delta)
 	if _position_retry_frames > 0:
 		_position_retry_frames -= 1
 		_place_pet_window()
@@ -307,10 +323,9 @@ func _notification(what: int) -> void:
 		_cancel_all_pet_pointer_captures()
 		call_deferred("_restore_desktop_input")
 	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
+		Engine.time_scale = 1.0
 		_save_game()
 		get_tree().quit()
-
-
 # Window setup
 func _configure_pet_window() -> bool:
 	var window := get_window()
@@ -562,13 +577,41 @@ func _spawn_event_invitation(event_type: String) -> void:
 		_pet_window_size,
 		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
 		spawn_x,
-		_language
+		_language,
+		_get_battle_difficulty_text() if event_type == "battle" else ""
 	)
 	invite.connect("accepted", Callable(self, "_on_event_invitation_accepted"))
 	invite.connect("discarded", Callable(self, "_on_event_invitation_discarded"))
 	invite.connect("expired", Callable(self, "_on_event_invitation_expired"))
 	add_child(invite)
 	_event_invitation = invite
+
+
+func _get_battle_difficulty_scale() -> float:
+	var era_scale := 1.0 + float(EraProgression.get_era_index(_total_runtime_seconds)) * 0.32
+	return maxf(0.0, _debug_enemy_power_scale * era_scale)
+
+
+func _get_battle_difficulty_text() -> String:
+	var difficulty := _get_battle_difficulty_scale()
+	var tier := ""
+	if difficulty <= 0.35:
+		tier = "TRIVIAL" if _language == "en" else "微不足道"
+	elif difficulty <= 0.75:
+		tier = "EASY" if _language == "en" else "简单"
+	elif difficulty <= 1.25:
+		tier = "NORMAL" if _language == "en" else "普通"
+	elif difficulty <= 2.0:
+		tier = "HARD" if _language == "en" else "困难"
+	elif difficulty <= 4.0:
+		tier = "NIGHTMARE" if _language == "en" else "噩梦"
+	else:
+		tier = "APOCALYPSE" if _language == "en" else "末日"
+	return (
+		"DIFFICULTY: %s  ·  ENEMY ×%.2f"
+		if _language == "en"
+		else "难度：%s  ·  敌军 ×%.2f"
+	) % [tier, difficulty]
 
 
 func _on_event_invitation_accepted(event_type: String) -> void:
@@ -836,6 +879,10 @@ func _start_battle() -> void:
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
+	_next_pet11_absorb_at = _battle_started_at + _rng.randf_range(
+		PET11_BATTLE_ABSORB_MIN_SECONDS,
+		PET11_BATTLE_ABSORB_MAX_SECONDS
+	)
 	_update_actor_window_bounds()
 
 	var battle_pets: Array[Node2D] = []
@@ -910,14 +957,8 @@ func _update_battle(delta: float) -> void:
 		var actor_key := str(pet.get_instance_id())
 		if pet.has_method("is_pointer_captured") and bool(pet.call("is_pointer_captured")):
 			continue
-		var target_x := float(_battle_pet_target_x.get(actor_key, float(_pet_window_size.x) * 0.78))
 		if not bool(_battle_pet_formed.get(actor_key, false)):
-			var reached_formation := true
-			if pet.has_method("battle_move_toward"):
-				reached_formation = bool(pet.call("battle_move_toward", target_x, delta, 235.0))
-			if not reached_formation:
-				continue
-			_battle_pet_formed[actor_key] = true
+			continue
 		if pet.has_method("is_battle_ready") and not bool(pet.call("is_battle_ready")):
 			continue
 		if _battle_enemies.is_empty():
@@ -927,20 +968,39 @@ func _update_battle(delta: float) -> void:
 		var enemy_target := _get_nearest_battle_enemy(pet)
 		if enemy_target == null:
 			continue
-		if absf(pet.position.x - enemy_target.position.x) > 155.0:
-			continue
 		var pet_id := _get_actor_pet_id(pet)
 		var pet_data := PetCatalog.get_definition(pet_id)
 		var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
 		var level := PetProgression.progression_level(_get_pet_state(pet_id))
 		var damage := 1.05 + float(rarity) * 0.24 + sqrt(float(level)) * 0.055
+		var is_ranged_pet := pet_id in RANGED_BATTLE_PET_IDS
+		if not is_ranged_pet and absf(pet.position.x - enemy_target.position.x) > 155.0:
+			continue
 		var attack_direction := signf(enemy_target.position.x - pet.position.x)
 		if pet.has_method("play_battle_attack_toward"):
 			pet.call("play_battle_attack_toward", attack_direction)
 		elif pet.has_method("play_battle_attack"):
 			pet.call("play_battle_attack")
-		if enemy_target.has_method("take_damage"):
-			enemy_target.call("take_damage", damage, 12.0 + float(rarity) * 1.5)
+		var knockback := 12.0 + float(rarity) * 1.5
+		if is_ranged_pet:
+			var visual_power := _get_battle_visual_power(rarity, level)
+			_spawn_pet_projectile(pet, pet_id, enemy_target, attack_direction, damage, knockback, visual_power)
+		elif enemy_target.has_method("take_damage"):
+			var visual_power := _get_battle_visual_power(rarity, level)
+			var current_health := float(enemy_target.call("get_health")) if enemy_target.has_method("get_health") else INF
+			var launch_defeat := current_health <= damage and _roll_melee_launch(rarity, level)
+			if launch_defeat:
+				var launch_direction := signf(enemy_target.position.x - pet.position.x)
+				if is_zero_approx(launch_direction):
+					launch_direction = -1.0
+				var launch_velocity := Vector2(
+					launch_direction * (720.0 + visual_power * 58.0),
+					-190.0 - visual_power * 16.0
+				)
+				enemy_target.call("take_damage", damage, knockback, launch_velocity)
+				_try_launch_enemy_group(pet, enemy_target, visual_power, launch_direction)
+			else:
+				enemy_target.call("take_damage", damage, knockback)
 		_battle_pet_attack_at[actor_key] = now + _rng.randf_range(0.95, 1.35)
 
 	_update_battle_status(now)
@@ -948,6 +1008,25 @@ func _update_battle(delta: float) -> void:
 		_finish_battle(true)
 	elif now >= _battle_ends_at:
 		_finish_battle(true)
+
+
+func _update_battle_pet_formation(delta: float) -> void:
+	if not _battle_active:
+		return
+	for pet in _pets:
+		if not is_instance_valid(pet):
+			continue
+		var actor_key := str(pet.get_instance_id())
+		if not _battle_pet_health.has(actor_key) or bool(_battle_pet_formed.get(actor_key, false)):
+			continue
+		if pet.has_method("is_pointer_captured") and bool(pet.call("is_pointer_captured")):
+			continue
+		var target_x := float(_battle_pet_target_x.get(actor_key, float(_pet_window_size.x) * 0.78))
+		var reached_formation := true
+		if pet.has_method("battle_move_toward"):
+			reached_formation = bool(pet.call("battle_move_toward", target_x, delta, 235.0))
+		if reached_formation:
+			_battle_pet_formed[actor_key] = true
 
 
 func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
@@ -959,19 +1038,171 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
 		)
 		var enemy: Node2D = EnemyActor.new()
-		var era_scale := 1.0 + float(EraProgression.get_era_index(_total_runtime_seconds)) * 0.08
+		var era_scale := _get_battle_difficulty_scale()
 		var wave_scale := 1.0 + float(wave_index) * 0.025
+		var entry_x := (
+			clampf(float(_pet_window_size.x) * 0.17 + float(enemy_index) * 32.0, 110.0, float(_pet_window_size.x) * 0.30)
+			if enemy_id in ["soldier2", "victorian1"]
+			else clampf(float(_pet_window_size.x) * 0.065 + float(enemy_index) * 18.0, 72.0, 150.0)
+		)
 		enemy.call(
 			"setup",
 			enemy_id,
 			spawn_position,
 			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
-			era_scale * wave_scale
+			era_scale * wave_scale,
+			entry_x
 		)
 		enemy.connect("attack_landed", Callable(self, "_on_enemy_attack_landed"))
+		enemy.connect("projectile_requested", Callable(self, "_on_enemy_projectile_requested"))
 		enemy.connect("defeated", Callable(self, "_on_enemy_defeated"))
+		enemy.connect("swallowed", Callable(self, "_on_enemy_swallowed"))
 		add_child(enemy)
 		_battle_enemies.append(enemy)
+
+
+func _on_enemy_projectile_requested(
+	enemy: Node2D,
+	target: Node2D,
+	damage: float,
+	projectile_kind: String,
+	power_scale: float
+) -> void:
+	if not _battle_active or enemy == null or not is_instance_valid(enemy):
+		return
+	if target == null or not is_instance_valid(target):
+		return
+	var start_position := enemy.position + Vector2(38.0, -68.0)
+	if enemy.has_method("get_projectile_origin"):
+		start_position = enemy.call("get_projectile_origin")
+	var projectile: Node2D = EnemyProjectileActor.new()
+	projectile.call("setup", projectile_kind, start_position, target, damage, power_scale)
+	projectile.connect("impacted", Callable(self, "_on_enemy_projectile_impacted"))
+	projectile.tree_exited.connect(_on_battle_effect_tree_exited.bind(projectile))
+	add_child(projectile)
+	_battle_effects.append(projectile)
+
+
+func _on_enemy_projectile_impacted(
+	_projectile: Node2D,
+	target: Node2D,
+	damage: float,
+	splash_radius: float,
+	knockback: float
+) -> void:
+	if not _battle_active or target == null or not is_instance_valid(target):
+		return
+	var impact_position := target.position + Vector2(0.0, -48.0)
+	if target.has_method("get_battle_hit_position"):
+		impact_position = target.call("get_battle_hit_position")
+	if splash_radius <= 0.0:
+		_damage_battle_pet(target, damage, knockback)
+		return
+	_spawn_battle_explosion(impact_position, clampf(splash_radius / 32.0, 3.0, 7.5))
+	for pet in _get_alive_battle_pets():
+		var hit_position := pet.position + Vector2(0.0, -48.0)
+		if pet.has_method("get_battle_hit_position"):
+			hit_position = pet.call("get_battle_hit_position")
+		var distance := hit_position.distance_to(impact_position)
+		if distance > splash_radius:
+			continue
+		var falloff := lerpf(1.0, 0.45, distance / maxf(1.0, splash_radius))
+		_damage_battle_pet(pet, damage * falloff, knockback * falloff)
+
+
+func _get_battle_visual_power(rarity: int, level: int) -> float:
+	return clampf(float(rarity) + log(float(maxi(1, level))) / log(10.0) * 0.72, 1.0, 7.5)
+
+
+func _roll_melee_launch(rarity: int, level: int) -> bool:
+	var chance := clampf(
+		0.07 + float(rarity) * 0.035 + log(float(maxi(1, level))) / log(10.0) * 0.045,
+		0.10,
+		0.42
+	)
+	return _rng.randf() < chance
+
+
+func _try_launch_enemy_group(
+	_attacker: Node2D,
+	primary: Node2D,
+	visual_power: float,
+	launch_direction: float
+) -> void:
+	if visual_power < 4.7 or _rng.randf() > clampf(0.20 + (visual_power - 4.7) * 0.12, 0.20, 0.58):
+		return
+	var remaining := clampi(1 + int(floor((visual_power - 4.7) * 0.72)), 1, 3)
+	for enemy in _battle_enemies.duplicate():
+		if remaining <= 0:
+			break
+		if not is_instance_valid(enemy) or enemy == primary:
+			continue
+		if enemy.has_method("is_defeated") and bool(enemy.call("is_defeated")):
+			continue
+		if enemy.position.distance_to(primary.position) > 185.0:
+			continue
+		if not enemy.has_method("launch_offscreen"):
+			continue
+		var vertical_variation := _rng.randf_range(-245.0, -150.0)
+		enemy.call(
+			"launch_offscreen",
+			Vector2(launch_direction * (680.0 + visual_power * 52.0), vertical_variation)
+		)
+		remaining -= 1
+
+
+func _spawn_pet_projectile(
+	pet: Node2D,
+	pet_id: String,
+	target: Node2D,
+	direction: float,
+	damage: float,
+	knockback: float,
+	visual_power: float
+) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	var start_position := pet.position + Vector2((-1.0 if direction < 0.0 else 1.0) * 42.0, -46.0)
+	if pet.has_method("get_battle_attack_origin"):
+		start_position = pet.call("get_battle_attack_origin", direction)
+	var effect: Node2D = BattleEffectActor.new()
+	effect.call("setup_projectile", pet_id, start_position, target, visual_power)
+	effect.connect(
+		"projectile_impacted",
+		Callable(self, "_on_pet_projectile_impacted").bind(damage, knockback, visual_power)
+	)
+	effect.tree_exited.connect(_on_battle_effect_tree_exited.bind(effect))
+	add_child(effect)
+	_battle_effects.append(effect)
+
+
+func _on_pet_projectile_impacted(
+	_effect: Node2D,
+	target: Node2D,
+	damage: float,
+	knockback: float,
+	visual_power: float
+) -> void:
+	if not _battle_active or target == null or not is_instance_valid(target):
+		return
+	var impact_position := target.position + Vector2(0.0, -52.0)
+	if target.has_method("get_battle_hit_position"):
+		impact_position = target.call("get_battle_hit_position")
+	_spawn_battle_explosion(impact_position, visual_power)
+	if target.has_method("take_damage"):
+		target.call("take_damage", damage, knockback)
+
+
+func _spawn_battle_explosion(world_position: Vector2, visual_power: float) -> void:
+	var effect: Node2D = BattleEffectActor.new()
+	effect.call("setup_explosion", world_position, visual_power)
+	effect.tree_exited.connect(_on_battle_effect_tree_exited.bind(effect))
+	add_child(effect)
+	_battle_effects.append(effect)
+
+
+func _on_battle_effect_tree_exited(effect: Node2D) -> void:
+	_battle_effects.erase(effect)
 
 
 func _cleanup_battle_enemies() -> void:
@@ -1017,6 +1248,10 @@ func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 
 
 func _on_enemy_attack_landed(_enemy: Node2D, target: Node2D, damage: float) -> void:
+	_damage_battle_pet(target, damage, 13.0)
+
+
+func _damage_battle_pet(target: Node2D, damage: float, knockback: float) -> void:
 	if not _battle_active or target == null or not is_instance_valid(target):
 		return
 	var actor_key := str(target.get_instance_id())
@@ -1025,7 +1260,7 @@ func _on_enemy_attack_landed(_enemy: Node2D, target: Node2D, damage: float) -> v
 	var next_health := float(_battle_pet_health[actor_key]) - maxf(0.0, damage)
 	_battle_pet_health[actor_key] = next_health
 	if target.has_method("receive_battle_hit"):
-		target.call("receive_battle_hit", 13.0)
+		target.call("receive_battle_hit", maxf(0.0, knockback))
 	if next_health <= 0.0:
 		_defeat_battle_pet(target)
 
@@ -1035,13 +1270,24 @@ func _on_enemy_defeated(enemy: Node2D, reward_count: int) -> void:
 		return
 	var defeat_position := enemy.position + Vector2(0.0, -62.0)
 	_battle_enemies.erase(enemy)
-	_spawn_smoke_effect(defeat_position)
 	_spawn_battle_reward(defeat_position, reward_count)
+	if enemy.has_method("is_launched") and bool(enemy.call("is_launched")):
+		return
+	_spawn_smoke_effect(defeat_position)
+	enemy.queue_free()
+
+
+func _on_enemy_swallowed(enemy: Node2D, reward_count: int) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	var reward_position := enemy.position + Vector2(0.0, -18.0)
+	_battle_enemies.erase(enemy)
+	_spawn_battle_reward(reward_position, reward_count)
 	enemy.queue_free()
 
 
 func _spawn_battle_reward(drop_position: Vector2, reward_count: int) -> void:
-	var safe_count := clampi(reward_count, 3, 16)
+	var safe_count := clampi(reward_count, 3, 24)
 	for coin_index in safe_count:
 		var coin_type := "D" if coin_index < 2 else "P" if coin_index % 3 == 0 else "R"
 		var spread := float(coin_index) - float(safe_count - 1) * 0.5
@@ -1111,6 +1357,10 @@ func _finish_battle(victory: bool) -> void:
 			_spawn_smoke_effect(enemy.position + Vector2(0.0, -62.0))
 			enemy.queue_free()
 	_battle_enemies.clear()
+	for effect in _battle_effects.duplicate():
+		if is_instance_valid(effect):
+			effect.queue_free()
+	_battle_effects.clear()
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("set_battle_mode"):
 			pet.call("set_battle_mode", false)
@@ -1120,6 +1370,7 @@ func _finish_battle(victory: bool) -> void:
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
 	_battle_wave_schedule.clear()
+	_schedule_next_pet11_absorb(_get_now_seconds(), true)
 	_update_actor_window_bounds()
 	var now := _get_now_seconds()
 	_schedule_next_battle(now)
@@ -1202,7 +1453,7 @@ func _schedule_next_pet11_absorb(now: float, initial := false) -> void:
 
 
 func _update_pet11_absorb_ability() -> void:
-	if _pilgrimage_active or _battle_active:
+	if _pilgrimage_active:
 		return
 	var pet11: Node2D
 	for pet in _pets:
@@ -1213,6 +1464,9 @@ func _update_pet11_absorb_ability() -> void:
 		_next_pet11_absorb_at = 0.0
 		return
 	if pet11.has_method("is_pointer_captured") and bool(pet11.call("is_pointer_captured")):
+		return
+	if _battle_active:
+		_update_pet11_battle_absorb(pet11)
 		return
 	if _has_swallowed_pet():
 		return
@@ -1241,6 +1495,46 @@ func _update_pet11_absorb_ability() -> void:
 	if started:
 		_spawn_emotion(pet11, "suprised", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
 	_schedule_next_pet11_absorb(now)
+
+
+func _update_pet11_battle_absorb(pet11: Node2D) -> void:
+	var actor_key := str(pet11.get_instance_id())
+	if not _battle_pet_health.has(actor_key):
+		return
+	var now := _get_now_seconds()
+	if now < _next_pet11_absorb_at:
+		return
+	var target: Node2D
+	var nearest_distance := PET11_BATTLE_ABSORB_RANGE
+	# Dangerous projectiles are consumed first so the ability visibly protects the line.
+	for effect in _battle_effects:
+		if not is_instance_valid(effect) or not effect.has_method("can_be_swallowed"):
+			continue
+		if not bool(effect.call("can_be_swallowed")):
+			continue
+		var distance := pet11.position.distance_to(effect.position)
+		if distance <= nearest_distance:
+			nearest_distance = distance
+			target = effect
+	if target == null:
+		for enemy in _battle_enemies:
+			if not is_instance_valid(enemy) or not enemy.has_method("can_be_swallowed"):
+				continue
+			if not bool(enemy.call("can_be_swallowed")):
+				continue
+			var distance := pet11.position.distance_to(enemy.position)
+			if distance <= nearest_distance:
+				nearest_distance = distance
+				target = enemy
+	if target == null:
+		_next_pet11_absorb_at = now + 0.75
+		return
+	if bool(target.call("start_swallowed_by", pet11)):
+		_spawn_emotion(pet11, "suprised", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
+	_next_pet11_absorb_at = now + _rng.randf_range(
+		PET11_BATTLE_ABSORB_MIN_SECONDS,
+		PET11_BATTLE_ABSORB_MAX_SECONDS
+	)
 
 
 func _has_swallowed_pet() -> bool:
@@ -1700,11 +1994,12 @@ func _create_settings_window() -> void:
 	_settings_window.activity_range_changed.connect(_on_activity_range_changed)
 	_settings_window.language_changed.connect(_on_language_changed)
 	_settings_window.debug_economy_requested.connect(_on_debug_economy_requested)
+	_settings_window.debug_simulation_requested.connect(_on_debug_simulation_requested)
 	_settings_window.debug_event_requested.connect(_on_debug_event_requested)
 	_settings_window.quit_requested.connect(_on_quit_requested)
 	_settings_window.setup(_pet_activity_range, _language)
 	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
-	_settings_window.refresh_debug_values(_faith_points, _gold_coins)
+	_settings_window.refresh_debug_values(_faith_points, _gold_coins, _debug_enemy_power_scale, _debug_game_speed)
 
 
 # Window clickthrough and hit testing
@@ -1860,6 +2155,7 @@ func _get_window_mouse_position(window: Window) -> Vector2:
 
 
 func _exit_tree() -> void:
+	Engine.time_scale = 1.0
 	_save_game()
 	_clear_offering_cursor()
 
@@ -2846,7 +3142,7 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			"name": _get_pet_display_name(pet_id),
 			"description": String(pet_data.get("description", "")),
 			"rarity_stars": clampi(int(pet_data.get("rarity_stars", 1)), 1, 5),
-			"age_text": String(pet_data.get("age_text", pet_data.get("age", "年龄不详"))),
+			"age_text": _get_pet_age_text(pet_data),
 			"personality": String(pet_data.get("personality", "性格不详")),
 			"level": level,
 			"is_max_level": is_max_level,
@@ -2865,6 +3161,25 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 		entries[entries.size() - 1].merge(recovery_info, true)
 
 	return entries
+
+
+func _get_pet_age_text(pet_data: Dictionary) -> String:
+	if not pet_data.has("base_age_years"):
+		return String(pet_data.get("age_text", pet_data.get("age", "Unknown" if _language == "en" else "年龄不详")))
+	var elapsed_years := maxi(0, EraProgression.get_year(_total_runtime_seconds) - 1)
+	var age_years := maxi(0, int(pet_data.get("base_age_years", 0)) + elapsed_years)
+	var qualifier := String(pet_data.get("age_qualifier", ""))
+	if _language == "en":
+		if qualifier == "about":
+			return "about %d years" % age_years
+		if qualifier == "at_least":
+			return "at least %d years" % age_years
+		return "%d years" % age_years
+	if qualifier == "about":
+		return "约%d岁" % age_years
+	if qualifier == "at_least":
+		return "至少%d岁" % age_years
+	return "%d岁" % age_years
 
 
 func _get_upgrade_cost(pet_id: String) -> int:
@@ -3042,7 +3357,7 @@ func _get_actor_pet_id(actor: Node2D) -> String:
 
 
 func _get_now_seconds() -> float:
-	return Time.get_unix_time_from_system()
+	return _simulation_now_seconds if _simulation_now_seconds > 0.0 else Time.get_unix_time_from_system()
 
 
 func _get_news_runtime_seconds() -> float:
@@ -3201,7 +3516,13 @@ func _on_settings_requested() -> void:
 		return
 	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
 	if _settings_window.has_method("refresh_debug_values"):
-		_settings_window.call("refresh_debug_values", _faith_points, _gold_coins)
+		_settings_window.call(
+			"refresh_debug_values",
+			_faith_points,
+			_gold_coins,
+			_debug_enemy_power_scale,
+			_debug_game_speed
+		)
 	_settings_window.open_window()
 
 
@@ -3793,8 +4114,28 @@ func _on_debug_economy_requested(faith_points: float, gold_coins: int) -> void:
 	_refresh_coin_display()
 	_sync_shop_state()
 	if _settings_window != null and _settings_window.has_method("refresh_debug_values"):
-		_settings_window.call("refresh_debug_values", _faith_points, _gold_coins)
+		_settings_window.call(
+			"refresh_debug_values",
+			_faith_points,
+			_gold_coins,
+			_debug_enemy_power_scale,
+			_debug_game_speed
+		)
 	_save_game()
+
+
+func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float) -> void:
+	_debug_enemy_power_scale = clampf(enemy_power_scale, 0.0, 1_000_000_000_000_000.0)
+	_debug_game_speed = clampf(game_speed, 0.1, 20.0)
+	Engine.time_scale = _debug_game_speed
+	if _settings_window != null and _settings_window.has_method("refresh_debug_values"):
+		_settings_window.call(
+			"refresh_debug_values",
+			_faith_points,
+			_gold_coins,
+			_debug_enemy_power_scale,
+			_debug_game_speed
+		)
 
 
 func _on_debug_event_requested(event_type: String) -> void:
@@ -3807,10 +4148,7 @@ func _on_debug_event_requested(event_type: String) -> void:
 		_finish_pilgrimage(false)
 	if _battle_active:
 		_finish_battle(true)
-	if event_type == "battle":
-		_start_battle()
-	else:
-		_start_pilgrimage()
+	_spawn_event_invitation(event_type)
 
 
 func _on_language_changed(language_code: String) -> void:

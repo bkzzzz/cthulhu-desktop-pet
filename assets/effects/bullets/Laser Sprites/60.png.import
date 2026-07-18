@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://lgs7hx5xsffa"
-path="res://.godot/imported/soldier2Idle.png-4964d8b18740adc498cea92662b6cb4f.ctex"
+uid="uid://co6c1qj67v3e4"
+path="res://.godot/imported/60.png-bfb8882dd37f90a67250294f62a8ef4e.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/enemyCharacter/soldiers/soldier2Idle.png"
-dest_files=["res://.godot/imported/soldier2Idle.png-4964d8b18740adc498cea92662b6cb4f.ctex"]
+source_file="res://assets/effects/bullets/Laser Sprites/60.png"
+dest_files=["res://.godot/imported/60.png-bfb8882dd37f90a67250294f62a8ef4e.ctex"]
 
 [params]
 

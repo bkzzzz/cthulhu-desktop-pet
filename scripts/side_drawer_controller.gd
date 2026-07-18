@@ -476,7 +476,15 @@ func _create_drawer_window() -> void:
 func _create_era_label() -> void:
 	_era_label = Label.new()
 	_era_label.name = "EraDisplay"
-	_era_label.position = Vector2(DRAWER_CONTENT_MARGIN_X, 8.0)
+	# PanelContainer controls the rect of every direct Control child.  Keeping the
+	# era label under it made Godot stretch the label over the whole panel, which
+	# is why its text still appeared around the middle despite a manual position.
+	# The root is not a Container, so this position remains the real top-left
+	# overlay above the adder on every desktop size.
+	_era_label.position = Vector2(
+		DRAWER_BOOKMARK_WIDTH - 10 + DRAWER_CONTENT_MARGIN_X,
+		6.0
+	)
 	_era_label.size = Vector2(300.0, 32.0)
 	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -486,7 +494,7 @@ func _create_era_label() -> void:
 	_era_label.add_theme_color_override("font_color", Color(0.94, 0.82, 0.48, 0.98))
 	_era_label.add_theme_color_override("font_outline_color", Color(0.02, 0.025, 0.02, 1.0))
 	_era_label.add_theme_constant_override("outline_size", 3)
-	_drawer_panel.add_child(_era_label)
+	_drawer_root.add_child(_era_label)
 
 
 func _make_drawer_background_texture() -> Texture2D:
@@ -1349,18 +1357,16 @@ func _get_upgrade_gain_text(entry: Dictionary) -> String:
 func _get_money_rate_text(entry: Dictionary) -> String:
 	if bool(entry.get("recovering", false)):
 		return (
-			"RECOVERING  %s remaining\nProduction is paused until recovery finishes"
+			"RECOVERING  %s remaining"
 			if _language == "en"
-			else "休整中  剩余 %s\n休整完成前暂停全部产出"
+			else "休整中  剩余 %s"
 		) % _format_duration(float(entry.get("recovery_seconds_remaining", 0.0)))
 	var current_rate := maxf(0.0, float(entry.get("current_money_rate", 0.0)))
-	var next_rate := maxf(current_rate, float(entry.get("next_money_rate", current_rate)))
-	var gain := maxf(0.0, float(entry.get("money_rate_gain", next_rate - current_rate)))
 	return (
-		"MONEY DROP  $%s/min\nNEXT LEVEL  +$%s/min · collect the dropped coins"
+		"MONEY PRODUCTION  $%s/min"
 		if _language == "en"
-		else "金钱增速  $%s/分钟\n下一级  +$%s/分钟 · 需用鼠标收集掉落钱币"
-	) % [_format_number(current_rate, true), _format_number(gain, true)]
+		else "金钱产出  $%s/分钟"
+	) % _format_number(current_rate, true)
 
 
 func _format_duration(seconds: float) -> String:

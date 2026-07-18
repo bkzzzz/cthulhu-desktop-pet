@@ -26,6 +26,7 @@ var _prompt_panel: PanelContainer
 var _prompt_open := false
 var _resolved := false
 var _language := "zh"
+var _difficulty_text := ""
 
 
 func setup(
@@ -34,12 +35,14 @@ func setup(
 	window_size: Vector2i,
 	ground_y: float,
 	spawn_x: float,
-	language_code := "zh"
+	language_code := "zh",
+	difficulty_text := ""
 ) -> void:
 	event_type = new_event_type
 	_window_size = window_size
 	_ground_y = ground_y
 	_language = "en" if language_code == "en" else "zh"
+	_difficulty_text = difficulty_text.strip_edges()
 	position = Vector2(spawn_x, -72.0)
 	_create_sprite(texture_path)
 
@@ -129,6 +132,8 @@ func _create_input_window() -> void:
 		if _language == "en"
 		else ("战斗事件邀请" if event_type == "battle" else "朝圣事件邀请")
 	)
+	if event_type == "battle" and not _difficulty_text.is_empty():
+		_icon_button.tooltip_text += "\n%s" % _difficulty_text
 	_icon_button.pressed.connect(_open_prompt)
 	_input_window.add_child(_icon_button)
 	_input_window.visible = true
@@ -180,6 +185,14 @@ func _open_prompt() -> void:
 	description.add_theme_font_size_override("font_size", 14)
 	description.add_theme_color_override("font_color", Color(0.82, 0.82, 0.78, 1.0))
 	content.add_child(description)
+	if event_type == "battle" and not _difficulty_text.is_empty():
+		var difficulty_label := Label.new()
+		difficulty_label.name = "BattleDifficulty"
+		difficulty_label.text = _difficulty_text
+		difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		difficulty_label.add_theme_font_size_override("font_size", 18)
+		difficulty_label.add_theme_color_override("font_color", Color(1.0, 0.64, 0.32, 1.0))
+		content.add_child(difficulty_label)
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	actions.add_theme_constant_override("separation", 12)
@@ -201,7 +214,7 @@ func _update_input_window() -> void:
 	if _input_window == null or _visual_window == null:
 		return
 	if _prompt_open:
-		var prompt_size := Vector2i(310, 150)
+		var prompt_size := Vector2i(330, 180) if event_type == "battle" and not _difficulty_text.is_empty() else Vector2i(310, 150)
 		var local_x := clampi(int(round(position.x - prompt_size.x * 0.5)), 8, maxi(8, _window_size.x - prompt_size.x - 8))
 		var local_y := clampi(int(round(position.y - prompt_size.y - 58.0)), 8, maxi(8, _window_size.y - prompt_size.y - 8))
 		_input_window.position = _visual_window.position + Vector2i(local_x, local_y)

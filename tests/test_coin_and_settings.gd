@@ -206,13 +206,19 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("settings must display the current session runtime")
 	if total_label == null or total_label.text != "01:02:03":
 		failures.append("settings must display the persisted total runtime")
-	settings.refresh_debug_values(12345.0, 6789)
+	settings.refresh_debug_values(12345.0, 6789, 2.5, 3.0)
 	var faith_spin := settings.get("_debug_faith_spin") as SpinBox
 	var coin_spin := settings.get("_debug_coin_spin") as SpinBox
+	var enemy_power_spin := settings.get("_debug_enemy_power_spin") as SpinBox
+	var game_speed_spin := settings.get("_debug_game_speed_spin") as SpinBox
 	if faith_spin == null or not is_equal_approx(faith_spin.value, 12345.0):
 		failures.append("settings debug options must load the current faith value")
 	if coin_spin == null or int(coin_spin.value) != 6789:
 		failures.append("settings debug options must load the current gold value")
+	if enemy_power_spin == null or not is_equal_approx(enemy_power_spin.value, 2.5):
+		failures.append("settings debug options must expose freely adjustable enemy power")
+	if game_speed_spin == null or not is_equal_approx(game_speed_spin.value, 3.0):
+		failures.append("settings debug options must expose an adjustable game speed")
 	var debug_events: Array[String] = []
 	settings.debug_event_requested.connect(func(event_type: String) -> void: debug_events.append(event_type))
 	settings.call("_on_debug_event_pressed", "pilgrimage")
@@ -226,6 +232,12 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 	main.call("_on_debug_economy_requested", 98765.0, 43210)
 	if not is_equal_approx(float(main.get("_faith_points")), 98765.0) or int(main.get("_gold_coins")) != 43210:
 		failures.append("debug economy changes must immediately replace faith and gold")
+	main.call("_on_debug_simulation_requested", 0.25, 2.0)
+	if not is_equal_approx(float(main.get("_debug_enemy_power_scale")), 0.25):
+		failures.append("debug enemy power must support reductions below normal")
+	if not is_equal_approx(float(main.get("_debug_game_speed")), 2.0) or not is_equal_approx(Engine.time_scale, 2.0):
+		failures.append("debug game speed must immediately control simulation speed")
+	Engine.time_scale = 1.0
 	main.free()
 
 

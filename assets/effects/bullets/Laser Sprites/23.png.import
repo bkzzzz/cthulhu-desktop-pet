@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://deh4878wmbbeg"
-path="res://.godot/imported/victorian1Idle.png-c2d21b3a55c4a0be7314fe770715c85c.ctex"
+uid="uid://1yqrmmwtbr0c"
+path="res://.godot/imported/23.png-3335ad71beb4a1624bf51f548e0ea7b4.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/enemyCharacter/victorian/victorian1Idle.png"
-dest_files=["res://.godot/imported/victorian1Idle.png-c2d21b3a55c4a0be7314fe770715c85c.ctex"]
+source_file="res://assets/effects/bullets/Laser Sprites/23.png"
+dest_files=["res://.godot/imported/23.png-3335ad71beb4a1624bf51f548e0ea7b4.ctex"]
 
 [params]
 

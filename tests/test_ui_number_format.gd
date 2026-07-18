@@ -36,7 +36,7 @@ static func run() -> Array[String]:
 		"current_money_rate": 12.5,
 		"next_money_rate": 13.75,
 		"money_rate_gain": 1.25
-	}), "金钱增速  $12.50/分钟\n下一级  +$1.25/分钟 · 需用鼠标收集掉落钱币")
+	}), "金钱产出  $12.50/分钟")
 	_check(failures, formatter.call("_get_rarity_stars_text", {"rarity_stars": 3}, {}), "★★★")
 	_check(failures, formatter.call("_get_upgrade_cost_text", {"cost": 25}), "消耗 25")
 	_check(failures, formatter.call("_get_upgrade_tooltip_text", {}), "点击升级宠物，提高信仰与金钱掉落")
@@ -92,6 +92,16 @@ static func run() -> Array[String]:
 
 	formatter.call("_create_drawer_window")
 	var drawer_root := formatter.get("_drawer_root") as Control
+	var drawer_panel := formatter.get("_drawer_panel") as PanelContainer
+	var era_label := formatter.get("_era_label") as Label
+	if era_label == null or drawer_panel == null:
+		failures.append("the drawer must create its era label")
+	elif era_label.get_parent() != drawer_root:
+		failures.append("the era label must be a root overlay so PanelContainer cannot recenter it")
+	else:
+		var expected_era_x := drawer_panel.position.x + SideDrawer.DRAWER_CONTENT_MARGIN_X
+		if not is_equal_approx(era_label.position.x, expected_era_x) or era_label.position.y > 10.0:
+			failures.append("the era label must stay in the drawer's actual top-left corner above the adder")
 	if drawer_root.find_child("FollowerSummary", true, false) != null:
 		failures.append("the faith header must not retain the follower summary line")
 	var faith_value := formatter.get("_faith_value_label") as Label

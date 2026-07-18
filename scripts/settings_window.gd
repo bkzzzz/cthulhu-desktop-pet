@@ -4,6 +4,7 @@ signal activity_range_changed(range_mode: String)
 signal language_changed(language_code: String)
 signal quit_requested
 signal debug_economy_requested(faith_points: float, gold_coins: int)
+signal debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 signal debug_event_requested(event_type: String)
 
 const WINDOW_SIZE := Vector2i(720, 720)
@@ -35,6 +36,10 @@ var _debug_faith_label: Label
 var _debug_coin_label: Label
 var _debug_faith_spin: SpinBox
 var _debug_coin_spin: SpinBox
+var _debug_enemy_power_label: Label
+var _debug_enemy_power_spin: SpinBox
+var _debug_game_speed_label: Label
+var _debug_game_speed_spin: SpinBox
 var _debug_apply_button: Button
 var _debug_event_title_label: Label
 var _debug_pilgrimage_button: Button
@@ -76,11 +81,20 @@ func refresh_runtime(session_seconds: float, total_seconds: float) -> void:
 		_total_value_label.text = _format_duration(_total_seconds)
 
 
-func refresh_debug_values(faith_points: float, gold_coins: int) -> void:
+func refresh_debug_values(
+	faith_points: float,
+	gold_coins: int,
+	enemy_power_scale := 1.0,
+	game_speed := 1.0
+) -> void:
 	if _debug_faith_spin != null:
 		_debug_faith_spin.value = clampf(faith_points, 0.0, _debug_faith_spin.max_value)
 	if _debug_coin_spin != null:
 		_debug_coin_spin.value = clampf(float(gold_coins), 0.0, _debug_coin_spin.max_value)
+	if _debug_enemy_power_spin != null:
+		_debug_enemy_power_spin.value = clampf(enemy_power_scale, 0.0, _debug_enemy_power_spin.max_value)
+	if _debug_game_speed_spin != null:
+		_debug_game_speed_spin.value = clampf(game_speed, _debug_game_speed_spin.min_value, _debug_game_speed_spin.max_value)
 
 
 func set_activity_range(activity_range: String) -> void:
@@ -245,12 +259,14 @@ func _create_content() -> void:
 func _create_debug_panel() -> void:
 	_debug_panel = PanelContainer.new()
 	_debug_panel.name = "DebugPanel"
-	_debug_panel.position = Vector2(142.0, 105.0)
-	_debug_panel.size = Vector2(436.0, 510.0)
+	_debug_panel.position = Vector2(142.0, 65.0)
+	_debug_panel.size = Vector2(436.0, 590.0)
 	_debug_panel.visible = false
 	_debug_panel.z_index = 20
 	_debug_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_debug_panel.add_theme_stylebox_override("panel", _make_panel_style())
+	var debug_style := _make_panel_style()
+	debug_style.bg_color = Color(0.008, 0.012, 0.010, 1.0)
+	_debug_panel.add_theme_stylebox_override("panel", debug_style)
 	_root.add_child(_debug_panel)
 
 	var margin := MarginContainer.new()
@@ -260,13 +276,13 @@ func _create_debug_panel() -> void:
 	margin.add_theme_constant_override("margin_bottom", 24)
 	_debug_panel.add_child(margin)
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 12)
+	content.add_theme_constant_override("separation", 8)
 	margin.add_child(content)
 
 	_debug_title_label = _make_label("调试选项", 28, Color(0.94, 0.84, 0.62, 1.0))
 	_debug_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(_debug_title_label)
-	_debug_hint_label = _make_label("数值会立即写入当前存档", 14, Color(0.68, 0.74, 0.66, 1.0))
+	_debug_hint_label = _make_label("经济数值写入存档；战力与速度仅当前运行", 14, Color(0.68, 0.74, 0.66, 1.0))
 	_debug_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(_debug_hint_label)
 
@@ -286,6 +302,22 @@ func _create_debug_panel() -> void:
 	coin_row.add_child(_debug_coin_spin)
 	content.add_child(coin_row)
 
+	var enemy_power_row := _make_setting_row()
+	_debug_enemy_power_label = _make_label("敌军战力倍率", 18, Color(0.82, 0.86, 0.72, 1.0))
+	_debug_enemy_power_label.custom_minimum_size = Vector2(120.0, 42.0)
+	enemy_power_row.add_child(_debug_enemy_power_label)
+	_debug_enemy_power_spin = _make_debug_multiplier_spin_box(0.0, 1_000_000_000_000_000.0, 0.05)
+	enemy_power_row.add_child(_debug_enemy_power_spin)
+	content.add_child(enemy_power_row)
+
+	var game_speed_row := _make_setting_row()
+	_debug_game_speed_label = _make_label("游戏速度倍率", 18, Color(0.82, 0.86, 0.72, 1.0))
+	_debug_game_speed_label.custom_minimum_size = Vector2(120.0, 42.0)
+	game_speed_row.add_child(_debug_game_speed_label)
+	_debug_game_speed_spin = _make_debug_multiplier_spin_box(0.1, 20.0, 0.1)
+	game_speed_row.add_child(_debug_game_speed_spin)
+	content.add_child(game_speed_row)
+
 	_debug_apply_button = Button.new()
 	_debug_apply_button.text = "应用数值"
 	_debug_apply_button.custom_minimum_size = Vector2(360.0, 38.0)
@@ -294,19 +326,19 @@ func _create_debug_panel() -> void:
 
 	var divider := HSeparator.new()
 	content.add_child(divider)
-	_debug_event_title_label = _make_label("立即触发事件", 17, Color(0.82, 0.86, 0.72, 1.0))
+	_debug_event_title_label = _make_label("投放事件邀请", 17, Color(0.82, 0.86, 0.72, 1.0))
 	_debug_event_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(_debug_event_title_label)
 	var event_row := HBoxContainer.new()
 	event_row.add_theme_constant_override("separation", 10)
 	content.add_child(event_row)
 	_debug_pilgrimage_button = Button.new()
-	_debug_pilgrimage_button.text = "触发朝拜"
+	_debug_pilgrimage_button.text = "投放朝拜邀请"
 	_debug_pilgrimage_button.custom_minimum_size = Vector2(174.0, 40.0)
 	_debug_pilgrimage_button.pressed.connect(_on_debug_event_pressed.bind("pilgrimage"))
 	event_row.add_child(_debug_pilgrimage_button)
 	_debug_battle_button = Button.new()
-	_debug_battle_button.text = "触发战斗"
+	_debug_battle_button.text = "投放战斗邀请"
 	_debug_battle_button.custom_minimum_size = Vector2(174.0, 40.0)
 	_debug_battle_button.pressed.connect(_on_debug_event_pressed.bind("battle"))
 	event_row.add_child(_debug_battle_button)
@@ -334,6 +366,20 @@ func _make_debug_spin_box() -> SpinBox:
 	return spin
 
 
+func _make_debug_multiplier_spin_box(minimum: float, maximum: float, value_step: float) -> SpinBox:
+	var spin := SpinBox.new()
+	spin.min_value = minimum
+	spin.max_value = maximum
+	spin.step = value_step
+	spin.allow_greater = true
+	spin.allow_lesser = false
+	spin.suffix = "×"
+	spin.custom_minimum_size = Vector2(230.0, 42.0)
+	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spin.add_theme_font_size_override("font_size", 17)
+	return spin
+
+
 func _open_debug_panel() -> void:
 	if _debug_panel != null:
 		_debug_panel.visible = true
@@ -345,9 +391,15 @@ func _close_debug_panel() -> void:
 
 
 func _on_debug_apply_pressed() -> void:
-	if _debug_faith_spin == null or _debug_coin_spin == null:
+	if (
+		_debug_faith_spin == null
+		or _debug_coin_spin == null
+		or _debug_enemy_power_spin == null
+		or _debug_game_speed_spin == null
+	):
 		return
 	debug_economy_requested.emit(_debug_faith_spin.value, int(round(_debug_coin_spin.value)))
+	debug_simulation_requested.emit(_debug_enemy_power_spin.value, _debug_game_speed_spin.value)
 
 
 func _on_debug_event_pressed(event_type: String) -> void:
@@ -431,19 +483,23 @@ func _apply_language() -> void:
 	if _debug_title_label != null:
 		_debug_title_label.text = "DEBUG OPTIONS" if english else "调试选项"
 	if _debug_hint_label != null:
-		_debug_hint_label.text = "Values are written to the current save immediately" if english else "数值会立即写入当前存档"
+		_debug_hint_label.text = "Economy saves; power and speed last for this run" if english else "经济数值写入存档；战力与速度仅当前运行"
 	if _debug_faith_label != null:
 		_debug_faith_label.text = "Faith" if english else "信仰值"
 	if _debug_coin_label != null:
 		_debug_coin_label.text = "Gold" if english else "金币"
+	if _debug_enemy_power_label != null:
+		_debug_enemy_power_label.text = "Enemy power" if english else "敌军战力倍率"
+	if _debug_game_speed_label != null:
+		_debug_game_speed_label.text = "Game speed" if english else "游戏速度倍率"
 	if _debug_apply_button != null:
 		_debug_apply_button.text = "APPLY VALUES" if english else "应用数值"
 	if _debug_event_title_label != null:
-		_debug_event_title_label.text = "START EVENT NOW" if english else "立即触发事件"
+		_debug_event_title_label.text = "DROP EVENT INVITATION" if english else "投放事件邀请"
 	if _debug_pilgrimage_button != null:
-		_debug_pilgrimage_button.text = "START PILGRIMAGE" if english else "触发朝拜"
+		_debug_pilgrimage_button.text = "DROP PILGRIMAGE INVITE" if english else "投放朝拜邀请"
 	if _debug_battle_button != null:
-		_debug_battle_button.text = "START BATTLE" if english else "触发战斗"
+		_debug_battle_button.text = "DROP BATTLE INVITE" if english else "投放战斗邀请"
 	if _debug_back_button != null:
 		_debug_back_button.text = "BACK TO SETTINGS" if english else "返回设置"
 

@@ -31,6 +31,7 @@ const AIR_ROAM_LEG_PAUSE_MIN := 0.35
 const AIR_ROAM_LEG_PAUSE_MAX := 1.15
 const INPUT_PROXY_PADDING := 10.0
 const INPUT_WINDOW_UPDATE_INTERVAL := 1.0 / 15.0
+const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10", "pet11"]
 const DOZE_ANIMATION_SPEED_SCALE := 0.28
 const POP_DURATION_MIN := 0.48
 const POP_DURATION_MAX := 0.82
@@ -154,6 +155,12 @@ var _autonomy_paused := false
 var _autonomy_previous_speed_scale := 1.0
 var _battle_mode := false
 var _battle_motion_tween: Tween
+var _battle_attack_animation := false
+var _last_input_window_position := Vector2i(-100000, -100000)
+var _last_input_window_size := Vector2i.ZERO
+var _last_input_shape_flip := false
+var _last_input_shape_rotation := INF
+var _last_input_shape_scale := Vector2.ZERO
 var _swallow_phase := SwallowPhase.NONE
 var _swallow_progress := 0.0
 var _swallow_hold_time := 0.0
@@ -323,6 +330,7 @@ func set_battle_mode(enabled: bool) -> void:
 	if _battle_mode == enabled:
 		return
 	_battle_mode = enabled
+	_battle_attack_animation = false
 	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
 		_battle_motion_tween.kill()
 		_battle_motion_tween = null
@@ -377,6 +385,16 @@ func play_battle_attack_toward(direction: float) -> void:
 	var origin_x := position.x
 	var attack_direction := -1.0 if direction < 0.0 else 1.0
 	_face_direction(attack_direction)
+	if (
+		pet_id not in RANGED_BATTLE_PET_IDS
+		and _sprite.sprite_frames != null
+		and _sprite.sprite_frames.has_animation("attack")
+		and _sprite.sprite_frames.get_frame_count("attack") > 0
+	):
+		_battle_attack_animation = true
+		_sprite.speed_scale = 1.0
+		_sprite.play("attack")
+		return
 	_battle_motion_tween = create_tween()
 	_battle_motion_tween.set_trans(Tween.TRANS_QUAD)
 	_battle_motion_tween.set_ease(Tween.EASE_OUT)
@@ -384,10 +402,43 @@ func play_battle_attack_toward(direction: float) -> void:
 	_battle_motion_tween.tween_property(self, "position:x", origin_x, 0.14)
 
 
+func get_battle_attack_origin(direction: float) -> Vector2:
+	var attack_direction := -1.0 if direction < 0.0 else 1.0
+	var visual_rect := _get_sprite_visual_rect()
+	var height_above_origin := maxf(34.0, position.y - visual_rect.position.y)
+	return position + Vector2(attack_direction * 42.0, -height_above_origin * 0.45)
+
+
+func get_battle_hit_position() -> Vector2:
+	var visual_rect := _get_sprite_visual_rect()
+	var height_above_origin := maxf(32.0, position.y - visual_rect.position.y)
+	return position + Vector2(0.0, -height_above_origin * 0.48)
+
+
+func get_swallow_mouth_position() -> Vector2:
+	var visual_rect := _get_sprite_visual_rect()
+	var height_above_origin := maxf(34.0, position.y - visual_rect.position.y)
+	return position + Vector2(-24.0, -height_above_origin * 0.42)
+
+
+func has_battle_attack_animation() -> bool:
+	return (
+		pet_id not in RANGED_BATTLE_PET_IDS
+		and _sprite != null
+		and _sprite.sprite_frames != null
+		and _sprite.sprite_frames.has_animation("attack")
+		and _sprite.sprite_frames.get_frame_count("attack") > 0
+	)
+
+
 func receive_battle_hit(knockback := 14.0) -> void:
 	if not _battle_mode or _sprite == null:
 		return
-	position.x = clampf(position.x + maxf(0.0, knockback), _min_x, _max_x)
+	position.x = clampf(
+		position.x + maxf(0.0, knockback),
+		_get_drag_min_x(),
+		_get_drag_max_x()
+	)
 	var flash := create_tween()
 	flash.tween_property(_sprite, "modulate", Color(1.0, 0.18, 0.18, 1.0), 0.05)
 	flash.tween_property(_sprite, "modulate", Color.WHITE, 0.16)
@@ -1357,6 +1408,11 @@ func _finish_wall_landing() -> void:
 
 
 func _on_animation_finished() -> void:
+	if _battle_attack_animation and _sprite != null and _sprite.animation == "attack":
+		_battle_attack_animation = false
+		if _battle_mode:
+			_sprite.play("idle")
+		return
 	match _behavior:
 		Behavior.BURROW_DOWN:
 			_behavior = Behavior.UNDERGROUND
@@ -1434,6 +1490,7 @@ func _begin_grab() -> void:
 		_battle_motion_tween.kill()
 		_battle_motion_tween = null
 	_cancel_special_behavior()
+	_battle_attack_animation = false
 	_behavior = Behavior.GRABBED
 	z_index = 500
 	if _interaction_area != null:
@@ -1596,9 +1653,24 @@ func _update_interaction_area() -> void:
 		maxi(1, int(ceil(_interaction_rect.size.x))),
 		maxi(1, int(ceil(_interaction_rect.size.y)))
 	)
-	_input_window.position = _visual_window.position + local_position
-	_input_window.size = proxy_size
-	_input_window.mouse_passthrough_polygon = _get_proxy_hit_polygon(Vector2(local_position), proxy_size)
+	var next_window_position := _visual_window.position + local_position
+	if next_window_position != _last_input_window_position:
+		_input_window.position = next_window_position
+		_last_input_window_position = next_window_position
+	var shape_changed := (
+		proxy_size != _last_input_window_size
+		or _sprite.flip_h != _last_input_shape_flip
+		or not is_equal_approx(_sprite.rotation, _last_input_shape_rotation)
+		or not _sprite.scale.is_equal_approx(_last_input_shape_scale)
+	)
+	if proxy_size != _last_input_window_size:
+		_input_window.size = proxy_size
+		_last_input_window_size = proxy_size
+	if shape_changed:
+		_input_window.mouse_passthrough_polygon = _get_proxy_hit_polygon(Vector2(local_position), proxy_size)
+		_last_input_shape_flip = _sprite.flip_h
+		_last_input_shape_rotation = _sprite.rotation
+		_last_input_shape_scale = _sprite.scale
 	_input_window.visible = _interaction_enabled and _sprite != null and _sprite.visible and _behavior != Behavior.UNDERGROUND
 
 
