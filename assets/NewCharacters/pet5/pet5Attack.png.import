@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cuheqwdo4pb1r"
-path="res://.godot/imported/rika_72dcf180.png-d88fbda46ebfcd9fce595bcc8d96bb66.ctex"
+uid="uid://c2ab2c0y4yn2"
+path="res://.godot/imported/pet5Attack.png-12d3d8fa30b806161e7e5925db091411.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/NewCharacters/pet6/rika_72dcf180.png"
-dest_files=["res://.godot/imported/rika_72dcf180.png-d88fbda46ebfcd9fce595bcc8d96bb66.ctex"]
+source_file="res://assets/NewCharacters/pet5/pet5Attack.png"
+dest_files=["res://.godot/imported/pet5Attack.png-12d3d8fa30b806161e7e5925db091411.ctex"]
 
 [params]
 

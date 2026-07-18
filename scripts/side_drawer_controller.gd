@@ -23,7 +23,8 @@ const DRAWER_WIDTH := DRAWER_BOOKMARK_WIDTH + DRAWER_PANEL_WIDTH
 const DRAWER_CONTENT_MARGIN_X := 34
 const DRAWER_CONTENT_WIDTH := DRAWER_PANEL_WIDTH - (DRAWER_CONTENT_MARGIN_X * 2)
 const DRAWER_SLIDE_SPEED := 1800.0
-const DRAWER_CONTENT_TOP_MARGIN := 24
+const DRAWER_CONTENT_TOP_MARGIN := 46
+const ERA_LABEL_TOP := 20.0
 const MENU_WINDOW_SIZE := Vector2i(228, 150)
 const MENU_TO_DRAWER_GAP := 2
 const MENU_DRAG_THRESHOLD := 6.0
@@ -483,7 +484,7 @@ func _create_era_label() -> void:
 	# overlay above the adder on every desktop size.
 	_era_label.position = Vector2(
 		DRAWER_BOOKMARK_WIDTH - 10 + DRAWER_CONTENT_MARGIN_X,
-		6.0
+		ERA_LABEL_TOP
 	)
 	_era_label.size = Vector2(300.0, 32.0)
 	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT

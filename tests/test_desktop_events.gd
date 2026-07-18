@@ -38,11 +38,15 @@ static func _test_event_assets(failures: Array[String]) -> void:
 static func _test_era_progression(failures: Array[String]) -> void:
 	if EraProgression.get_year(0.0) != 1:
 		failures.append("the menu era clock must begin at year one")
+	if EraProgression.get_calendar_year(0.0) != EraProgression.MEDIEVAL_START_CALENDAR_YEAR:
+		failures.append("the menu era clock must begin on a real medieval calendar year")
 	var soldier_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.SOLDIER_ERA_START_YEAR - 1)
 	if EraProgression.get_era_index(soldier_time - 0.01) != 0:
 		failures.append("soldiers must stay out of the village era")
 	if EraProgression.get_era_index(soldier_time) != 1:
 		failures.append("elapsed desktop time must advance into the soldier era")
+	if EraProgression.get_calendar_year(soldier_time) != EraProgression.SOLDIER_ERA_START_CALENDAR_YEAR:
+		failures.append("the armed medieval chapter must display its corresponding real year")
 	var later_schedule := EraProgression.get_wave_schedule(soldier_time)
 	var later_types: Array[String] = []
 	for wave in later_schedule:
@@ -53,6 +57,10 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	var victorian_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.VICTORIAN_ERA_START_YEAR - 1)
 	if EraProgression.get_era_index(victorian_time) != 2:
 		failures.append("elapsed desktop time must advance into the Victorian era")
+	if EraProgression.get_calendar_year(victorian_time) != 1837:
+		failures.append("the Victorian era must begin in the real year 1837")
+	if not EraProgression.get_display_text(victorian_time, "zh").contains("公元 1837 年"):
+		failures.append("the menu must print the real calendar year instead of a fictional year count")
 	var victorian_types: Array[String] = []
 	for wave in EraProgression.get_wave_schedule(victorian_time):
 		for enemy_type in (wave as Dictionary).get("types", []):
@@ -165,13 +173,27 @@ static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_total_runtime_seconds", EraProgression.SECONDS_PER_YEAR * 3.0)
 	var age_text := String(main.call("_get_pet_age_text", Main.PetCatalog.get_definition("pet1")))
-	if age_text != "6岁":
-		failures.append("pet detail ages must gain one year whenever the menu era advances one year")
+	var expected_age := 3 + EraProgression.get_elapsed_calendar_years(EraProgression.SECONDS_PER_YEAR * 3.0)
+	if age_text != "%d岁" % expected_age:
+		failures.append("pet detail ages must advance by the real calendar years shown in the menu")
 	main.set("_total_runtime_seconds", EraProgression.SECONDS_PER_YEAR * float(EraProgression.VICTORIAN_ERA_START_YEAR - 1))
 	main.set("_debug_enemy_power_scale", 2.0)
 	var difficulty_text := String(main.call("_get_battle_difficulty_text"))
 	if not difficulty_text.contains("难度") or not difficulty_text.contains("×3.28"):
 		failures.append("battle invitations must expose difficulty from era and debug enemy power")
+	var rolled_values: Array[float] = []
+	(main.get("_rng") as RandomNumberGenerator).seed = 71218
+	for _roll_index in 4:
+		rolled_values.append(float(main.call("_roll_battle_difficulty_scale")))
+	for rolled_value in rolled_values:
+		if rolled_value < 3.28 * Main.BATTLE_DIFFICULTY_VARIANCE_MIN - 0.001 or rolled_value > 3.28 * Main.BATTLE_DIFFICULTY_VARIANCE_MAX + 0.001:
+			failures.append("random battle difficulty must stay inside the advertised variance range")
+			break
+	if is_equal_approx(rolled_values[0], rolled_values[1]):
+		failures.append("successive battle invitations must have real difficulty variance")
+	main.set("_active_battle_difficulty_scale", 2.73)
+	if not String(main.call("_get_battle_difficulty_text")).contains("×2.73"):
+		failures.append("battle difficulty text must use the value locked for the active encounter")
 	main.free()
 
 
@@ -192,11 +214,25 @@ static func _test_pet11_cross_screen_battle_swallow(failures: Array[String]) -> 
 	main.call("_update_pet11_battle_absorb", pet11)
 	if not bool(enemy.call("is_being_swallowed")):
 		failures.append("pet11 must pull any enemy, including a boss, into its body from across the desktop")
-	if float(enemy.get("_swallow_duration")) < 1.25:
+	var swallow_duration := float(enemy.get("_swallow_duration"))
+	if swallow_duration < 2.8:
 		failures.append("pet11 suction must visibly pull and shrink an enemy instead of deleting it too quickly")
-	enemy.call("_process", 0.6)
+	var enemy_sprite := enemy.get_node_or_null("EnemySprite") as AnimatedSprite2D
+	var initial_scale := enemy_sprite.scale if enemy_sprite != null else Vector2.ZERO
+	var mouth_position := pet11.get_swallow_mouth_position()
+	if mouth_position.distance_to(pet11.position) > 4.0:
+		failures.append("pet11's suction target must be the visible center of its vortex")
+	enemy.call("_process", swallow_duration * 0.70)
 	if not bool(enemy.call("is_being_swallowed")):
 		failures.append("a cross-screen enemy must remain visible during the slower suction animation")
+	if enemy_sprite != null and not enemy_sprite.scale.is_equal_approx(initial_scale):
+		failures.append("pet11 must not shrink an enemy until it has reached the mouth entrance")
+	var approach_visual_position := enemy.position + enemy_sprite.position
+	if approach_visual_position.distance_to(mouth_position) >= Vector2(80.0, 704.0).distance_to(mouth_position):
+		failures.append("pet11 suction must visibly carry the enemy toward the vortex")
+	enemy.call("_process", swallow_duration * 0.10)
+	if enemy_sprite != null and enemy_sprite.scale.x >= initial_scale.x:
+		failures.append("the enemy must begin shrinking only during the final movement into the mouth")
 	if Main._get_enemy_launch_direction() >= 0.0:
 		failures.append("melee launch defeats must always throw invaders toward the left side of the desktop")
 	main.free()
@@ -204,9 +240,15 @@ static func _test_pet11_cross_screen_battle_swallow(failures: Array[String]) -> 
 
 static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	for pet_id in ["pet3", "pet4", "pet5", "pet6"]:
+		var pet_data := Main.PetCatalog.get_definition(pet_id)
 		var frames := Main.PetCatalog.build_frames(pet_id)
-		if not frames.has_animation("attack") or frames.get_frame_count("attack") < 8:
+		var expected_count := 16 if pet_id == "pet3" else 12
+		if not frames.has_animation("attack") or frames.get_frame_count("attack") != expected_count:
 			failures.append("%s must use its authored melee attack sheet" % pet_id)
+		if not FileAccess.file_exists(String(pet_data.get("attack", ""))):
+			failures.append("%s must reference the corrected attack asset filename" % pet_id)
+		if not bool(pet_data.get("attack_faces_right", false)):
+			failures.append("%s must declare the authored attack-sheet direction explicitly" % pet_id)
 	var melee_pet := Main.DesktopPetActor.new()
 	melee_pet.setup("pet3", Vector2i(900, 600), 0.0, 900.0, 640.0, 584.0, false)
 	melee_pet.set_battle_mode(true)
@@ -214,6 +256,12 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	var melee_sprite := melee_pet.get_node_or_null("pet3Sprite") as AnimatedSprite2D
 	if melee_sprite == null or melee_sprite.animation != "attack":
 		failures.append("melee pets must switch to their attack animation when striking")
+	elif not melee_sprite.flip_h:
+		failures.append("a right-facing attack sheet must flip visually when striking left")
+	elif melee_sprite.frame != 0:
+		failures.append("horizontal facing changes must not reverse or skip the authored attack frame order")
+	if float(melee_pet.get_battle_attack_duration()) < 16.0 / 12.0:
+		failures.append("combat cooldowns must leave enough time for all authored attack frames to play")
 	melee_pet.free()
 	for pet_id in Main.RANGED_BATTLE_PET_IDS:
 		var config: Dictionary = BattleEffectActor.PROJECTILE_CONFIG.get(pet_id, {})
@@ -281,9 +329,15 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	main.call("_on_debug_event_requested", "battle")
 	if bool(main.get("_battle_active")) or main.get("_event_invitation") == null:
 		failures.append("debug-triggered battles must still drop a clickable invitation item")
+	var pending_difficulty := float(main.get("_pending_battle_difficulty_scale"))
+	var invitation := main.get("_event_invitation") as Node2D
+	if pending_difficulty < 0.0 or invitation == null or not String(invitation.get("_difficulty_text")).contains("×%.2f" % pending_difficulty):
+		failures.append("battle invitations must display the exact randomly rolled encounter difficulty")
 	main.call("_on_event_invitation_accepted", "battle")
 	if not bool(main.get("_battle_active")):
 		failures.append("accepting the debug invitation must enter battle state")
+	if not is_equal_approx(float(main.get("_active_battle_difficulty_scale")), pending_difficulty):
+		failures.append("accepting an invitation must lock its advertised difficulty for every enemy wave")
 	if (main.get("_battle_enemies") as Array).size() < 2:
 		failures.append("battle start must immediately send the first timed enemy wave from the left")
 	if not bool(pet.get("_battle_mode")):

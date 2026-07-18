@@ -71,6 +71,8 @@ const MELEE_STOP_DISTANCE := 68.0
 const MELEE_HIT_RANGE := 92.0
 const FOOT_TASKBAR_OVERLAP := 6.0
 const CHROMA_TOLERANCE := 0.24
+const SWALLOW_APPROACH_PORTION := 0.78
+const SWALLOW_STAGE_DISTANCE := 64.0
 
 static var _frames_cache := {}
 static var _alignment_cache := {}
@@ -106,6 +108,9 @@ var _rng := RandomNumberGenerator.new()
 var _being_swallowed := false
 var _swallower: Node2D
 var _swallow_start_position := Vector2.ZERO
+var _swallow_start_visual_position := Vector2.ZERO
+var _swallow_start_sprite_position := Vector2.ZERO
+var _swallow_start_sprite_rotation := 0.0
 var _swallow_progress := 0.0
 var _swallow_duration := 0.55
 var _swallow_arc_height := 72.0
@@ -247,10 +252,16 @@ func start_swallowed_by(swallower: Node2D) -> bool:
 	_being_swallowed = true
 	_swallower = swallower
 	_swallow_start_position = position
+	_swallow_start_sprite_position = _sprite.position if _sprite != null else Vector2.ZERO
+	_swallow_start_sprite_rotation = _sprite.rotation if _sprite != null else 0.0
+	_swallow_start_visual_position = position + _swallow_start_sprite_position
 	_swallow_progress = 0.0
-	var swallow_distance := position.distance_to(swallower.position)
-	_swallow_duration = clampf(swallow_distance / 520.0, 1.25, 2.35)
-	_swallow_arc_height = clampf(swallow_distance * 0.13, 48.0, 132.0)
+	var mouth_position := swallower.position
+	if swallower.has_method("get_swallow_mouth_position"):
+		mouth_position = swallower.call("get_swallow_mouth_position")
+	var swallow_distance := _swallow_start_visual_position.distance_to(mouth_position)
+	_swallow_duration = clampf(swallow_distance / 280.0, 2.8, 5.2)
+	_swallow_arc_height = clampf(swallow_distance * 0.025, 8.0, 28.0)
 	_attack_pending = false
 	_target = null
 	_battle_state = "swallowed"
@@ -502,20 +513,55 @@ func _update_swallowed(delta: float) -> void:
 		_being_swallowed = false
 		_swallower = null
 		_sprite.scale = Vector2.ONE * _visual_scale
-		_sprite.rotation = 0.0
+		_sprite.position = _swallow_start_sprite_position
+		_sprite.rotation = _swallow_start_sprite_rotation
 		_sprite.z_index = 180
 		return
 	_swallow_progress = minf(1.0, _swallow_progress + delta / maxf(0.01, _swallow_duration))
-	var travel_progress := smoothstep(0.0, 1.0, _swallow_progress)
 	var mouth_position := _swallower.position
 	if _swallower.has_method("get_swallow_mouth_position"):
 		mouth_position = _swallower.call("get_swallow_mouth_position")
-	position = _swallow_start_position.lerp(mouth_position, travel_progress)
-	position.y -= sin(travel_progress * PI) * _swallow_arc_height
-	# The enemy is pulled most of the way first, then visibly compresses into the mouth.
-	var shrink_progress := smoothstep(0.0, 1.0, clampf((_swallow_progress - 0.35) / 0.65, 0.0, 1.0))
+	var outward := (_swallow_start_visual_position - mouth_position).normalized()
+	if outward.is_zero_approx():
+		outward = Vector2.LEFT
+	var staging_position := mouth_position + outward * SWALLOW_STAGE_DISTANCE
+	var desired_visual_position := staging_position
+	var shrink_progress := 0.0
+	if _swallow_progress < SWALLOW_APPROACH_PORTION:
+		var approach_progress := smoothstep(
+			0.0,
+			1.0,
+			_swallow_progress / SWALLOW_APPROACH_PORTION
+		)
+		desired_visual_position = _swallow_start_visual_position.lerp(
+			staging_position,
+			approach_progress
+		)
+		var path_direction := staging_position - _swallow_start_visual_position
+		if not path_direction.is_zero_approx():
+			var path_normal := Vector2(-path_direction.y, path_direction.x).normalized()
+			desired_visual_position += (
+				path_normal * sin(approach_progress * PI) * _swallow_arc_height
+			)
+	else:
+		var enter_progress := smoothstep(
+			0.0,
+			1.0,
+			(_swallow_progress - SWALLOW_APPROACH_PORTION) / (1.0 - SWALLOW_APPROACH_PORTION)
+		)
+		desired_visual_position = staging_position.lerp(mouth_position, enter_progress)
+		shrink_progress = enter_progress
+	# Enemy roots sit at their feet during combat, while the sprite has a negative
+	# alignment offset. Cancelling that offset during the final squeeze makes the
+	# visible body—not merely its root—finish exactly at the vortex opening.
+	_sprite.position = _swallow_start_sprite_position.lerp(Vector2.ZERO, shrink_progress)
+	position = desired_visual_position - _sprite.position
 	_sprite.scale = Vector2.ONE * _visual_scale * lerpf(1.0, 0.04, shrink_progress)
-	_sprite.rotation += delta * 5.0
+	_sprite.rotation = lerpf(
+		_swallow_start_sprite_rotation,
+		(-0.42 if outward.x < 0.0 else 0.42),
+		shrink_progress
+	)
 	if _swallow_progress >= 1.0:
 		_being_swallowed = false
 		_dead = true

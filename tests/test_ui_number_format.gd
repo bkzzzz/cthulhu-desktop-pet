@@ -100,8 +100,12 @@ static func run() -> Array[String]:
 		failures.append("the era label must be a root overlay so PanelContainer cannot recenter it")
 	else:
 		var expected_era_x := drawer_panel.position.x + SideDrawer.DRAWER_CONTENT_MARGIN_X
-		if not is_equal_approx(era_label.position.x, expected_era_x) or era_label.position.y > 10.0:
-			failures.append("the era label must stay in the drawer's actual top-left corner above the adder")
+		if (
+			not is_equal_approx(era_label.position.x, expected_era_x)
+			or era_label.position.y < 16.0
+			or era_label.position.y >= SideDrawer.DRAWER_CONTENT_TOP_MARGIN
+		):
+			failures.append("the era label must sit inside, but still near, the drawer's top-left corner")
 	if drawer_root.find_child("FollowerSummary", true, false) != null:
 		failures.append("the faith header must not retain the follower summary line")
 	var faith_value := formatter.get("_faith_value_label") as Label

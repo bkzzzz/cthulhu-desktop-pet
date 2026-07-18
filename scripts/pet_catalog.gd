@@ -154,6 +154,7 @@ const DEFINITIONS := {
 		"attack": "res://assets/NewCharacters/pet3/pet3Attack.png",
 		"attack_columns": 4,
 		"attack_rows": 4,
+		"attack_faces_right": true,
 		"attack_frame_foot_y": 172,
 		"burrow": "res://assets/NewCharacters/pet3/pet3BurrowUnder.png"
 	},
@@ -202,6 +203,7 @@ const DEFINITIONS := {
 		"attack": "res://assets/NewCharacters/pet4/pet4Attack.png",
 		"attack_columns": 4,
 		"attack_rows": 3,
+		"attack_faces_right": true,
 		"attack_frame_foot_y": 172
 	},
 	"pet5": {
@@ -248,9 +250,10 @@ const DEFINITIONS := {
 		"icon": "res://assets/NewCharacters/pet5/pet5.png",
 		"idle": "res://assets/NewCharacters/pet5/pet5Idle.png",
 		"walk": "res://assets/NewCharacters/pet5/pet5Walk.png",
-		"attack": "res://assets/NewCharacters/pet5/rika_d80c62be.png",
+		"attack": "res://assets/NewCharacters/pet5/pet5Attack.png",
 		"attack_columns": 4,
 		"attack_rows": 3,
+		"attack_faces_right": true,
 		"attack_frame_foot_y": 172
 	},
 	"pet6": {
@@ -299,9 +302,11 @@ const DEFINITIONS := {
 		"icon": "res://assets/NewCharacters/pet6/pet6.png",
 		"idle": "res://assets/NewCharacters/pet6/pet6Idle.png",
 		"walk": "res://assets/NewCharacters/pet6/pet6Walk.png",
-		"attack": "res://assets/NewCharacters/pet6/rika_72dcf180.png",
+		"attack": "res://assets/NewCharacters/pet6/pet6Attack.png",
 		"attack_columns": 4,
 		"attack_rows": 3,
+		"attack_faces_right": true,
+		"attack_align_to_floor": true,
 		"attack_frame_foot_y": 296
 	},
 	"pet7": {
@@ -585,7 +590,7 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 		String(pet_data.get("attack", "")),
 		12.0,
 		int(pet_data.get("attack_frame_foot_y", frame_foot_y)),
-		align_frames_to_floor,
+		bool(pet_data.get("attack_align_to_floor", align_frames_to_floor)),
 		maxi(1, int(pet_data.get("attack_columns", SHEET_COLUMNS))),
 		maxi(1, int(pet_data.get("attack_rows", SHEET_ROWS))),
 		false,

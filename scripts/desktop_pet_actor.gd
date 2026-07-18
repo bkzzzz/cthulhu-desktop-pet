@@ -156,6 +156,7 @@ var _autonomy_previous_speed_scale := 1.0
 var _battle_mode := false
 var _battle_motion_tween: Tween
 var _battle_attack_animation := false
+var _battle_attack_direction := -1.0
 var _last_input_window_position := Vector2i(-100000, -100000)
 var _last_input_window_size := Vector2i.ZERO
 var _last_input_shape_flip := false
@@ -384,6 +385,7 @@ func play_battle_attack_toward(direction: float) -> void:
 		_battle_motion_tween.kill()
 	var origin_x := position.x
 	var attack_direction := -1.0 if direction < 0.0 else 1.0
+	_battle_attack_direction = attack_direction
 	_face_direction(attack_direction)
 	if (
 		pet_id not in RANGED_BATTLE_PET_IDS
@@ -394,6 +396,10 @@ func play_battle_attack_toward(direction: float) -> void:
 		_battle_attack_animation = true
 		_sprite.speed_scale = 1.0
 		_sprite.play("attack")
+		_face_authored_direction(
+			attack_direction,
+			bool(pet_data.get("attack_faces_right", _faces_right))
+		)
 		return
 	_battle_motion_tween = create_tween()
 	_battle_motion_tween.set_trans(Tween.TRANS_QUAD)
@@ -416,6 +422,10 @@ func get_battle_hit_position() -> Vector2:
 
 
 func get_swallow_mouth_position() -> Vector2:
+	# pet11 is a centered vortex. Its node origin is the dark opening itself; the
+	# former generic head offset ended above-left of the visible portal.
+	if pet_id == "pet11":
+		return position + Vector2(0.0, -2.0 * _pet_scale)
 	var visual_rect := _get_sprite_visual_rect()
 	var height_above_origin := maxf(34.0, position.y - visual_rect.position.y)
 	return position + Vector2(-24.0, -height_above_origin * 0.42)
@@ -429,6 +439,14 @@ func has_battle_attack_animation() -> bool:
 		and _sprite.sprite_frames.has_animation("attack")
 		and _sprite.sprite_frames.get_frame_count("attack") > 0
 	)
+
+
+func get_battle_attack_duration() -> float:
+	if not has_battle_attack_animation():
+		return 0.23
+	var frame_count := _sprite.sprite_frames.get_frame_count("attack")
+	var animation_speed := _sprite.sprite_frames.get_animation_speed("attack")
+	return float(frame_count) / maxf(0.01, animation_speed)
 
 
 func receive_battle_hit(knockback := 14.0) -> void:
@@ -1420,6 +1438,7 @@ func _on_animation_finished() -> void:
 		_battle_attack_animation = false
 		if _battle_mode:
 			_sprite.play("idle")
+			_face_direction(_battle_attack_direction)
 		return
 	match _behavior:
 		Behavior.BURROW_DOWN:
@@ -1456,10 +1475,14 @@ func _cancel_special_behavior() -> void:
 
 
 func _face_direction(direction: float) -> void:
+	_face_authored_direction(direction, _faces_right)
+
+
+func _face_authored_direction(direction: float, authored_faces_right: bool) -> void:
 	if is_zero_approx(direction):
 		return
 	var moving_right := direction > 0.0
-	_sprite.flip_h = moving_right != _faces_right
+	_sprite.flip_h = moving_right != authored_faces_right
 
 
 func _apply_grounded_position(with_float: bool) -> void:

@@ -220,11 +220,33 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 	if game_speed_spin == null or not is_equal_approx(game_speed_spin.value, 3.0):
 		failures.append("settings debug options must expose an adjustable game speed")
 	var debug_events: Array[String] = []
+	var debug_simulations: Array[Vector2] = []
 	settings.debug_event_requested.connect(func(event_type: String) -> void: debug_events.append(event_type))
+	settings.debug_simulation_requested.connect(
+		func(enemy_scale: float, game_speed: float) -> void:
+			debug_simulations.append(Vector2(enemy_scale, game_speed))
+	)
 	settings.call("_on_debug_event_pressed", "pilgrimage")
 	settings.call("_on_debug_event_pressed", "battle")
 	if debug_events != ["pilgrimage", "battle"]:
 		failures.append("settings debug options must expose direct pilgrimage and battle triggers")
+	if debug_simulations.size() != 2 or not debug_simulations.back().is_equal_approx(Vector2(2.5, 3.0)):
+		failures.append("debug event buttons must apply the typed multipliers before dropping an invitation")
+	var snapshot_main := Main.new()
+	snapshot_main.set("_persistence_enabled", false)
+	snapshot_main.set("_settings_window", settings)
+	settings.debug_economy_requested.connect(Callable(snapshot_main, "_on_debug_economy_requested"))
+	settings.debug_simulation_requested.connect(Callable(snapshot_main, "_on_debug_simulation_requested"))
+	enemy_power_spin.value = 4.25
+	game_speed_spin.value = 1.7
+	settings.call("_on_debug_event_pressed", "battle")
+	if (
+		not is_equal_approx(float(snapshot_main.get("_debug_enemy_power_scale")), 4.25)
+		or not is_equal_approx(float(snapshot_main.get("_debug_game_speed")), 1.7)
+	):
+		failures.append("economy refreshes must not overwrite debug multipliers before an event applies them")
+	Engine.time_scale = 1.0
+	snapshot_main.free()
 	settings.free()
 
 	var main := Main.new()

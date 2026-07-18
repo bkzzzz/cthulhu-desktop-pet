@@ -84,8 +84,8 @@ const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
 const PET11_ABSORB_COOLDOWN_MAX_SECONDS := 115.0
 const PET11_ABSORB_HOLD_MIN_SECONDS := 4.0
 const PET11_ABSORB_HOLD_MAX_SECONDS := 7.0
-const PET11_BATTLE_ABSORB_MIN_SECONDS := 3.0
-const PET11_BATTLE_ABSORB_MAX_SECONDS := 4.8
+const PET11_BATTLE_ABSORB_MIN_SECONDS := 5.5
+const PET11_BATTLE_ABSORB_MAX_SECONDS := 7.5
 const PET11_BATTLE_FIRST_ABSORB_MIN_SECONDS := 0.65
 const PET11_BATTLE_FIRST_ABSORB_MAX_SECONDS := 1.15
 const UI_REFRESH_INTERVAL := 0.25
@@ -115,6 +115,8 @@ const BATTLE_INITIAL_DELAY_MAX_SECONDS := 270.0
 const BATTLE_INTERVAL_MIN_SECONDS := 360.0
 const BATTLE_INTERVAL_MAX_SECONDS := 600.0
 const BATTLE_DURATION_SECONDS := 42.0
+const BATTLE_DIFFICULTY_VARIANCE_MIN := 0.82
+const BATTLE_DIFFICULTY_VARIANCE_MAX := 1.18
 const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
 const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
 const SMOKE_SHEET_TEXTURE := "res://assets/effects/smoke/smoke1_sheet.png"
@@ -174,6 +176,8 @@ var _battle_pet_attack_at := {}
 var _battle_pet_target_x := {}
 var _battle_pet_formed := {}
 var _battle_save_pending := false
+var _pending_battle_difficulty_scale := -1.0
+var _active_battle_difficulty_scale := -1.0
 var _last_era_display := ""
 var _recovery_ui_refresh_time := 0.0
 var _smoke_frames: SpriteFrames
@@ -565,8 +569,16 @@ func _update_event_invitations() -> void:
 func _spawn_event_invitation(event_type: String) -> void:
 	if _event_invitation != null or _battle_active or _pilgrimage_active:
 		return
+	if event_type != "battle":
+		_pending_battle_difficulty_scale = -1.0
 	var invite: Node2D = EventInvitation.new()
 	var texture_path := BATTLE_INVITE_TEXTURE if event_type == "battle" else PILGRIMAGE_INVITE_TEXTURE
+	var difficulty_text := ""
+	if event_type == "battle":
+		# Roll once when the envelope appears. The text and the actual battle now
+		# refer to the same locked value instead of recomputing a fixed scale later.
+		_pending_battle_difficulty_scale = _roll_battle_difficulty_scale()
+		difficulty_text = _get_battle_difficulty_text(_pending_battle_difficulty_scale)
 	var safe_margin := 120.0
 	var spawn_x := _rng.randf_range(
 		minf(safe_margin, float(_pet_window_size.x) * 0.25),
@@ -580,7 +592,7 @@ func _spawn_event_invitation(event_type: String) -> void:
 		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
 		spawn_x,
 		_language,
-		_get_battle_difficulty_text() if event_type == "battle" else ""
+		difficulty_text
 	)
 	invite.connect("accepted", Callable(self, "_on_event_invitation_accepted"))
 	invite.connect("discarded", Callable(self, "_on_event_invitation_discarded"))
@@ -589,13 +601,31 @@ func _spawn_event_invitation(event_type: String) -> void:
 	_event_invitation = invite
 
 
-func _get_battle_difficulty_scale() -> float:
+func _get_base_battle_difficulty_scale() -> float:
 	var era_scale := 1.0 + float(EraProgression.get_era_index(_total_runtime_seconds)) * 0.32
 	return maxf(0.0, _debug_enemy_power_scale * era_scale)
 
 
-func _get_battle_difficulty_text() -> String:
-	var difficulty := _get_battle_difficulty_scale()
+func _roll_battle_difficulty_scale() -> float:
+	var variance := _rng.randf_range(
+		BATTLE_DIFFICULTY_VARIANCE_MIN,
+		BATTLE_DIFFICULTY_VARIANCE_MAX
+	)
+	return _get_base_battle_difficulty_scale() * variance
+
+
+func _get_battle_difficulty_scale() -> float:
+	if _active_battle_difficulty_scale >= 0.0:
+		return _active_battle_difficulty_scale
+	return _get_base_battle_difficulty_scale()
+
+
+func _get_battle_difficulty_text(difficulty_override := -1.0) -> String:
+	var difficulty := (
+		maxf(0.0, difficulty_override)
+		if difficulty_override >= 0.0
+		else _get_battle_difficulty_scale()
+	)
 	var tier := ""
 	if difficulty <= 0.35:
 		tier = "TRIVIAL" if _language == "en" else "微不足道"
@@ -619,6 +649,12 @@ func _get_battle_difficulty_text() -> String:
 func _on_event_invitation_accepted(event_type: String) -> void:
 	_event_invitation = null
 	if event_type == "battle":
+		_active_battle_difficulty_scale = (
+			_pending_battle_difficulty_scale
+			if _pending_battle_difficulty_scale >= 0.0
+			else _roll_battle_difficulty_scale()
+		)
+		_pending_battle_difficulty_scale = -1.0
 		_start_battle()
 	else:
 		_start_pilgrimage()
@@ -626,6 +662,8 @@ func _on_event_invitation_accepted(event_type: String) -> void:
 
 func _on_event_invitation_discarded(event_type: String) -> void:
 	_event_invitation = null
+	if event_type == "battle":
+		_pending_battle_difficulty_scale = -1.0
 	_reschedule_declined_event(event_type)
 	_publish_news({
 		"category": "公告",
@@ -635,6 +673,8 @@ func _on_event_invitation_discarded(event_type: String) -> void:
 
 func _on_event_invitation_expired(event_type: String) -> void:
 	_event_invitation = null
+	if event_type == "battle":
+		_pending_battle_difficulty_scale = -1.0
 	_reschedule_declined_event(event_type)
 
 
@@ -864,6 +904,8 @@ func _set_pet_autonomy_paused(paused: bool) -> void:
 # Battle event
 func _start_battle() -> void:
 	if _battle_active or _pilgrimage_active or not _has_valid_desktop_pet():
+		_active_battle_difficulty_scale = -1.0
+		_pending_battle_difficulty_scale = -1.0
 		_schedule_next_battle(_get_now_seconds())
 		return
 	for believer in _believers:
@@ -872,6 +914,8 @@ func _start_battle() -> void:
 	_believers.clear()
 
 	_battle_active = true
+	if _active_battle_difficulty_scale < 0.0:
+		_active_battle_difficulty_scale = _roll_battle_difficulty_scale()
 	_battle_started_at = _get_now_seconds()
 	_battle_ends_at = _battle_started_at + BATTLE_DURATION_SECONDS
 	_battle_wave_schedule = EraProgression.get_wave_schedule(_total_runtime_seconds)
@@ -1004,7 +1048,13 @@ func _update_battle(delta: float) -> void:
 				_try_launch_enemy_group(pet, enemy_target, visual_power, launch_direction)
 			else:
 				enemy_target.call("take_damage", damage, knockback)
-		_battle_pet_attack_at[actor_key] = now + _rng.randf_range(0.95, 1.35)
+		var next_attack_delay := _rng.randf_range(0.95, 1.35)
+		if pet.has_method("get_battle_attack_duration"):
+			next_attack_delay = maxf(
+				next_attack_delay,
+				float(pet.call("get_battle_attack_duration")) + 0.05
+			)
+		_battle_pet_attack_at[actor_key] = now + next_attack_delay
 
 	_update_battle_status(now)
 	if _battle_next_wave_index >= _battle_wave_schedule.size() and _battle_enemies.is_empty():
@@ -1380,6 +1430,7 @@ func _finish_battle(victory: bool) -> void:
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
 	_battle_wave_schedule.clear()
+	_active_battle_difficulty_scale = -1.0
 	_schedule_next_pet11_absorb(_get_now_seconds(), true)
 	_update_actor_window_bounds()
 	var now := _get_now_seconds()
@@ -1461,8 +1512,14 @@ func _refresh_era_display(force := false) -> void:
 		return
 	var display_text := EraProgression.get_display_text(_total_runtime_seconds, _language)
 	if force or display_text != _last_era_display:
+		var calendar_changed := display_text != _last_era_display
 		_last_era_display = display_text
 		_side_drawer.call("refresh_era", display_text)
+		if calendar_changed:
+			_pet_upgrade_stats_dirty = true
+			_refresh_pet_stats(true)
+			if _inventory_window != null and _inventory_window.visible:
+				_sync_inventory_window()
 
 
 func _schedule_next_pet11_absorb(now: float, initial := false) -> void:
@@ -3193,7 +3250,7 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 func _get_pet_age_text(pet_data: Dictionary) -> String:
 	if not pet_data.has("base_age_years"):
 		return String(pet_data.get("age_text", pet_data.get("age", "Unknown" if _language == "en" else "年龄不详")))
-	var elapsed_years := maxi(0, EraProgression.get_year(_total_runtime_seconds) - 1)
+	var elapsed_years := EraProgression.get_elapsed_calendar_years(_total_runtime_seconds)
 	var age_years := maxi(0, int(pet_data.get("base_age_years", 0)) + elapsed_years)
 	var qualifier := String(pet_data.get("age_qualifier", ""))
 	if _language == "en":
@@ -4172,6 +4229,7 @@ func _on_debug_event_requested(event_type: String) -> void:
 	if _event_invitation != null and is_instance_valid(_event_invitation):
 		_event_invitation.queue_free()
 	_event_invitation = null
+	_pending_battle_difficulty_scale = -1.0
 	if _pilgrimage_active:
 		_finish_pilgrimage(false)
 	if _battle_active:
