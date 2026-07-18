@@ -1103,7 +1103,7 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 		var wave_scale := 1.0 + float(wave_index) * 0.025
 		var entry_x := (
 			clampf(float(_pet_window_size.x) * 0.17 + float(enemy_index) * 32.0, 110.0, float(_pet_window_size.x) * 0.30)
-			if enemy_id in ["soldier2", "victorian1"]
+			if enemy_id in ["soldier2", "victorian1", "modern2", "modern3"]
 			else clampf(float(_pet_window_size.x) * 0.065 + float(enemy_index) * 18.0, 72.0, 150.0)
 		)
 		enemy.call(

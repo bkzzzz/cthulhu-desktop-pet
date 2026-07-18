@@ -68,10 +68,21 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	for expected_type in ["victorian1", "victorian2", "victorian_boss"]:
 		if not victorian_types.has(expected_type):
 			failures.append("the Victorian era must schedule %s" % expected_type)
+	var modern_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.MODERN_ERA_START_YEAR - 1)
+	if EraProgression.get_era_index(modern_time) != 3:
+		failures.append("elapsed desktop time must advance into the modern era")
+	var modern_types: Array[String] = []
+	for wave in EraProgression.get_wave_schedule(modern_time):
+		for enemy_type in (wave as Dictionary).get("types", []):
+			modern_types.append(String(enemy_type))
+	for expected_type in ["modern2", "modern3"]:
+		if not modern_types.has(expected_type):
+			failures.append("the modern era must schedule %s" % expected_type)
 
 
 static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
-	for enemy_id in ["villager1", "villager2", "soldier1", "soldier2", "victorian1", "victorian2", "victorian_boss"]:
+	var ranged_ids := ["soldier2", "victorian1", "modern2", "modern3"]
+	for enemy_id in ["villager1", "villager2", "soldier1", "soldier2", "victorian1", "victorian2", "victorian_boss", "modern2", "modern3"]:
 		var enemy := EnemyActor.new()
 		enemy.setup(enemy_id, Vector2.ZERO, 400.0, 1.0, 80.0)
 		var sprite := enemy.get_node_or_null("EnemySprite") as AnimatedSprite2D
@@ -80,15 +91,17 @@ static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
 		else:
 			if sprite.sprite_frames.get_frame_count("run") != 12:
 				failures.append("%s must use all 12 authored movement frames" % enemy_id)
-			var expected_attack_frames := 12 if enemy_id in ["victorian2", "victorian_boss"] else 16
+			var expected_attack_frames := 1 if enemy_id == "modern3" else (12 if enemy_id in ["victorian2", "victorian_boss", "modern2"] else 16)
 			if sprite.sprite_frames.get_frame_count("attack") != expected_attack_frames:
 				failures.append("%s must use all %d authored attack frames" % [enemy_id, expected_attack_frames])
 			if sprite.animation != "run" or not sprite.is_playing():
 				failures.append("%s must visibly run while entering the battlefield" % enemy_id)
 			if sprite.position.y <= -64.0:
 				failures.append("%s feet must overlap the taskbar edge instead of hovering" % enemy_id)
-		if bool(enemy.get("is_ranged")) != (enemy_id in ["soldier2", "victorian1"]):
-			failures.append("only soldier2 and victorian1 must hold ranged attack distance")
+		if bool(enemy.get("is_ranged")) != (enemy_id in ranged_ids):
+			failures.append("all declared gunner and modern enemies must hold ranged attack distance")
+		if enemy_id.begins_with("modern") and float(enemy.get("max_health")) <= 10.5:
+			failures.append("%s must be tougher than every earlier enemy" % enemy_id)
 		var target := Node2D.new()
 		target.position = Vector2(500.0, 400.0)
 		enemy.set_target(target)
@@ -103,7 +116,7 @@ static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
 		enemy.set("_attack_pending", false)
 		enemy.set("_attack_cooldown", 0.0)
 		var firing_post_x := enemy.position.x
-		target.position = Vector2(900.0 if enemy_id in ["soldier2", "victorian1"] else enemy.position.x + 60.0, 400.0)
+		target.position = Vector2(900.0 if enemy_id in ranged_ids else enemy.position.x + 60.0, 400.0)
 		enemy.set_target(target)
 		enemy.call("_process", 0.01)
 		if sprite != null and sprite.animation != "attack":
@@ -111,7 +124,7 @@ static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
 		enemy.call("_process", 0.5)
 		if sprite != null and sprite.animation != "attack":
 			failures.append("%s attack animation must remain visible through its hit frame" % enemy_id)
-		if enemy_id in ["soldier2", "victorian1"] and not is_equal_approx(enemy.position.x, firing_post_x):
+		if enemy_id in ranged_ids and not is_equal_approx(enemy.position.x, firing_post_x):
 			failures.append("%s must shoot from its entry post instead of chasing a pet" % enemy_id)
 		target.free()
 		enemy.free()
@@ -135,9 +148,17 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 
 	var bullet := EnemyProjectileActor.new()
 	bullet.setup("victorian_bullet", Vector2(80.0, 280.0), target, 1.0, 2.0)
-	if float(bullet.get("_splash_radius")) <= 0.0:
+	var victorian_splash := float(bullet.get("_splash_radius"))
+	if victorian_splash <= 0.0:
 		failures.append("victorian1 bullets must carry area damage")
 	bullet.free()
+	var modern_shell := EnemyProjectileActor.new()
+	modern_shell.setup("modern_shell", Vector2(80.0, 280.0), target, 1.0, 1.0)
+	if bool(modern_shell.call("can_be_swallowed")):
+		failures.append("modern heavy shells must not be swallowable")
+	if float(modern_shell.get("_splash_radius")) <= victorian_splash:
+		failures.append("modern heavy shells must outclass Victorian splash damage")
+	modern_shell.free()
 
 	var enemy := EnemyActor.new()
 	enemy.setup("villager1", Vector2(180.0, 400.0), 400.0, 1.0, 180.0)
@@ -269,6 +290,8 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	var pet6_sprite := pet6.get_node_or_null("pet6Sprite") as AnimatedSprite2D
 	if pet6_sprite == null or pet6_sprite.animation != "attack" or pet6_sprite.sprite_frames.get_frame_count("attack") != 12:
 		failures.append("pet6 must play all twelve frames of its corrected attack animation in battle")
+	if bool(PetCatalog.get_definition("pet6").get("attack_align_to_floor", true)):
+		failures.append("pet6 attack frames must preserve their authored center instead of following tentacle bottoms")
 	pet6.free()
 	if BattleEffectActor.PROJECTILE_CONFIG.has("pet11") or Main.RANGED_BATTLE_PET_IDS.has("pet11"):
 		failures.append("pet11 must be a suction-only fighter with no friendly projectile configuration")

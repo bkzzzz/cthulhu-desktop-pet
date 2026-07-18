@@ -44,7 +44,7 @@ func setup(
 	damage: float,
 	power_scale := 1.0
 ) -> void:
-	projectile_kind = new_kind if new_kind in ["arrow", "victorian_bullet"] else "arrow"
+	projectile_kind = new_kind if new_kind in ["arrow", "victorian_bullet", "modern_shell", "modern_orb"] else "arrow"
 	position = start_position
 	_start_position = start_position
 	_target = target
@@ -57,12 +57,22 @@ func setup(
 		_arc_height = clampf(distance * 0.09, 22.0, 66.0)
 		_knockback = 11.0
 		_swallowable = true
-	else:
+	elif projectile_kind == "victorian_bullet":
 		_flight_duration = clampf(distance / 760.0, 0.22, 1.0)
 		_splash_radius = clampf(92.0 + sqrt(maxf(0.0, power_scale)) * 24.0, 92.0, 210.0)
 		_knockback = clampf(14.0 + sqrt(maxf(0.0, power_scale)) * 2.5, 14.0, 28.0)
 		# Pet11 can catch ordinary shots, while charged rounds remain dangerous.
 		_swallowable = _rng.randf() < 0.45
+	elif projectile_kind == "modern_shell":
+		_flight_duration = clampf(distance / 920.0, 0.18, 0.78)
+		_splash_radius = clampf(138.0 + sqrt(maxf(0.0, power_scale)) * 28.0, 138.0, 260.0)
+		_knockback = clampf(22.0 + sqrt(maxf(0.0, power_scale)) * 3.0, 22.0, 36.0)
+		_swallowable = false
+	else:
+		_flight_duration = clampf(distance / 1080.0, 0.16, 0.68)
+		_splash_radius = clampf(112.0 + sqrt(maxf(0.0, power_scale)) * 22.0, 112.0, 220.0)
+		_knockback = clampf(18.0 + sqrt(maxf(0.0, power_scale)) * 2.5, 18.0, 32.0)
+		_swallowable = _rng.randf() < 0.18
 	_create_sprite()
 
 
@@ -86,7 +96,7 @@ func _process(delta: float) -> void:
 	var travel := next_position - position
 	position = next_position
 	if travel.length_squared() > 0.01:
-		_sprite.rotation = travel.angle() + (PI if projectile_kind == "victorian_bullet" else 0.0)
+		_sprite.rotation = travel.angle() + (0.0 if projectile_kind == "arrow" else PI)
 	if progress >= 1.0:
 		_resolved = true
 		impacted.emit(self, _target, _damage, _splash_radius, _knockback)
@@ -122,7 +132,16 @@ func _create_sprite() -> void:
 	if projectile_kind == "arrow":
 		_sprite.scale = Vector2.ONE * 0.080
 	else:
-		_sprite.scale = Vector2.ONE * 0.28
+		var projectile_scale := 0.28
+		if projectile_kind == "modern_shell":
+			projectile_scale = 0.42
+		elif projectile_kind == "modern_orb":
+			projectile_scale = 0.34
+		_sprite.scale = Vector2.ONE * projectile_scale
+		if projectile_kind == "modern_shell":
+			_sprite.modulate = Color(1.0, 0.62, 0.24)
+		elif projectile_kind == "modern_orb":
+			_sprite.modulate = Color(0.48, 0.86, 1.0)
 		var material := ShaderMaterial.new()
 		var shader := Shader.new()
 		shader.code = BULLET_CHROMA_SHADER

@@ -6,6 +6,7 @@ extends RefCounted
 const SECONDS_PER_YEAR := 300.0
 const SOLDIER_ERA_START_YEAR := 3
 const VICTORIAN_ERA_START_YEAR := 6
+const MODERN_ERA_START_YEAR := 10
 
 # The compact game timeline uses recognizable real-world dates instead of a
 # fictional "Year 1" calendar. Early/late medieval chapters move by centuries;
@@ -13,6 +14,7 @@ const VICTORIAN_ERA_START_YEAR := 6
 const MEDIEVAL_START_CALENDAR_YEAR := 1066
 const SOLDIER_ERA_START_CALENDAR_YEAR := 1300
 const VICTORIAN_ERA_START_CALENDAR_YEAR := 1837
+const MODERN_ERA_START_CALENDAR_YEAR := 1914
 const MEDIEVAL_CALENDAR_STEP_YEARS := 100
 
 
@@ -22,6 +24,8 @@ static func get_year(total_runtime_seconds: float) -> int:
 
 static func get_calendar_year(total_runtime_seconds: float) -> int:
 	var progression_year := get_year(total_runtime_seconds)
+	if progression_year >= MODERN_ERA_START_YEAR:
+		return MODERN_ERA_START_CALENDAR_YEAR + progression_year - MODERN_ERA_START_YEAR
 	if progression_year >= VICTORIAN_ERA_START_YEAR:
 		return VICTORIAN_ERA_START_CALENDAR_YEAR + progression_year - VICTORIAN_ERA_START_YEAR
 	if progression_year >= SOLDIER_ERA_START_YEAR:
@@ -41,6 +45,8 @@ static func get_elapsed_calendar_years(total_runtime_seconds: float) -> int:
 
 static func get_era_index(total_runtime_seconds: float) -> int:
 	var progression_year := get_year(total_runtime_seconds)
+	if progression_year >= MODERN_ERA_START_YEAR:
+		return 3
 	if progression_year >= VICTORIAN_ERA_START_YEAR:
 		return 2
 	return 1 if progression_year >= SOLDIER_ERA_START_YEAR else 0
@@ -48,6 +54,8 @@ static func get_era_index(total_runtime_seconds: float) -> int:
 
 static func get_era_name(total_runtime_seconds: float, language := "zh") -> String:
 	var era_index := get_era_index(total_runtime_seconds)
+	if era_index >= 3:
+		return "MODERN WAR" if language == "en" else "现代战争"
 	if era_index >= 2:
 		return "VICTORIAN ERA" if language == "en" else "维多利亚时代"
 	if era_index >= 1:
@@ -84,5 +92,12 @@ static func get_wave_schedule(total_runtime_seconds: float) -> Array[Dictionary]
 			{"time": 5.5, "types": ["victorian1", "victorian2"]},
 			{"time": 11.5, "types": ["victorian2", "victorian1", "soldier2"]},
 			{"time": 18.5, "types": ["victorian_boss", "victorian2", "victorian1"]}
+		]
+	if get_era_index(total_runtime_seconds) >= 3:
+		schedule = [
+			{"time": 0.0, "types": ["modern2", "victorian1"]},
+			{"time": 5.0, "types": ["modern3", "modern2"]},
+			{"time": 10.5, "types": ["modern2", "modern3", "victorian_boss"]},
+			{"time": 17.5, "types": ["modern3", "modern2", "modern3"]}
 		]
 	return schedule

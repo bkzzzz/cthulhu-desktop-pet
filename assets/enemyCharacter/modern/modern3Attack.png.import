@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cyu60o2nkw2vd"
-path="res://.godot/imported/modern1.png-8f2c4f46ee9ccb8e0ce5866ec4f355d6.ctex"
+uid="uid://bohrp6diwulci"
+path="res://.godot/imported/modern3Attack.png-b927459582287724ffd980cb9828ecec.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/enemyCharacter/modern/modern1.png"
-dest_files=["res://.godot/imported/modern1.png-8f2c4f46ee9ccb8e0ce5866ec4f355d6.ctex"]
+source_file="res://assets/enemyCharacter/modern/modern3Attack.png"
+dest_files=["res://.godot/imported/modern3Attack.png-b927459582287724ffd980cb9828ecec.ctex"]
 
 [params]
 

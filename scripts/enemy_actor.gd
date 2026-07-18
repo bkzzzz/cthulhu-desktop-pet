@@ -64,6 +64,26 @@ const DEFINITIONS := {
 		"hp": 10.5, "damage": 0.43, "speed": 129.0, "reward": 24, "ranged": false,
 		"run_columns": 4, "run_rows": 3, "attack_columns": 4, "attack_rows": 3,
 		"visual_scale": 1.02
+	},
+	"modern2": {
+		"move": "res://assets/enemyCharacter/modern/modern2Run.png",
+		"attack": "res://assets/enemyCharacter/modern/modern2Attack.png",
+		"hp": 14.5, "damage": 0.62, "speed": 166.0, "reward": 31, "ranged": true,
+		"projectile": "modern_shell", "run_columns": 4, "run_rows": 3,
+		"attack_columns": 4, "attack_rows": 3, "visual_scale": 0.92,
+		"run_animation_speed": 9.0, "run_bob": 0.25, "run_tilt": 0.002,
+		"attack_windup": 0.34, "attack_duration": 1.0, "attack_cooldown_min": 1.05,
+		"attack_cooldown_max": 1.28, "projectile_height": 64.0
+	},
+	"modern3": {
+		"move": "res://assets/enemyCharacter/modern/modern3Run.png",
+		"attack": "res://assets/enemyCharacter/modern/modern3.png",
+		"hp": 12.8, "damage": 0.78, "speed": 178.0, "reward": 34, "ranged": true,
+		"projectile": "modern_orb", "run_columns": 4, "run_rows": 3,
+		"attack_columns": 1, "attack_rows": 1, "visual_scale": 0.94,
+		"attack_visual_scale": 0.52, "attack_windup": 0.24, "attack_duration": 0.82,
+		"attack_cooldown_min": 0.88, "attack_cooldown_max": 1.12,
+		"projectile_height": 94.0
 	}
 }
 
@@ -98,6 +118,12 @@ var _entered := false
 var _entry_x := 120.0
 var _ground_y := 0.0
 var _visual_scale := 0.84
+var _attack_visual_scale := 1.0
+var _attack_windup_seconds := 0.58
+var _attack_duration_seconds := 1.30
+var _attack_cooldown_min := 1.36
+var _attack_cooldown_max := 1.62
+var _projectile_height := 0.0
 var _run_motion_active := false
 var _run_phase := 0.0
 var _run_bob_amount := 2.2
@@ -308,7 +334,9 @@ func get_battle_hit_position() -> Vector2:
 
 
 func get_projectile_origin() -> Vector2:
-	var height := 66.0 if enemy_id == "soldier2" else 78.0
+	var height := _projectile_height
+	if height <= 0.0:
+		height = 66.0 if enemy_id == "soldier2" else 78.0
 	var direction := 1.0
 	if _target != null and is_instance_valid(_target) and _target.position.x < position.x:
 		direction = -1.0
@@ -321,6 +349,12 @@ func _create_sprite(data: Dictionary) -> void:
 	_sprite.sprite_frames = _get_or_build_frames(enemy_id, data)
 	_sprite.centered = true
 	_visual_scale = float(data.get("visual_scale", 0.82 if enemy_id.begins_with("villager") else 0.86))
+	_attack_visual_scale = float(data.get("attack_visual_scale", 1.0))
+	_attack_windup_seconds = float(data.get("attack_windup", 0.58 if is_ranged else 0.31))
+	_attack_duration_seconds = float(data.get("attack_duration", 1.30))
+	_attack_cooldown_min = float(data.get("attack_cooldown_min", 1.36 if is_ranged else 1.30))
+	_attack_cooldown_max = float(data.get("attack_cooldown_max", 1.62 if is_ranged else 1.58))
+	_projectile_height = float(data.get("projectile_height", 0.0))
 	_sprite.scale = Vector2.ONE * _visual_scale
 	_sprite.flip_h = false
 	_sprite.z_index = 180
@@ -397,10 +431,10 @@ func _play_run(moving: bool, speed_scale := 1.0) -> void:
 
 func _begin_attack() -> void:
 	_battle_state = "attack"
-	_attack_cooldown = _rng.randf_range(1.36, 1.62) if is_ranged else _rng.randf_range(1.30, 1.58)
-	_attack_windup = 0.58 if is_ranged else 0.31
+	_attack_cooldown = _rng.randf_range(_attack_cooldown_min, _attack_cooldown_max)
+	_attack_windup = _attack_windup_seconds
 	_attack_pending = true
-	_attack_animation_remaining = 1.30
+	_attack_animation_remaining = _attack_duration_seconds
 	_run_motion_active = false
 	_sprite.speed_scale = 1.0
 	_sprite.play("attack")
@@ -426,13 +460,15 @@ func _update_sprite_pose(delta: float) -> void:
 		return
 	if _run_motion_active and _sprite.animation == "run":
 		_run_phase += maxf(0.0, delta) * 11.0
-	var base_position := _get_animation_alignment(String(_sprite.animation))
+	var animation_scale := _attack_visual_scale if _sprite.animation == "attack" else 1.0
+	_sprite.scale = Vector2.ONE * _visual_scale * animation_scale
+	var base_position := _get_animation_alignment(String(_sprite.animation), animation_scale)
 	var run_bob := sin(_run_phase) * _run_bob_amount if _run_motion_active and _sprite.animation == "run" else 0.0
 	_sprite.position = base_position + Vector2(0.0, run_bob)
 	_sprite.rotation = sin(_run_phase * 0.5) * _run_tilt_amount if _run_motion_active and _sprite.animation == "run" else 0.0
 
 
-func _get_animation_alignment(animation_name: String) -> Vector2:
+func _get_animation_alignment(animation_name: String, animation_scale := 1.0) -> Vector2:
 	var cache_key := "%s:%s" % [enemy_id, animation_name]
 	if not _alignment_cache.has(cache_key):
 		var alignment := Vector2(0.0, 60.0)
@@ -448,9 +484,10 @@ func _get_animation_alignment(animation_name: String) -> Vector2:
 					alignment = Vector2(visible_center_x - half_size.x, visible_foot_y - half_size.y)
 		_alignment_cache[cache_key] = alignment
 	var local_alignment: Vector2 = _alignment_cache[cache_key]
+	var effective_scale := _visual_scale * animation_scale
 	return Vector2(
-		-local_alignment.x * _visual_scale,
-		FOOT_TASKBAR_OVERLAP - local_alignment.y * _visual_scale
+		-local_alignment.x * effective_scale,
+		FOOT_TASKBAR_OVERLAP - local_alignment.y * effective_scale
 	)
 
 

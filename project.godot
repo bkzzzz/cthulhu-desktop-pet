@@ -16,16 +16,15 @@ run/main_scene="res://scenes/Main.tscn"
 config/auto_accept_quit=false
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.5", "Forward Plus")
-boot_splash/bg_color=Color(0, 0, 0, 0)
-boot_splash/fullsize=false
-boot_splash/use_filter=false
-boot_splash/show_image=false
-boot_splash/image="res://assets/ui/starterUi/加载图标.png"
-config/icon="res://assets/ui/starterUi/启动icon.png"
-boot_splash/minimum_display_time=0
+run/max_fps=60
 run/low_processor_mode=true
 run/low_processor_mode_sleep_usec=2000
-run/max_fps=60
+boot_splash/bg_color=Color(0, 0, 0, 0)
+boot_splash/show_image=false
+boot_splash/fullsize=false
+boot_splash/use_filter=false
+boot_splash/image="res://assets/ui/starterUi/加载图标.png"
+config/icon="res://assets/ui/starterUi/启动icon.png"
 
 [display]
 

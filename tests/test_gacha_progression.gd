@@ -172,6 +172,22 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 	var home_span := max_home - min_home
 	if home_span.x > 160.01 or home_span.y > 52.01:
 		failures.append("the initial egg pile must stay tightly stacked inside the chamber")
+	var before_shuffle: Array[Vector2] = []
+	for egg_value in egg_views:
+		before_shuffle.append((egg_value as TextureRect).position)
+	window.call("_apply_egg_shuffle_step", 0)
+	var moved_count := 0
+	for egg_index in egg_views.size():
+		var shuffled_egg := egg_views[egg_index] as TextureRect
+		if shuffled_egg.position.distance_to(before_shuffle[egg_index]) >= 18.0:
+			moved_count += 1
+		if not GachaWindow.EGG_POSITION_BOUNDS.has_point(shuffled_egg.position):
+			failures.append("shuffled eggs must remain inside the machine chamber")
+			break
+	if moved_count < GachaWindow.EGG_COUNT / 2:
+		failures.append("a gacha beat must visibly exchange most eggs instead of barely nudging them")
+	if GachaWindow.EGG_MOTION_STEP_SECONDS < 0.14:
+		failures.append("the gacha shuffle should use a deliberately coarse frame cadence")
 
 	window.set("_animation_playing", true)
 	var result := GachaProgression.roll_pet(0.0, ["pet1"], 0)

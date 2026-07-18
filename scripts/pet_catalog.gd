@@ -306,7 +306,10 @@ const DEFINITIONS := {
 		"attack_columns": 4,
 		"attack_rows": 3,
 		"attack_faces_right": true,
-		"attack_align_to_floor": true,
+		# The 384px attack frames and 256px idle frames share the same authored
+		# contact line relative to their centers (+104px). Per-frame bottom-pixel
+		# alignment mistakes the swinging tentacles for feet and makes the body hop.
+		"attack_align_to_floor": false,
 		"attack_frame_foot_y": 296
 	},
 	"pet7": {

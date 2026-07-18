@@ -14,8 +14,8 @@ const GACHA_EGG_TEXTURE := "res://assets/ui/gacha/egg.png"
 const MACHINE_SIZE := Vector2(501.0, 501.0)
 const EGG_NODE_SIZE := Vector2(72.0, 72.0)
 const EGG_COUNT := 15
-const EGG_MOTION_STEPS := 6
-const EGG_MOTION_STEP_SECONDS := 0.12
+const EGG_MOTION_STEPS := 8
+const EGG_MOTION_STEP_SECONDS := 0.15
 const EGG_POSITION_BOUNDS := Rect2(115.0, 108.0, 193.0, 88.0)
 const EGG_HOME_POSITIONS := [
 	Vector2(132.0, 176.0),
@@ -368,65 +368,37 @@ func _start_draw_animation() -> void:
 	if _animation_tween != null and is_instance_valid(_animation_tween):
 		_animation_tween.kill()
 	_animation_tween = create_tween()
-	_animation_tween.set_trans(Tween.TRANS_SINE)
-	_animation_tween.set_ease(Tween.EASE_IN_OUT)
-	for _motion_step in EGG_MOTION_STEPS:
-		for egg_index in _egg_views.size():
-			var egg := _egg_views[egg_index]
-			var motion := Vector2(
-				_rng.randf_range(-18.0, 18.0),
-				_rng.randf_range(-17.0, 14.0)
-			)
-			var target := _clamp_egg_position(_egg_home_positions[egg_index] + motion)
-			if egg_index == 0:
-				_animation_tween.tween_property(
-					egg,
-					"position",
-					target,
-					EGG_MOTION_STEP_SECONDS
-				)
-			else:
-				_animation_tween.parallel().tween_property(
-					egg,
-					"position",
-					target,
-					EGG_MOTION_STEP_SECONDS
-				)
-			_animation_tween.parallel().tween_property(
-				egg,
-				"rotation_degrees",
-				_rng.randf_range(-38.0, 38.0),
-				EGG_MOTION_STEP_SECONDS
-			)
+	# Coarse beats make the pile exchange places like a capsule machine instead
+	# of smoothly easing each egg a few pixels around its own home position.
+	for motion_step in EGG_MOTION_STEPS:
+		_animation_tween.tween_callback(
+			Callable(self, "_apply_egg_shuffle_step").bind(motion_step)
+		)
+		_animation_tween.tween_interval(EGG_MOTION_STEP_SECONDS)
+	_animation_tween.tween_callback(_finish_draw_animation)
+
+
+func _apply_egg_shuffle_step(motion_step: int) -> void:
+	var shuffled_slots := _egg_home_positions.duplicate()
+	for slot_index in range(shuffled_slots.size() - 1, 0, -1):
+		var swap_index := _rng.randi_range(0, slot_index)
+		var slot_value: Vector2 = shuffled_slots[slot_index]
+		shuffled_slots[slot_index] = shuffled_slots[swap_index]
+		shuffled_slots[swap_index] = slot_value
+	var is_final_beat := motion_step == EGG_MOTION_STEPS - 1
 	for egg_index in _egg_views.size():
 		var egg := _egg_views[egg_index]
-		var settled_position := _clamp_egg_position(
-			_egg_home_positions[egg_index] + Vector2(
-				_rng.randf_range(-6.0, 6.0),
-				_rng.randf_range(-4.0, 5.0)
-			)
+		var throw_amount := 8.0 if is_final_beat else 24.0
+		var target := Vector2(shuffled_slots[egg_index]) + Vector2(
+			_rng.randf_range(-throw_amount, throw_amount),
+			_rng.randf_range(-throw_amount * 0.8, throw_amount * 0.65)
 		)
-		if egg_index == 0:
-			_animation_tween.tween_property(
-				egg,
-				"position",
-				settled_position,
-				EGG_MOTION_STEP_SECONDS
-			)
-		else:
-			_animation_tween.parallel().tween_property(
-				egg,
-				"position",
-				settled_position,
-				EGG_MOTION_STEP_SECONDS
-			)
-		_animation_tween.parallel().tween_property(
-			egg,
-			"rotation_degrees",
-			_rng.randf_range(-32.0, 32.0),
-			EGG_MOTION_STEP_SECONDS
-		)
-	_animation_tween.tween_callback(_finish_draw_animation)
+		egg.position = _clamp_egg_position(target)
+		egg.rotation_degrees = _rng.randf_range(-58.0, 58.0)
+		var squash := _rng.randf_range(0.88, 1.12)
+		egg.scale = Vector2(squash, 2.0 - squash)
+		# Negative layers preserve the machine face over the whole pile.
+		egg.z_index = -1 - _rng.randi_range(0, 3)
 
 
 func _clamp_egg_position(position_value: Vector2) -> Vector2:
