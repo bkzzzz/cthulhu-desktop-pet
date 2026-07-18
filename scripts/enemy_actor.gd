@@ -41,7 +41,8 @@ const DEFINITIONS := {
 		"move": "res://assets/enemyCharacter/soldiers/soldier2Run.png",
 		"attack": "res://assets/enemyCharacter/soldiers/soldier2Attack.png",
 		"hp": 3.1, "damage": 0.19, "speed": 124.0, "reward": 12, "ranged": true,
-		"projectile": "arrow", "run_columns": 4, "run_rows": 3, "attack_columns": 4, "attack_rows": 4
+		"projectile": "arrow", "run_columns": 4, "run_rows": 3, "attack_columns": 4, "attack_rows": 4,
+		"visual_scale": 0.95, "run_animation_speed": 11.5, "run_bob": 0.45, "run_tilt": 0.004
 	},
 	"victorian1": {
 		"move": "res://assets/enemyCharacter/victorian/victorian1Run.png",
@@ -62,7 +63,7 @@ const DEFINITIONS := {
 		"attack": "res://assets/enemyCharacter/victorian/victorianBossAttack.png",
 		"hp": 10.5, "damage": 0.43, "speed": 129.0, "reward": 24, "ranged": false,
 		"run_columns": 4, "run_rows": 3, "attack_columns": 4, "attack_rows": 3,
-		"visual_scale": 1.02, "swallow_resistant": true
+		"visual_scale": 1.02
 	}
 }
 
@@ -98,12 +99,16 @@ var _ground_y := 0.0
 var _visual_scale := 0.84
 var _run_motion_active := false
 var _run_phase := 0.0
+var _run_bob_amount := 2.2
+var _run_tilt_amount := 0.018
 var _battle_state := "run"
 var _rng := RandomNumberGenerator.new()
 var _being_swallowed := false
 var _swallower: Node2D
 var _swallow_start_position := Vector2.ZERO
 var _swallow_progress := 0.0
+var _swallow_duration := 0.55
+var _swallow_arc_height := 72.0
 var _launched := false
 var _launch_velocity := Vector2.ZERO
 var _launch_spin := 0.0
@@ -129,6 +134,8 @@ func setup(
 	is_ranged = bool(data.get("ranged", false))
 	_projectile_kind = String(data.get("projectile", ""))
 	_swallow_resistant = bool(data.get("swallow_resistant", false))
+	_run_bob_amount = float(data.get("run_bob", 2.2))
+	_run_tilt_amount = float(data.get("run_tilt", 0.018))
 	_ground_y = ground_y
 	_entry_x = entry_x
 	position = spawn_position
@@ -241,9 +248,14 @@ func start_swallowed_by(swallower: Node2D) -> bool:
 	_swallower = swallower
 	_swallow_start_position = position
 	_swallow_progress = 0.0
+	var swallow_distance := position.distance_to(swallower.position)
+	_swallow_duration = clampf(swallow_distance / 980.0, 0.42, 0.92)
+	_swallow_arc_height = clampf(swallow_distance * 0.13, 48.0, 132.0)
 	_attack_pending = false
 	_target = null
 	_battle_state = "swallowed"
+	if _sprite != null:
+		_sprite.z_index = 330
 	return true
 
 
@@ -330,7 +342,8 @@ static func _get_or_build_frames(cache_key: String, data: Dictionary) -> SpriteF
 	frames.remove_animation("default")
 	_add_atlas_animation(
 		frames, "run", String(data.get("move", "")),
-		int(data.get("run_columns", 4)), int(data.get("run_rows", 3)), 10.0, true
+		int(data.get("run_columns", 4)), int(data.get("run_rows", 3)),
+		float(data.get("run_animation_speed", 10.0)), true
 	)
 	_add_atlas_animation(
 		frames, "attack", String(data.get("attack", "")),
@@ -404,9 +417,9 @@ func _update_sprite_pose(delta: float) -> void:
 	if _run_motion_active and _sprite.animation == "run":
 		_run_phase += maxf(0.0, delta) * 11.0
 	var base_position := _get_animation_alignment(String(_sprite.animation))
-	var run_bob := sin(_run_phase) * 2.2 if _run_motion_active and _sprite.animation == "run" else 0.0
+	var run_bob := sin(_run_phase) * _run_bob_amount if _run_motion_active and _sprite.animation == "run" else 0.0
 	_sprite.position = base_position + Vector2(0.0, run_bob)
-	_sprite.rotation = sin(_run_phase * 0.5) * 0.018 if _run_motion_active and _sprite.animation == "run" else 0.0
+	_sprite.rotation = sin(_run_phase * 0.5) * _run_tilt_amount if _run_motion_active and _sprite.animation == "run" else 0.0
 
 
 func _get_animation_alignment(animation_name: String) -> Vector2:
@@ -490,13 +503,15 @@ func _update_swallowed(delta: float) -> void:
 		_swallower = null
 		_sprite.scale = Vector2.ONE * _visual_scale
 		_sprite.rotation = 0.0
+		_sprite.z_index = 180
 		return
-	_swallow_progress = minf(1.0, _swallow_progress + delta / 0.42)
+	_swallow_progress = minf(1.0, _swallow_progress + delta / maxf(0.01, _swallow_duration))
 	var eased := ease(_swallow_progress, 2.4)
 	var mouth_position := _swallower.position
 	if _swallower.has_method("get_swallow_mouth_position"):
 		mouth_position = _swallower.call("get_swallow_mouth_position")
 	position = _swallow_start_position.lerp(mouth_position, eased)
+	position.y -= sin(eased * PI) * _swallow_arc_height
 	_sprite.scale = Vector2.ONE * _visual_scale * maxf(0.04, 1.0 - eased)
 	_sprite.rotation += delta * 8.0
 	if _swallow_progress >= 1.0:

@@ -84,9 +84,10 @@ const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
 const PET11_ABSORB_COOLDOWN_MAX_SECONDS := 115.0
 const PET11_ABSORB_HOLD_MIN_SECONDS := 4.0
 const PET11_ABSORB_HOLD_MAX_SECONDS := 7.0
-const PET11_BATTLE_ABSORB_MIN_SECONDS := 2.8
-const PET11_BATTLE_ABSORB_MAX_SECONDS := 5.5
-const PET11_BATTLE_ABSORB_RANGE := 420.0
+const PET11_BATTLE_ABSORB_MIN_SECONDS := 3.0
+const PET11_BATTLE_ABSORB_MAX_SECONDS := 4.8
+const PET11_BATTLE_FIRST_ABSORB_MIN_SECONDS := 0.65
+const PET11_BATTLE_FIRST_ABSORB_MAX_SECONDS := 1.15
 const UI_REFRESH_INTERVAL := 0.25
 const MANUAL_CLICK_RATE_SECONDS := 0.25
 const SAVE_PATH := "user://cthulu_save.cfg"
@@ -172,6 +173,7 @@ var _battle_pet_max_health := {}
 var _battle_pet_attack_at := {}
 var _battle_pet_target_x := {}
 var _battle_pet_formed := {}
+var _battle_save_pending := false
 var _last_era_display := ""
 var _recovery_ui_refresh_time := 0.0
 var _smoke_frames: SpriteFrames
@@ -879,9 +881,10 @@ func _start_battle() -> void:
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
+	_battle_save_pending = false
 	_next_pet11_absorb_at = _battle_started_at + _rng.randf_range(
-		PET11_BATTLE_ABSORB_MIN_SECONDS,
-		PET11_BATTLE_ABSORB_MAX_SECONDS
+		PET11_BATTLE_FIRST_ABSORB_MIN_SECONDS,
+		PET11_BATTLE_FIRST_ABSORB_MAX_SECONDS
 	)
 	_update_actor_window_bounds()
 
@@ -1038,6 +1041,7 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
 		)
 		var enemy: Node2D = EnemyActor.new()
+		enemy.set_meta("battle_runtime", true)
 		var era_scale := _get_battle_difficulty_scale()
 		var wave_scale := 1.0 + float(wave_index) * 0.025
 		var entry_x := (
@@ -1076,6 +1080,7 @@ func _on_enemy_projectile_requested(
 	if enemy.has_method("get_projectile_origin"):
 		start_position = enemy.call("get_projectile_origin")
 	var projectile: Node2D = EnemyProjectileActor.new()
+	projectile.set_meta("battle_runtime", true)
 	projectile.call("setup", projectile_kind, start_position, target, damage, power_scale)
 	projectile.connect("impacted", Callable(self, "_on_enemy_projectile_impacted"))
 	projectile.tree_exited.connect(_on_battle_effect_tree_exited.bind(projectile))
@@ -1166,6 +1171,7 @@ func _spawn_pet_projectile(
 	if pet.has_method("get_battle_attack_origin"):
 		start_position = pet.call("get_battle_attack_origin", direction)
 	var effect: Node2D = BattleEffectActor.new()
+	effect.set_meta("battle_runtime", true)
 	effect.call("setup_projectile", pet_id, start_position, target, visual_power)
 	effect.connect(
 		"projectile_impacted",
@@ -1195,6 +1201,7 @@ func _on_pet_projectile_impacted(
 
 func _spawn_battle_explosion(world_position: Vector2, visual_power: float) -> void:
 	var effect: Node2D = BattleEffectActor.new()
+	effect.set_meta("battle_runtime", true)
 	effect.call("setup_explosion", world_position, visual_power)
 	effect.tree_exited.connect(_on_battle_effect_tree_exited.bind(effect))
 	add_child(effect)
@@ -1316,15 +1323,13 @@ func _defeat_battle_pet(actor: Node2D) -> void:
 	_next_pet_coin_drop_at.erase(actor_key)
 	_pet_coin_drop_intervals.erase(actor_key)
 	_clear_pet_runtime_effects(pet_id)
+	_battle_save_pending = true
 	if _hovered_pet == actor:
 		_hovered_pet = null
 	if _selected_pet_id == pet_id:
 		_selected_pet_id = _get_first_desktop_pet_id()
 	actor.queue_free()
-	_sync_inventory_window()
 	_pet_upgrade_stats_dirty = true
-	_refresh_pet_stats(true)
-	_save_game()
 
 
 func _set_pet_recovery(pet_id: String) -> void:
@@ -1361,6 +1366,7 @@ func _finish_battle(victory: bool) -> void:
 		if is_instance_valid(effect):
 			effect.queue_free()
 	_battle_effects.clear()
+	_clear_battle_runtime_nodes()
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("set_battle_mode"):
 			pet.call("set_battle_mode", false)
@@ -1389,6 +1395,15 @@ func _finish_battle(victory: bool) -> void:
 	}, true, false)
 	_sync_inventory_window()
 	_refresh_pet_stats(true)
+	if _battle_save_pending:
+		_save_game()
+	_battle_save_pending = false
+
+
+func _clear_battle_runtime_nodes() -> void:
+	for child in get_children():
+		if is_instance_valid(child) and bool(child.get_meta("battle_runtime", false)):
+			child.queue_free()
 
 
 func _update_battle_status(now: float) -> void:
@@ -1505,31 +1520,34 @@ func _update_pet11_battle_absorb(pet11: Node2D) -> void:
 	if now < _next_pet11_absorb_at:
 		return
 	var target: Node2D
-	var nearest_distance := PET11_BATTLE_ABSORB_RANGE
-	# Dangerous projectiles are consumed first so the ability visibly protects the line.
-	for effect in _battle_effects:
-		if not is_instance_valid(effect) or not effect.has_method("can_be_swallowed"):
+	var nearest_distance := INF
+	# Enemies are the signature target. Range is intentionally the whole desktop so
+	# pet11 does not silently fail while it is holding the right-side battle line.
+	for enemy in _battle_enemies:
+		if not is_instance_valid(enemy) or not enemy.has_method("can_be_swallowed"):
 			continue
-		if not bool(effect.call("can_be_swallowed")):
+		if not bool(enemy.call("can_be_swallowed")):
 			continue
-		var distance := pet11.position.distance_to(effect.position)
-		if distance <= nearest_distance:
+		var distance := pet11.position.distance_to(enemy.position)
+		if distance < nearest_distance:
 			nearest_distance = distance
-			target = effect
+			target = enemy
 	if target == null:
-		for enemy in _battle_enemies:
-			if not is_instance_valid(enemy) or not enemy.has_method("can_be_swallowed"):
+		for effect in _battle_effects:
+			if not is_instance_valid(effect) or not effect.has_method("can_be_swallowed"):
 				continue
-			if not bool(enemy.call("can_be_swallowed")):
+			if not bool(effect.call("can_be_swallowed")):
 				continue
-			var distance := pet11.position.distance_to(enemy.position)
-			if distance <= nearest_distance:
+			var distance := pet11.position.distance_to(effect.position)
+			if distance < nearest_distance:
 				nearest_distance = distance
-				target = enemy
+				target = effect
 	if target == null:
 		_next_pet11_absorb_at = now + 0.75
 		return
 	if bool(target.call("start_swallowed_by", pet11)):
+		if pet11.has_method("play_battle_attack_toward"):
+			pet11.call("play_battle_attack_toward", signf(target.position.x - pet11.position.x))
 		_spawn_emotion(pet11, "suprised", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
 	_next_pet11_absorb_at = now + _rng.randf_range(
 		PET11_BATTLE_ABSORB_MIN_SECONDS,
@@ -1959,7 +1977,11 @@ func _create_inventory_window() -> void:
 
 func _sync_inventory_window() -> void:
 	if _inventory_window != null and _inventory_window.has_method("set_pets"):
-		_inventory_window.call("set_pets", _get_inventory_pet_entries())
+		_inventory_window.call(
+			"set_pets",
+			_get_inventory_pet_entries(),
+			_inventory_window.visible
+		)
 
 
 func _create_shop_window() -> void:
@@ -3080,7 +3102,7 @@ func _get_pet_recovery_info(pet_id: String) -> Dictionary:
 
 func _update_recovery_states(delta: float) -> void:
 	_recovery_ui_refresh_time += maxf(0.0, delta)
-	if _recovery_ui_refresh_time < 0.5:
+	if _recovery_ui_refresh_time < 1.0:
 		return
 	_recovery_ui_refresh_time = 0.0
 	var now := _get_now_seconds()
@@ -3102,7 +3124,8 @@ func _update_recovery_states(delta: float) -> void:
 		recovery_completed = true
 	if has_active_recovery or recovery_completed:
 		_pet_upgrade_stats_dirty = true
-		_sync_inventory_window()
+		if _inventory_window != null and _inventory_window.visible:
+			_sync_inventory_window()
 	if recovery_completed:
 		_refresh_pet_stats(true)
 		_save_game()
@@ -3483,6 +3506,7 @@ func _get_first_desktop_pet_id() -> String:
 
 func _on_inventory_requested() -> void:
 	if _inventory_window != null and _inventory_window.has_method("open_window"):
+		_sync_inventory_window()
 		_inventory_window.open_window()
 
 

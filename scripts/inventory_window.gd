@@ -57,6 +57,7 @@ func setup(initial_pets: Array[Dictionary]) -> void:
 func open_window() -> void:
 	if not visible:
 		_center_window()
+		_refresh_page(true)
 		visible = true
 		_root.modulate = Color(1.0, 1.0, 1.0, 0.0)
 		_root.scale = Vector2(0.96, 0.96)
@@ -76,9 +77,10 @@ func add_pet(pet_id: String, custom_name := "") -> void:
 	_refresh_page()
 
 
-func set_pets(next_pets: Array[Dictionary]) -> void:
+func set_pets(next_pets: Array[Dictionary], refresh_visuals := true) -> void:
 	_pets = next_pets.duplicate(true)
-	_refresh_page(true)
+	if refresh_visuals:
+		_refresh_page(true)
 
 
 func remove_pet(pet_id: String) -> bool:

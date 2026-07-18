@@ -519,6 +519,7 @@ const SHEET_ROWS := 3
 const CHROMA_KEY_TOLERANCE := 0.075
 
 static var _frame_cache := {}
+static var _icon_texture_cache := {}
 
 
 static func get_definition(pet_id: String) -> Dictionary:
@@ -616,17 +617,22 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 
 
 static func make_icon_texture(texture_path: String, padding := 8) -> Texture2D:
+	var cache_key := "%s:%d" % [texture_path, padding]
+	if _icon_texture_cache.has(cache_key):
+		return _icon_texture_cache[cache_key] as Texture2D
 	var texture := load(texture_path) as Texture2D
 	if texture == null:
 		return null
 
 	var image := texture.get_image()
 	if image == null or image.is_empty():
+		_icon_texture_cache[cache_key] = texture
 		return texture
 
 	image.convert(Image.FORMAT_RGBA8)
 	var bounds := _get_visible_bounds(image)
 	if bounds.size == Vector2i.ZERO or bounds.size == image.get_size():
+		_icon_texture_cache[cache_key] = texture
 		return texture
 
 	var crop_position := Vector2i(
@@ -641,7 +647,9 @@ static func make_icon_texture(texture_path: String, padding := 8) -> Texture2D:
 	var cropped := Image.create_empty(crop_size.x, crop_size.y, false, Image.FORMAT_RGBA8)
 	cropped.fill(Color(0.0, 0.0, 0.0, 0.0))
 	cropped.blit_rect(image, Rect2i(crop_position, crop_size), Vector2i.ZERO)
-	return ImageTexture.create_from_image(cropped)
+	var icon_texture := ImageTexture.create_from_image(cropped)
+	_icon_texture_cache[cache_key] = icon_texture
+	return icon_texture
 
 
 static func _add_sheet_animation(

@@ -13,6 +13,7 @@ static func run() -> Array[String]:
 	_test_era_progression(failures)
 	_test_enemy_roles_and_frames(failures)
 	_test_enemy_projectiles_and_special_defeats(failures)
+	_test_pet11_cross_screen_battle_swallow(failures)
 	_test_pet_combat_assets(failures)
 	_test_era_age_and_difficulty(failures)
 	_test_recovery_pauses_production(failures)
@@ -174,6 +175,26 @@ static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 	main.free()
 
 
+static func _test_pet11_cross_screen_battle_swallow(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_battle_active", true)
+	main.set("_next_pet11_absorb_at", 0.0)
+	var pet11 := Main.DesktopPetActor.new()
+	pet11.setup("pet11", Vector2i(1400, 720), 0.0, 1400.0, 1240.0, 704.0, false)
+	pet11.set_battle_mode(true)
+	main.add_child(pet11)
+	(main.get("_pets") as Array).append(pet11)
+	(main.get("_battle_pet_health") as Dictionary)[str(pet11.get_instance_id())] = 10.0
+	var enemy := EnemyActor.new()
+	enemy.setup("victorian_boss", Vector2(80.0, 704.0), 704.0, 1.0, 80.0)
+	main.add_child(enemy)
+	(main.get("_battle_enemies") as Array).append(enemy)
+	main.call("_update_pet11_battle_absorb", pet11)
+	if not bool(enemy.call("is_being_swallowed")):
+		failures.append("pet11 must pull any enemy, including a boss, into its body from across the desktop")
+	main.free()
+
+
 static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	for pet_id in ["pet3", "pet4", "pet5", "pet6"]:
 		var frames := Main.PetCatalog.build_frames(pet_id)
@@ -273,4 +294,8 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	main.call("_finish_battle", true)
 	if bool(main.get("_battle_active")) or bool(pet.get("_battle_mode")):
 		failures.append("battle cleanup must restore surviving pets to normal autonomy")
+	for child in main.get_children():
+		if bool(child.get_meta("battle_runtime", false)) and not child.is_queued_for_deletion():
+			failures.append("battle cleanup must remove every enemy/effect node, including actors already erased from combat arrays")
+			break
 	main.free()

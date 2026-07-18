@@ -151,6 +151,11 @@ static func run() -> Array[String]:
 	for idle_mover_id in ["pet8", "pet10", "pet11"]:
 		if not String(PetCatalog.get_definition(idle_mover_id).get("walk", "")).is_empty():
 			failures.append("%s must move by reusing its idle animation" % idle_mover_id)
+	var icon_path := String(PetCatalog.get_definition("pet11").get("icon", ""))
+	var first_icon := PetCatalog.make_icon_texture(icon_path, 12)
+	var cached_icon := PetCatalog.make_icon_texture(icon_path, 12)
+	if first_icon == null or cached_icon == null or first_icon.get_instance_id() != cached_icon.get_instance_id():
+		failures.append("inventory icon cropping must be cached instead of rescanning pixels throughout recovery")
 	return failures
 
 
