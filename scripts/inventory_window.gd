@@ -44,6 +44,7 @@ var _pets: Array[Dictionary] = []
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
 var _language := "zh"
+var _visuals_dirty := false
 
 
 func setup(initial_pets: Array[Dictionary]) -> void:
@@ -57,7 +58,9 @@ func setup(initial_pets: Array[Dictionary]) -> void:
 func open_window() -> void:
 	if not visible:
 		_center_window()
-		_refresh_page(true)
+		if _visuals_dirty:
+			_refresh_page(true)
+			_visuals_dirty = false
 		visible = true
 		_root.modulate = Color(1.0, 1.0, 1.0, 0.0)
 		_root.scale = Vector2(0.96, 0.96)
@@ -78,9 +81,17 @@ func add_pet(pet_id: String, custom_name := "") -> void:
 
 
 func set_pets(next_pets: Array[Dictionary], refresh_visuals := true) -> void:
+	if next_pets == _pets:
+		if refresh_visuals and _visuals_dirty:
+			_refresh_page(true)
+			_visuals_dirty = false
+		return
 	_pets = next_pets.duplicate(true)
 	if refresh_visuals:
 		_refresh_page(true)
+		_visuals_dirty = false
+	else:
+		_visuals_dirty = true
 
 
 func remove_pet(pet_id: String) -> bool:

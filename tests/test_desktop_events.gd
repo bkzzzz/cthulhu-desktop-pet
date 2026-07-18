@@ -147,7 +147,7 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 	swallowed_enemy.swallowed.connect(func(_actor: Node2D, _reward: int) -> void: swallow_completed[0] = true)
 	if not swallowed_enemy.start_swallowed_by(pet11):
 		failures.append("pet11 must be able to swallow ordinary enemies")
-	swallowed_enemy.call("_process", 0.5)
+	swallowed_enemy.call("_process", float(swallowed_enemy.get("_swallow_duration")) + 0.01)
 	if not swallow_completed[0]:
 		failures.append("swallowed enemies must finish by disappearing into pet11")
 	swallowed_enemy.free()
@@ -192,6 +192,13 @@ static func _test_pet11_cross_screen_battle_swallow(failures: Array[String]) -> 
 	main.call("_update_pet11_battle_absorb", pet11)
 	if not bool(enemy.call("is_being_swallowed")):
 		failures.append("pet11 must pull any enemy, including a boss, into its body from across the desktop")
+	if float(enemy.get("_swallow_duration")) < 1.25:
+		failures.append("pet11 suction must visibly pull and shrink an enemy instead of deleting it too quickly")
+	enemy.call("_process", 0.6)
+	if not bool(enemy.call("is_being_swallowed")):
+		failures.append("a cross-screen enemy must remain visible during the slower suction animation")
+	if Main._get_enemy_launch_direction() >= 0.0:
+		failures.append("melee launch defeats must always throw invaders toward the left side of the desktop")
 	main.free()
 
 

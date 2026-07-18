@@ -617,7 +617,9 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 
 
 static func make_icon_texture(texture_path: String, padding := 8) -> Texture2D:
-	var cache_key := "%s:%d" % [texture_path, padding]
+	# Padding only adds transparent breathing room. Reusing one crop per source avoids
+	# a second full pixel scan when drawer/inventory/gacha request different padding.
+	var cache_key := texture_path
 	if _icon_texture_cache.has(cache_key):
 		return _icon_texture_cache[cache_key] as Texture2D
 	var texture := load(texture_path) as Texture2D

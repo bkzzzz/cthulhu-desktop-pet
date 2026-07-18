@@ -249,7 +249,7 @@ func start_swallowed_by(swallower: Node2D) -> bool:
 	_swallow_start_position = position
 	_swallow_progress = 0.0
 	var swallow_distance := position.distance_to(swallower.position)
-	_swallow_duration = clampf(swallow_distance / 980.0, 0.42, 0.92)
+	_swallow_duration = clampf(swallow_distance / 520.0, 1.25, 2.35)
 	_swallow_arc_height = clampf(swallow_distance * 0.13, 48.0, 132.0)
 	_attack_pending = false
 	_target = null
@@ -506,14 +506,16 @@ func _update_swallowed(delta: float) -> void:
 		_sprite.z_index = 180
 		return
 	_swallow_progress = minf(1.0, _swallow_progress + delta / maxf(0.01, _swallow_duration))
-	var eased := ease(_swallow_progress, 2.4)
+	var travel_progress := smoothstep(0.0, 1.0, _swallow_progress)
 	var mouth_position := _swallower.position
 	if _swallower.has_method("get_swallow_mouth_position"):
 		mouth_position = _swallower.call("get_swallow_mouth_position")
-	position = _swallow_start_position.lerp(mouth_position, eased)
-	position.y -= sin(eased * PI) * _swallow_arc_height
-	_sprite.scale = Vector2.ONE * _visual_scale * maxf(0.04, 1.0 - eased)
-	_sprite.rotation += delta * 8.0
+	position = _swallow_start_position.lerp(mouth_position, travel_progress)
+	position.y -= sin(travel_progress * PI) * _swallow_arc_height
+	# The enemy is pulled most of the way first, then visibly compresses into the mouth.
+	var shrink_progress := smoothstep(0.0, 1.0, clampf((_swallow_progress - 0.35) / 0.65, 0.0, 1.0))
+	_sprite.scale = Vector2.ONE * _visual_scale * lerpf(1.0, 0.04, shrink_progress)
+	_sprite.rotation += delta * 5.0
 	if _swallow_progress >= 1.0:
 		_being_swallowed = false
 		_dead = true

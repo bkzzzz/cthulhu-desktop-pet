@@ -537,6 +537,8 @@ func react_to_petting(emotion: String) -> void:
 
 
 func react_to_emotion(emotion: String) -> void:
+	if _battle_mode and emotion == "sleepy":
+		return
 	_react_to_emotion(emotion)
 
 
@@ -1065,6 +1067,9 @@ func _start_emerging() -> void:
 
 
 func _start_sleeping() -> void:
+	if _battle_mode:
+		_start_idle()
+		return
 	_sleep_anchor_position = position
 	if _behavior_style == "sleepy_floater":
 		_float_anchor_y = position.y
@@ -1074,6 +1079,9 @@ func _start_sleeping() -> void:
 
 
 func _start_dozing() -> void:
+	if _battle_mode:
+		_start_idle()
+		return
 	_doze_anchor_position = position
 	_behavior = Behavior.DOZING
 	_special_time = _rng.randf_range(_doze_time_min, _doze_time_max)

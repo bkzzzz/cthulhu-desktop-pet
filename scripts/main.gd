@@ -993,9 +993,9 @@ func _update_battle(delta: float) -> void:
 			var current_health := float(enemy_target.call("get_health")) if enemy_target.has_method("get_health") else INF
 			var launch_defeat := current_health <= damage and _roll_melee_launch(rarity, level)
 			if launch_defeat:
-				var launch_direction := signf(enemy_target.position.x - pet.position.x)
-				if is_zero_approx(launch_direction):
-					launch_direction = -1.0
+				# Invaders always retreat toward the side they entered from, even when the
+				# player drags a pet behind their line.
+				var launch_direction := _get_enemy_launch_direction()
 				var launch_velocity := Vector2(
 					launch_direction * (720.0 + visual_power * 58.0),
 					-190.0 - visual_power * 16.0
@@ -1126,6 +1126,10 @@ func _roll_melee_launch(rarity: int, level: int) -> bool:
 		0.42
 	)
 	return _rng.randf() < chance
+
+
+static func _get_enemy_launch_direction() -> float:
+	return -1.0
 
 
 func _try_launch_enemy_group(

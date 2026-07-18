@@ -10,6 +10,7 @@ static func run() -> Array[String]:
 	_test_catalog_movement_tuning(failures)
 	_test_sleep_transition(failures)
 	_test_generic_doze(failures)
+	_test_battle_blocks_sleep(failures)
 	_test_hide_then_pop(failures)
 	_test_air_roaming(failures)
 	_test_floater_interaction_height(failures)
@@ -118,6 +119,28 @@ static func _test_generic_doze(failures: Array[String]) -> void:
 	if not is_equal_approx(sprite.speed_scale, 1.0):
 		failures.append("leaving a doze must restore the normal animation speed")
 	actor.free()
+
+
+static func _test_battle_blocks_sleep(failures: Array[String]) -> void:
+	var pet2 := DesktopPetActor.new()
+	pet2.setup("pet2", Vector2i(1000, 600), 72.0, 920.0, 700.0)
+	pet2.set_battle_mode(true)
+	pet2.react_to_petting("sleepy")
+	pet2.call("_start_sleeping")
+	if int(pet2.get("_behavior")) in [
+		DesktopPetActor.Behavior.SLEEP_CLOSING,
+		DesktopPetActor.Behavior.SLEEPING,
+		DesktopPetActor.Behavior.SLEEP_OPENING
+	]:
+		failures.append("pets must not enter authored sleep states during battle")
+	pet2.free()
+	var pet6 := DesktopPetActor.new()
+	pet6.setup("pet6", Vector2i(1000, 600), 72.0, 920.0, 700.0)
+	pet6.set_battle_mode(true)
+	pet6.call("_start_dozing")
+	if int(pet6.get("_behavior")) == DesktopPetActor.Behavior.DOZING:
+		failures.append("generic pets must not doze during battle")
+	pet6.free()
 
 
 static func _test_hide_then_pop(failures: Array[String]) -> void:
