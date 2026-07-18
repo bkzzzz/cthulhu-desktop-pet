@@ -215,24 +215,23 @@ static func _test_pet11_cross_screen_battle_swallow(failures: Array[String]) -> 
 	if not bool(enemy.call("is_being_swallowed")):
 		failures.append("pet11 must pull any enemy, including a boss, into its body from across the desktop")
 	var swallow_duration := float(enemy.get("_swallow_duration"))
-	if swallow_duration < 2.8:
-		failures.append("pet11 suction must visibly pull and shrink an enemy instead of deleting it too quickly")
+	if swallow_duration < 1.25 or swallow_duration > 2.8:
+		failures.append("pet11 suction must finish at the new faster but still visible speed")
 	var enemy_sprite := enemy.get_node_or_null("EnemySprite") as AnimatedSprite2D
 	var initial_scale := enemy_sprite.scale if enemy_sprite != null else Vector2.ZERO
 	var mouth_position := pet11.get_swallow_mouth_position()
 	if mouth_position.distance_to(pet11.position) > 4.0:
 		failures.append("pet11's suction target must be the visible center of its vortex")
-	enemy.call("_process", swallow_duration * 0.70)
+	enemy.call("_process", swallow_duration * 0.08)
 	if not bool(enemy.call("is_being_swallowed")):
-		failures.append("a cross-screen enemy must remain visible during the slower suction animation")
-	if enemy_sprite != null and not enemy_sprite.scale.is_equal_approx(initial_scale):
-		failures.append("pet11 must not shrink an enemy until it has reached the mouth entrance")
+		failures.append("a cross-screen enemy must remain visible during suction")
+	if enemy_sprite != null and enemy_sprite.scale.x >= initial_scale.x:
+		failures.append("pet11 suction must start shrinking the enemy on its first frames")
+	if enemy_sprite != null and is_zero_approx(enemy_sprite.rotation):
+		failures.append("pet11 suction must rotate the enemy from the beginning")
 	var approach_visual_position := enemy.position + enemy_sprite.position
 	if approach_visual_position.distance_to(mouth_position) >= Vector2(80.0, 704.0).distance_to(mouth_position):
 		failures.append("pet11 suction must visibly carry the enemy toward the vortex")
-	enemy.call("_process", swallow_duration * 0.10)
-	if enemy_sprite != null and enemy_sprite.scale.x >= initial_scale.x:
-		failures.append("the enemy must begin shrinking only during the final movement into the mouth")
 	if Main._get_enemy_launch_direction() >= 0.0:
 		failures.append("melee launch defeats must always throw invaders toward the left side of the desktop")
 	main.free()
@@ -263,6 +262,16 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	if float(melee_pet.get_battle_attack_duration()) < 16.0 / 12.0:
 		failures.append("combat cooldowns must leave enough time for all authored attack frames to play")
 	melee_pet.free()
+	var pet6 := Main.DesktopPetActor.new()
+	pet6.setup("pet6", Vector2i(900, 600), 0.0, 900.0, 640.0, 584.0, false)
+	pet6.set_battle_mode(true)
+	pet6.play_battle_attack_toward(-1.0)
+	var pet6_sprite := pet6.get_node_or_null("pet6Sprite") as AnimatedSprite2D
+	if pet6_sprite == null or pet6_sprite.animation != "attack" or pet6_sprite.sprite_frames.get_frame_count("attack") != 12:
+		failures.append("pet6 must play all twelve frames of its corrected attack animation in battle")
+	pet6.free()
+	if BattleEffectActor.PROJECTILE_CONFIG.has("pet11") or Main.RANGED_BATTLE_PET_IDS.has("pet11"):
+		failures.append("pet11 must be a suction-only fighter with no friendly projectile configuration")
 	for pet_id in Main.RANGED_BATTLE_PET_IDS:
 		var config: Dictionary = BattleEffectActor.PROJECTILE_CONFIG.get(pet_id, {})
 		if config.is_empty() or not FileAccess.file_exists(String(config.get("sheet", ""))):
@@ -270,10 +279,12 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	var target := Node2D.new()
 	target.position = Vector2(320.0, 300.0)
 	var projectile := BattleEffectActor.new()
-	projectile.setup_projectile("pet11", Vector2(40.0, 240.0), target, 6.0)
+	projectile.setup_projectile("pet10", Vector2(40.0, 240.0), target, 6.0)
 	var projectile_sprite := projectile.get_node_or_null("ProjectileSprite") as AnimatedSprite2D
 	if projectile_sprite == null or projectile_sprite.sprite_frames.get_frame_count("fly") != 5:
 		failures.append("ranged pet projectiles must animate through five authored frames")
+	if not Main.BATTLE_DRAG_HINT_ZH.contains("拖动宠物"):
+		failures.append("battle announcements must teach the player to drag pets beside enemies")
 	var explosion := BattleEffectActor.new()
 	explosion.setup_explosion(Vector2.ZERO, 7.5)
 	var explosion_sprite := explosion.get_node_or_null("ExplosionSprite") as AnimatedSprite2D

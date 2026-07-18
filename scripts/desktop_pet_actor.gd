@@ -31,7 +31,7 @@ const AIR_ROAM_LEG_PAUSE_MIN := 0.35
 const AIR_ROAM_LEG_PAUSE_MAX := 1.15
 const INPUT_PROXY_PADDING := 10.0
 const INPUT_WINDOW_UPDATE_INTERVAL := 1.0 / 15.0
-const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10", "pet11"]
+const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10"]
 const DOZE_ANIMATION_SPEED_SCALE := 0.28
 const POP_DURATION_MIN := 0.48
 const POP_DURATION_MAX := 0.82
@@ -172,6 +172,7 @@ var _hover_hint: Label
 var _hovering := false
 var _hover_time := 0.0
 var _pointer_held := false
+var _recall_pointer_held := false
 var _pointer_hold_time := 0.0
 var _press_position := Vector2.ZERO
 var _press_actor_position := Vector2.ZERO
@@ -370,7 +371,7 @@ func battle_move_toward(target_x: float, delta: float, speed := 230.0) -> bool:
 		position.y = _get_rest_y()
 	else:
 		_settle_floater_height(maxf(0.0, delta))
-		_apply_floating_position(_float_bob_amplitude)
+		_apply_floating_position(0.0)
 	return absf(position.x - safe_target) <= 2.0
 
 
@@ -452,11 +453,15 @@ func get_battle_attack_duration() -> float:
 func receive_battle_hit(knockback := 14.0) -> void:
 	if not _battle_mode or _sprite == null:
 		return
+	var stable_y := position.y
 	position.x = clampf(
 		position.x + maxf(0.0, knockback),
 		_get_drag_min_x(),
 		_get_drag_max_x()
 	)
+	# Damage reactions are horizontal only. Preserve the vertical coordinate so
+	# the flash/knockback can never appear as a one-frame hop.
+	position.y = stable_y
 	var flash := create_tween()
 	flash.tween_property(_sprite, "modulate", Color(1.0, 0.18, 0.18, 1.0), 0.05)
 	flash.tween_property(_sprite, "modulate", Color.WHITE, 0.16)
@@ -537,6 +542,7 @@ func is_pointer_captured() -> bool:
 
 
 func cancel_pointer_capture() -> void:
+	_recall_pointer_held = false
 	if _pointer_held or _behavior == Behavior.GRABBED:
 		_finish_pointer_hold(true)
 
@@ -799,7 +805,7 @@ func _update_pet(delta: float) -> void:
 	if _autonomy_paused and _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
 		if _behavior_style == "sleepy_floater":
 			_settle_floater_height(delta)
-			_apply_floating_position(_float_bob_amplitude)
+			_apply_floating_position(0.0 if _battle_mode else _float_bob_amplitude)
 		return
 	match _behavior:
 		Behavior.GRABBED:
@@ -1813,7 +1819,28 @@ func _on_gui_input(event: InputEvent) -> void:
 		elif _pointer_held:
 			_finish_pointer_hold()
 			_interaction_area.accept_event()
-	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT and mouse_event.pressed:
-		if not _battle_mode and is_point_over_opaque_pixel(window_position):
-			recall_requested.emit(self)
+	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+		var pointer_over_pet := (
+			is_point_over_opaque_pixel(window_position)
+			if mouse_event.pressed
+			else true
+		)
+		if _handle_recall_button(mouse_event.pressed, pointer_over_pet):
 			_interaction_area.accept_event()
+
+
+func _handle_recall_button(pressed: bool, pointer_over_pet: bool) -> bool:
+	if _battle_mode:
+		_recall_pointer_held = false
+		return false
+	if pressed:
+		_recall_pointer_held = pointer_over_pet
+		return _recall_pointer_held
+	if not _recall_pointer_held:
+		return false
+	# Recall on release, leaving the transparent input window alive throughout the
+	# native click. Otherwise Explorer receives the release after the pet vanishes
+	# and opens the desktop View/Sort/Refresh menu as a second action.
+	_recall_pointer_held = false
+	recall_requested.emit(self)
+	return true

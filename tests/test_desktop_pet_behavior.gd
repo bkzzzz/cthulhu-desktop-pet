@@ -11,6 +11,8 @@ static func run() -> Array[String]:
 	_test_sleep_transition(failures)
 	_test_generic_doze(failures)
 	_test_battle_blocks_sleep(failures)
+	_test_battle_hit_stays_level(failures)
+	_test_recall_waits_for_right_release(failures)
 	_test_hide_then_pop(failures)
 	_test_air_roaming(failures)
 	_test_floater_interaction_height(failures)
@@ -141,6 +143,39 @@ static func _test_battle_blocks_sleep(failures: Array[String]) -> void:
 	if int(pet6.get("_behavior")) == DesktopPetActor.Behavior.DOZING:
 		failures.append("generic pets must not doze during battle")
 	pet6.free()
+
+
+static func _test_battle_hit_stays_level(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet3", Vector2i(1200, 720), 0.0, 1200.0, 720.0, 704.0, false)
+	actor.set_battle_mode(true)
+	var before_hit_y := actor.position.y
+	actor.receive_battle_hit(28.0)
+	if not is_equal_approx(actor.position.y, before_hit_y):
+		failures.append("battle damage must never kick a pet upward")
+	actor.free()
+
+	var floater := DesktopPetActor.new()
+	floater.setup("pet2", Vector2i(1200, 720), 0.0, 1200.0, 720.0, 704.0, false)
+	floater.set_battle_mode(true)
+	floater.set("_float_anchor_y", 420.0)
+	floater.position.y = 420.0
+	floater.call("_update_pet", 0.0)
+	if not is_equal_approx(floater.position.y, 420.0):
+		failures.append("flying pets must stop vertical bobbing during battle")
+	floater.free()
+
+
+static func _test_recall_waits_for_right_release(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet1", Vector2i(820, 420), 0.0, 820.0, 420.0)
+	var recall_count := [0]
+	actor.recall_requested.connect(func(_pet: Node2D) -> void: recall_count[0] += 1)
+	if not bool(actor.call("_handle_recall_button", true, true)) or recall_count[0] != 0:
+		failures.append("right-click recall must keep the pet input window alive through button press")
+	if not bool(actor.call("_handle_recall_button", false, true)) or recall_count[0] != 1:
+		failures.append("right-click recall must trigger exactly once on button release")
+	actor.free()
 
 
 static func _test_hide_then_pop(failures: Array[String]) -> void:

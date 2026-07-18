@@ -84,8 +84,8 @@ const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
 const PET11_ABSORB_COOLDOWN_MAX_SECONDS := 115.0
 const PET11_ABSORB_HOLD_MIN_SECONDS := 4.0
 const PET11_ABSORB_HOLD_MAX_SECONDS := 7.0
-const PET11_BATTLE_ABSORB_MIN_SECONDS := 5.5
-const PET11_BATTLE_ABSORB_MAX_SECONDS := 7.5
+const PET11_BATTLE_ABSORB_MIN_SECONDS := 3.8
+const PET11_BATTLE_ABSORB_MAX_SECONDS := 5.2
 const PET11_BATTLE_FIRST_ABSORB_MIN_SECONDS := 0.65
 const PET11_BATTLE_FIRST_ABSORB_MAX_SECONDS := 1.15
 const UI_REFRESH_INTERVAL := 0.25
@@ -117,11 +117,13 @@ const BATTLE_INTERVAL_MAX_SECONDS := 600.0
 const BATTLE_DURATION_SECONDS := 42.0
 const BATTLE_DIFFICULTY_VARIANCE_MIN := 0.82
 const BATTLE_DIFFICULTY_VARIANCE_MAX := 1.18
+const BATTLE_DRAG_HINT_EN := "Drag pets beside an enemy to make them attack"
+const BATTLE_DRAG_HINT_ZH := "可以拖动宠物靠近敌人，让它主动进攻"
 const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
 const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
 const SMOKE_SHEET_TEXTURE := "res://assets/effects/smoke/smoke1_sheet.png"
 const SMOKE_FRAME_COUNT := 10
-const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10", "pet11"]
+const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10"]
 
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
@@ -962,14 +964,14 @@ func _start_battle() -> void:
 
 	_show_pilgrimage_broadcast(
 		"BATTLE EVENT" if _language == "en" else "战斗事件",
-		"Enemies are advancing from the left" if _language == "en" else "敌军正从桌面左侧推进"
+		BATTLE_DRAG_HINT_EN if _language == "en" else BATTLE_DRAG_HINT_ZH
 	)
 	_publish_news({
 		"category": "公告",
 		"headline": (
 			"BATTLE: The pets have formed a defensive line on the right side of the desktop."
 			if _language == "en"
-			else "战斗事件：宠物已在桌面右侧组成防线，敌军正在入场！"
+			else "战斗事件：宠物已组成防线；拖动宠物到敌人身边可以主动进攻！"
 		)
 	}, true, false)
 	_update_battle(0.0)
@@ -1016,6 +1018,11 @@ func _update_battle(delta: float) -> void:
 		if enemy_target == null:
 			continue
 		var pet_id := _get_actor_pet_id(pet)
+		# pet11's entire battle kit is suction. It never enters the generic attack
+		# branch, so it cannot deal a hidden melee hit or spawn a friendly projectile.
+		if pet_id == "pet11":
+			_battle_pet_attack_at[actor_key] = now + 0.5
+			continue
 		var pet_data := PetCatalog.get_definition(pet_id)
 		var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
 		var level := PetProgression.progression_level(_get_pet_state(pet_id))
@@ -1607,8 +1614,6 @@ func _update_pet11_battle_absorb(pet11: Node2D) -> void:
 		_next_pet11_absorb_at = now + 0.75
 		return
 	if bool(target.call("start_swallowed_by", pet11)):
-		if pet11.has_method("play_battle_attack_toward"):
-			pet11.call("play_battle_attack_toward", signf(target.position.x - pet11.position.x))
 		_spawn_emotion(pet11, "suprised", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
 	_next_pet11_absorb_at = now + _rng.randf_range(
 		PET11_BATTLE_ABSORB_MIN_SECONDS,

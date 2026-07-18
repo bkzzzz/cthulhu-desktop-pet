@@ -8,8 +8,7 @@ const PROJECTILE_CONFIG := {
 	"pet7": {"sheet": PROJECTILE_ROOT + "GandalfHardcore 64x64 Projectiles2.png", "row": 4, "scale": 0.62},
 	"pet8": {"sheet": PROJECTILE_ROOT + "GandalfHardcore 64x64 Projectiles4.png", "row": 2, "scale": 0.72},
 	"pet9": {"sheet": PROJECTILE_ROOT + "GandalfHardcore 64x64 Projectiles3.png", "row": 3, "scale": 0.68},
-	"pet10": {"sheet": PROJECTILE_ROOT + "GandalfHardcore 64x64 Projectiles5.png", "row": 5, "scale": 0.58},
-	"pet11": {"sheet": PROJECTILE_ROOT + "GandalfHardcore 64x64 Projectiles5c.png", "row": 6, "scale": 0.62}
+	"pet10": {"sheet": PROJECTILE_ROOT + "GandalfHardcore 64x64 Projectiles5.png", "row": 5, "scale": 0.58}
 }
 const EXPLOSION_CONFIG := [
 	{"sheet": "res://assets/effects/explosion/Medium Blast/spritesheet.png", "frames": 10, "frame_size": Vector2(48.0, 48.0), "fps": 18.0, "scale": 1.0},
