@@ -33,6 +33,8 @@ const MAGNET_CHECK_INTERVAL_SECONDS := 0.14
 const MAX_LIFETIME_SECONDS := 120.0
 const EXPIRE_FADE_SECONDS := 0.24
 const CELEBRATION_LIFETIME_SECONDS := 4.6
+const CELEBRATION_COLLECT_MIN_SPEED := 720.0
+const CELEBRATION_COLLECT_TRACKING_RATE := 7.5
 
 var coin_type := "R"
 var value := 1
@@ -47,6 +49,8 @@ var _age := 0.0
 var _magnet_check_time := 0.0
 var _expiring := false
 var _pickup_enabled := true
+var _celebration_collecting := false
+var _celebration_collect_at := INF
 var _max_lifetime_seconds := MAX_LIFETIME_SECONDS
 var _rng := RandomNumberGenerator.new()
 var _sprite: AnimatedSprite2D
@@ -91,20 +95,30 @@ func set_window_bounds(window_size: Vector2i, ground_y: float) -> void:
 	_window_size = window_size
 	_ground_y = clampf(ground_y, 0.0, float(window_size.y))
 	position.x = clampf(position.x, 18.0, maxf(18.0, float(window_size.x) - 18.0))
-	if _settled:
+	if _settled and _pickup_enabled:
 		position.y = _get_rest_y()
 
 
-func configure_celebration(launch_velocity: Vector2) -> void:
+func configure_celebration(launch_velocity: Vector2, collect_delay := INF) -> void:
 	# Victory loot is already credited during battle settlement. These drops are
 	# deliberately visual-only so they can never duplicate that reward.
 	value = 0
 	_velocity = launch_velocity
 	_pickup_enabled = false
 	_max_lifetime_seconds = CELEBRATION_LIFETIME_SECONDS
+	_celebration_collect_at = maxf(0.0, collect_delay)
 	set_meta("victory_loot_visual", true)
 	if _sprite != null:
 		_sprite.speed_scale = _rng.randf_range(1.08, 1.42)
+
+
+func collect_celebration_to_pointer() -> void:
+	if not bool(get_meta("victory_loot_visual", false)) or _expiring:
+		return
+	_celebration_collecting = true
+	_settled = false
+	_velocity = Vector2.ZERO
+	_max_lifetime_seconds = INF
 
 
 func _process(delta: float) -> void:
@@ -112,6 +126,11 @@ func _process(delta: float) -> void:
 		return
 	var safe_delta := maxf(0.0, delta)
 	_age += safe_delta
+	if not _celebration_collecting and _age >= _celebration_collect_at:
+		collect_celebration_to_pointer()
+	if _celebration_collecting:
+		_update_celebration_collection(_get_pointer_position(), safe_delta)
+		return
 	if _age >= _max_lifetime_seconds:
 		expire()
 		return
@@ -132,6 +151,18 @@ func _process(delta: float) -> void:
 				return
 
 	_update_fall(safe_delta)
+
+
+func _update_celebration_collection(pointer: Vector2, delta: float) -> void:
+	var distance := position.distance_to(pointer)
+	if distance <= COLLECT_DISTANCE:
+		queue_free()
+		return
+	var travel_speed := maxf(CELEBRATION_COLLECT_MIN_SPEED, distance * CELEBRATION_COLLECT_TRACKING_RATE)
+	position = position.move_toward(pointer, travel_speed * delta)
+	if _sprite != null:
+		var scale_ratio := clampf(distance / 240.0, 0.34, 1.0)
+		_sprite.scale = _sprite.scale.lerp(Vector2.ONE * COIN_SCALE * scale_ratio, minf(1.0, delta * 10.0))
 
 
 func expire() -> void:
@@ -245,5 +276,6 @@ func _get_rest_y() -> float:
 func _get_pointer_position() -> Vector2:
 	var window := get_window()
 	if window == null:
-		return get_viewport().get_mouse_position()
+		var viewport := get_viewport()
+		return viewport.get_mouse_position() if viewport != null else Vector2(_window_size) * 0.5
 	return Vector2(DisplayServer.mouse_get_position() - window.position)

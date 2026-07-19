@@ -8,11 +8,13 @@ signal debug_economy_requested(faith_points: float, gold_coins: int)
 signal debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 signal debug_event_requested(event_type: String)
 signal debug_pet_levels_requested(levels: Dictionary)
+signal debug_era_requested(era_index: int)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
+const EraProgression = preload("res://scripts/domain/era_progression.gd")
 
 const WINDOW_SIZE := Vector2i(720, 720)
 const VALID_RANGE_MODES := ["full", "right", "left"]
@@ -46,6 +48,8 @@ var _debug_enemy_power_label: Label
 var _debug_enemy_power_spin: SpinBox
 var _debug_game_speed_label: Label
 var _debug_game_speed_spin: SpinBox
+var _debug_era_label: Label
+var _debug_era_options: OptionButton
 var _debug_pet_levels_title: Label
 var _debug_pet_level_spins: Dictionary = {}
 var _debug_apply_button: Button
@@ -114,6 +118,14 @@ func refresh_debug_values(
 			var spin := _debug_pet_level_spins[pet_id] as SpinBox
 			if spin != null:
 				spin.value = clampi(int((pet_levels as Dictionary).get(pet_id, spin.value)), 1, PetProgression.MAX_LEVEL)
+
+
+func refresh_debug_era(era_index: int) -> void:
+	if _debug_era_options == null:
+		return
+	_updating_controls = true
+	_debug_era_options.select(clampi(era_index, 0, EraProgression.get_era_count() - 1))
+	_updating_controls = false
 
 
 func set_activity_range(activity_range: String) -> void:
@@ -334,12 +346,22 @@ func _create_debug_panel() -> void:
 	game_speed_row.add_child(_debug_game_speed_spin)
 	content.add_child(game_speed_row)
 
+	var era_row := _make_setting_row()
+	_debug_era_label = _make_label("当前时代", 18, Color(0.82, 0.86, 0.72, 1.0))
+	_debug_era_label.custom_minimum_size = Vector2(120.0, 42.0)
+	era_row.add_child(_debug_era_label)
+	_debug_era_options = _make_option_button()
+	_debug_era_options.name = "DebugEraSelector"
+	_debug_era_options.item_selected.connect(_on_debug_era_selected)
+	era_row.add_child(_debug_era_options)
+	content.add_child(era_row)
+
 	_debug_pet_levels_title = _make_label("宠物等级（逐只设置）", 17, Color(0.9, 0.78, 0.52, 1.0))
 	_debug_pet_levels_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	content.add_child(_debug_pet_levels_title)
 	var pet_level_scroll := ScrollContainer.new()
 	pet_level_scroll.name = "DebugPetLevelScroll"
-	pet_level_scroll.custom_minimum_size = Vector2(600.0, 138.0)
+	pet_level_scroll.custom_minimum_size = Vector2(600.0, 92.0)
 	pet_level_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	content.add_child(pet_level_scroll)
 	var pet_level_grid := GridContainer.new()
@@ -490,6 +512,12 @@ func _on_debug_apply_pressed() -> void:
 	_emit_debug_values()
 
 
+func _on_debug_era_selected(index: int) -> void:
+	if _updating_controls:
+		return
+	debug_era_requested.emit(clampi(index, 0, EraProgression.get_era_count() - 1))
+
+
 func _emit_debug_values() -> void:
 	if (
 		_debug_faith_spin == null
@@ -603,6 +631,8 @@ func _apply_language() -> void:
 		_debug_enemy_power_label.text = "Enemy power" if english else "敌军战力倍率"
 	if _debug_game_speed_label != null:
 		_debug_game_speed_label.text = "Game speed" if english else "游戏速度倍率"
+	if _debug_era_label != null:
+		_debug_era_label.text = "Current era" if english else "当前时代"
 	if _debug_pet_levels_title != null:
 		_debug_pet_levels_title.text = "PET LEVELS (INDIVIDUAL)" if english else "宠物等级（逐只设置）"
 	if _debug_apply_button != null:
@@ -642,6 +672,13 @@ func _apply_language() -> void:
 	_language_options.clear()
 	_language_options.add_item("English", 0)
 	_language_options.add_item("中文", 1)
+	if _debug_era_options != null:
+		var selected_era := maxi(0, _debug_era_options.selected)
+		_debug_era_options.clear()
+		for era_index in EraProgression.get_era_count():
+			var era_seconds := EraProgression.get_era_start_runtime_seconds(era_index)
+			_debug_era_options.add_item(EraProgression.get_era_name(era_seconds, _language), era_index)
+		_debug_era_options.select(clampi(selected_era, 0, EraProgression.get_era_count() - 1))
 	_updating_controls = false
 
 

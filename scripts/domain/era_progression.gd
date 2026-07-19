@@ -12,6 +12,22 @@ const VICTORIAN_ERA_START_CALENDAR_YEAR := 1837
 const MODERN_ERA_START_CALENDAR_YEAR := 1914
 const OUTER_SPACE_ERA_START_CALENDAR_YEAR := 2200
 const MEDIEVAL_CALENDAR_STEP_YEARS := 100
+const ERA_START_YEARS := [
+	1,
+	SOLDIER_ERA_START_YEAR,
+	VICTORIAN_ERA_START_YEAR,
+	MODERN_ERA_START_YEAR,
+	OUTER_SPACE_ERA_START_YEAR
+]
+
+
+static func get_era_count() -> int:
+	return ERA_START_YEARS.size()
+
+
+static func get_era_start_runtime_seconds(era_index: int) -> float:
+	var safe_index := clampi(era_index, 0, ERA_START_YEARS.size() - 1)
+	return float(ERA_START_YEARS[safe_index] - 1) * SECONDS_PER_YEAR
 
 
 static func get_year(total_runtime_seconds: float) -> int:

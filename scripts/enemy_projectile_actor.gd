@@ -20,6 +20,20 @@ void fragment() {
 const ORPHAN_COAST_SECONDS := 1.35
 const ORPHAN_VIEWPORT_MARGIN := 180.0
 
+static var _arrow_texture: Texture2D
+static var _bullet_texture: Texture2D
+static var _bullet_shader: Shader
+
+
+static func warm_up() -> void:
+	if _arrow_texture == null:
+		_arrow_texture = load(ARROW_TEXTURE) as Texture2D
+	if _bullet_texture == null:
+		_bullet_texture = load(BULLET_TEXTURE) as Texture2D
+	if _bullet_shader == null:
+		_bullet_shader = Shader.new()
+		_bullet_shader.code = BULLET_CHROMA_SHADER
+
 var projectile_kind := "arrow"
 var _target: Node2D
 var _damage := 0.0
@@ -140,9 +154,10 @@ func is_enemy_projectile() -> bool:
 
 
 func _create_sprite() -> void:
+	warm_up()
 	_sprite = Sprite2D.new()
 	_sprite.name = "EnemyProjectileSprite"
-	_sprite.texture = load(ARROW_TEXTURE if projectile_kind == "arrow" else BULLET_TEXTURE) as Texture2D
+	_sprite.texture = _arrow_texture if projectile_kind == "arrow" else _bullet_texture
 	_sprite.centered = true
 	_sprite.z_index = 300
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -164,9 +179,7 @@ func _create_sprite() -> void:
 		elif projectile_kind == "outer_bolt":
 			_sprite.modulate = Color(0.34, 0.78, 1.0)
 		var material := ShaderMaterial.new()
-		var shader := Shader.new()
-		shader.code = BULLET_CHROMA_SHADER
-		material.shader = shader
+		material.shader = _bullet_shader
 		if _sprite.texture != null:
 			var image := _sprite.texture.get_image()
 			if image != null and not image.is_empty():

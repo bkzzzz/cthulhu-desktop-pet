@@ -22,6 +22,15 @@ const ORPHAN_VIEWPORT_MARGIN := 180.0
 static var _projectile_frame_cache := {}
 static var _explosion_frame_cache := {}
 
+
+static func warm_up(pet_ids: Array) -> void:
+	for pet_id_value in pet_ids:
+		var pet_id := String(pet_id_value)
+		if PROJECTILE_CONFIG.has(pet_id):
+			_get_projectile_frames(pet_id, PROJECTILE_CONFIG[pet_id])
+	for tier in EXPLOSION_CONFIG.size():
+		_get_explosion_frames(tier, EXPLOSION_CONFIG[tier])
+
 var _mode := ""
 var _target: Node2D
 var _projectile_speed := 760.0

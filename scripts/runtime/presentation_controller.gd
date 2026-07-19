@@ -3,7 +3,9 @@ extends "res://scripts/runtime/main_context.gd"
 const VICTORY_LOOT_DELAY_SECONDS := 0.12
 const VICTORY_LOOT_MIN_DROPS := 9
 const VICTORY_LOOT_MAX_DROPS := 16
-const VICTORY_LOOT_HOLD_SECONDS := 4.1
+const VICTORY_LOOT_SPILL_SECONDS := 1.65
+const VICTORY_LOOT_HOLD_SECONDS := 1.25
+const VICTORY_LOOT_COLLECTION_SECONDS := 1.0
 
 var _victory_loot_drops: Array[Node2D] = []
 
@@ -198,7 +200,10 @@ func _show_pilgrimage_broadcast(
 		_pilgrimage_broadcast_tween.tween_callback(
 			_spawn_victory_loot_burst.bind(victory_loot_gold)
 		)
+		_pilgrimage_broadcast_tween.tween_interval(VICTORY_LOOT_SPILL_SECONDS)
 		_pilgrimage_broadcast_tween.tween_interval(VICTORY_LOOT_HOLD_SECONDS)
+		_pilgrimage_broadcast_tween.tween_callback(_collect_victory_loot_drops)
+		_pilgrimage_broadcast_tween.tween_interval(VICTORY_LOOT_COLLECTION_SECONDS)
 	else:
 		_pilgrimage_broadcast_tween.tween_interval(4.4)
 	_pilgrimage_broadcast_tween.set_trans(Tween.TRANS_SINE)
@@ -234,7 +239,10 @@ func _spawn_victory_loot_burst(gold_amount: int) -> void:
 			fan * _rng.randf_range(245.0, 345.0) + _rng.randf_range(-52.0, 52.0),
 			_rng.randf_range(-155.0, -62.0) + absf(fan) * 42.0
 		)
-		coin.configure_celebration(launch_velocity)
+		coin.configure_celebration(
+			launch_velocity,
+			VICTORY_LOOT_SPILL_SECONDS + VICTORY_LOOT_HOLD_SECONDS
+		)
 		coin.tree_exited.connect(_on_victory_loot_drop_exited.bind(coin))
 		add_child(coin)
 		_victory_loot_drops.append(coin)
@@ -247,6 +255,13 @@ func _get_victory_loot_drop_count(gold_amount: int) -> int:
 		VICTORY_LOOT_MIN_DROPS,
 		VICTORY_LOOT_MAX_DROPS
 	)
+
+
+func _collect_victory_loot_drops() -> void:
+	_prune_victory_loot_drops()
+	for drop in _victory_loot_drops:
+		if is_instance_valid(drop) and drop.has_method("collect_celebration_to_pointer"):
+			drop.call("collect_celebration_to_pointer")
 
 
 func _get_victory_loot_origin() -> Vector2:
@@ -390,11 +405,13 @@ func _create_settings_window() -> void:
 	_settings_window.debug_simulation_requested.connect(_host._on_debug_simulation_requested)
 	_settings_window.debug_event_requested.connect(_host._on_debug_event_requested)
 	_settings_window.debug_pet_levels_requested.connect(_host._on_debug_pet_levels_requested)
+	_settings_window.debug_era_requested.connect(_host._on_debug_era_requested)
 	_settings_window.reset_game_requested.connect(_host._reset_game_progress)
 	_settings_window.quit_requested.connect(_host._on_quit_requested)
 	_settings_window.setup(_pet_activity_range, _language)
 	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
 	_settings_window.refresh_debug_values(_faith_points, _gold_coins, _debug_enemy_power_scale, _debug_game_speed, _host._get_debug_pet_levels())
+	_settings_window.refresh_debug_era(EraProgression.get_era_index(_total_runtime_seconds))
 
 
 func _create_completion_window() -> void:
@@ -689,4 +706,5 @@ func _on_settings_requested() -> void:
 			_debug_game_speed,
 			_host._get_debug_pet_levels()
 		)
+	_settings_window.refresh_debug_era(EraProgression.get_era_index(_total_runtime_seconds))
 	_settings_window.open_window()

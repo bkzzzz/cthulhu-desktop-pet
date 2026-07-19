@@ -11,6 +11,7 @@ static func run() -> Array[String]:
 	_test_runtime_pacing_settings(failures)
 	_test_pet_interaction_geometry_cache(failures)
 	_test_shared_pet_asset_caches(failures)
+	_test_battle_engagement_caches(failures)
 	_test_hidden_drawer_defers_visual_work(failures)
 	_test_saves_are_debounced(failures)
 	return failures
@@ -50,6 +51,23 @@ static func _test_shared_pet_asset_caches(failures: Array[String]) -> void:
 		failures.append("cached runtime pet definitions must be immutable")
 	first.free()
 	second.free()
+
+
+static func _test_battle_engagement_caches(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet1", Vector2i(1000, 720), 0.0, 1000.0, 500.0, 704.0, false, false, 50)
+	var sprite := actor.get_node_or_null("pet1Sprite") as AnimatedSprite2D
+	var cache: Dictionary = DesktopPetActor._battle_frame_bottom_cache
+	var cached_before_attack := cache.size()
+	actor.set_battle_mode(true)
+	actor.play_battle_attack_toward(1.0)
+	if sprite != null:
+		for frame_index in sprite.sprite_frames.get_frame_count("attack"):
+			sprite.frame = frame_index
+			actor.call("_get_current_frame_local_bottom")
+	if cache.size() != cached_before_attack:
+		failures.append("first engagement must use precomputed pet attack-frame metrics")
+	actor.free()
 
 
 static func _test_hidden_drawer_defers_visual_work(failures: Array[String]) -> void:

@@ -153,7 +153,22 @@ const HIT_REACTION_SECONDS := 0.16
 static var _frames_cache := {}
 static var _alignment_cache := {}
 static var _run_half_width_cache := {}
+static var _warmed_enemy_ids := {}
 static var _chroma_shader: Shader
+
+
+static func warm_up(enemy_ids: Array) -> void:
+	for enemy_id_value in enemy_ids:
+		var warm_enemy_id := String(enemy_id_value)
+		if _warmed_enemy_ids.has(warm_enemy_id) or not DEFINITIONS.has(warm_enemy_id):
+			continue
+		var script_resource := load("res://scripts/enemy_actor.gd") as GDScript
+		var probe = script_resource.new()
+		probe.setup(warm_enemy_id, Vector2.ZERO, 720.0, 1.0, 120.0)
+		probe.call("_get_run_visual_half_width")
+		probe.call("_get_animation_alignment", "attack", float(DEFINITIONS[warm_enemy_id].get("attack_visual_scale", 1.0)))
+		probe.free()
+		_warmed_enemy_ids[warm_enemy_id] = true
 
 var enemy_id := "villager1"
 var is_ranged := false
@@ -286,6 +301,14 @@ func _process(delta: float) -> void:
 		return
 
 	if not _entered:
+		if not is_ranged and _is_target_in_attack_range():
+			_face_target(_target.position.x - position.x)
+			if _attack_cooldown <= 0.0:
+				_begin_attack()
+			else:
+				_play_run(false, 0.45)
+			_update_sprite_pose(safe_delta)
+			return
 		var entry_destination := _get_entry_destination_x()
 		var entry_distance := entry_destination - position.x
 		if absf(entry_distance) > 1.0:

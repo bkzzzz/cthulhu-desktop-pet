@@ -881,6 +881,21 @@ func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 			_get_debug_pet_levels()
 		)
 
+
+func _on_debug_era_requested(era_index: int) -> void:
+	_total_runtime_seconds = EraProgression.get_era_start_runtime_seconds(era_index)
+	_session_runtime_seconds = minf(_session_runtime_seconds, _total_runtime_seconds)
+	_last_era_display = ""
+	_pet_upgrade_stats_dirty = true
+	_host._refresh_pet_stats(true)
+	_host._refresh_era_display(true)
+	_host._schedule_next_pilgrimage(_host._get_now_seconds(), true)
+	_host._schedule_next_battle(_host._get_now_seconds(), true)
+	if _settings_window != null:
+		_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
+		_settings_window.refresh_debug_era(EraProgression.get_era_index(_total_runtime_seconds))
+	_host._request_save()
+
 func _get_debug_pet_levels() -> Dictionary:
 	var levels = {}
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:

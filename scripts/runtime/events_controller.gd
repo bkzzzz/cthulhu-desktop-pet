@@ -189,6 +189,8 @@ func _spawn_event_invitation(event_type: String) -> void:
 	invite.connect("expired", Callable(self, "_on_event_invitation_expired"))
 	add_child(invite)
 	_event_invitation = invite
+	if event_type == "battle":
+		_host.call_deferred("_warm_battle_assets", _battle_wave_schedule.duplicate(true))
 
 func _on_event_invitation_accepted(event_type: String) -> void:
 	_event_invitation = null

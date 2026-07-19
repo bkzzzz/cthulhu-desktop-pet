@@ -43,6 +43,11 @@ const SWALLOW_SPIT_DISTANCE_MIN := 120.0
 const SWALLOW_SPIT_DISTANCE_MAX := 240.0
 const PET5_DEFAULT_ROLL_SPEED := 7.5
 const PET5_BATTLE_ROLL_SPEED := 760.0
+const BATTLE_EDGE_MARGIN_MIN := 150.0
+const BATTLE_EDGE_MARGIN_RATIO := 0.16
+const BATTLE_MELEE_PURSUIT_MARGIN_MIN := 96.0
+const BATTLE_MELEE_PURSUIT_MARGIN_RATIO := 0.08
+const BATTLE_ENEMY_SPAWN_CORRIDOR := 36.0
 
 const LEVEL_SIZE_BASELINE_LEVEL := 100
 const LEVEL_SIZE_MIN_MULTIPLIER := 0.70
@@ -52,6 +57,7 @@ const LEVEL_SIZE_POST_BASELINE_LOG_RATE := 0.04
 
 static var _stable_hit_image_cache := {}
 static var _stable_hit_polygon_cache := {}
+static var _battle_frame_bottom_cache := {}
 
 enum Behavior {
 	IDLE,
@@ -440,6 +446,7 @@ func set_battle_mode(enabled: bool) -> void:
 		z_index = 210
 		_battle_facing_direction = -1.0
 		_face_direction(_battle_facing_direction)
+		position.x = clampf(position.x, _get_drag_min_x(), _get_drag_max_x())
 	else:
 		cancel_pointer_capture()
 		z_index = 0
@@ -454,11 +461,14 @@ func battle_move_toward(
 	target_x: float,
 	delta: float,
 	speed := 230.0,
-	facing_direction := 0.0
+	facing_direction := 0.0,
+	allow_edge_pursuit := false
 ) -> bool:
 	if not _battle_mode or _sprite == null:
 		return false
-	var safe_target := clampf(target_x, _min_x, _max_x)
+	var movement_min := _get_battle_pursuit_min_x() if allow_edge_pursuit else _get_drag_min_x()
+	var movement_max := _get_battle_pursuit_max_x() if allow_edge_pursuit else _get_drag_max_x()
+	var safe_target := clampf(target_x, movement_min, movement_max)
 	var previous_x := position.x
 	var travel_direction := safe_target - previous_x
 	var step := maxf(1.0, speed) * maxf(0.0, delta)
@@ -519,7 +529,7 @@ func begin_battle_roll_attack(target_x: float, speed := PET5_BATTLE_ROLL_SPEED) 
 		or _behavior in [Behavior.GRABBED, Behavior.FALLING, Behavior.SWALLOWED]
 	):
 		return false
-	var safe_target := clampf(target_x, _min_x, _max_x)
+	var safe_target := clampf(target_x, _get_battle_pursuit_min_x(), _get_battle_pursuit_max_x())
 	var direction := safe_target - position.x
 	if absf(direction) < 4.0:
 		return false
@@ -901,6 +911,7 @@ func _create_sprite() -> void:
 		else Rect2i()
 	)
 	_stable_hit_polygon = _build_stable_hit_polygon(_stable_hit_image)
+	_warm_battle_frame_metrics()
 	add_child(_sprite)
 	_sprite.play("idle")
 
@@ -1731,19 +1742,47 @@ func _get_current_frame_visual_bottom_y() -> float:
 func _get_current_frame_local_bottom() -> float:
 	if _sprite == null or _sprite.sprite_frames == null:
 		return 0.0
+	var cache_key := "%s:%s:%s:%d" % [
+		pet_id,
+		"evolved" if is_evolved else "base",
+		String(_sprite.animation),
+		_sprite.frame
+	]
+	if _battle_frame_bottom_cache.has(cache_key):
+		return float(_battle_frame_bottom_cache[cache_key])
 	var frame_texture := _sprite.sprite_frames.get_frame_texture(_sprite.animation, _sprite.frame)
 	if frame_texture == null:
 		return 0.0
 	var frame_image := frame_texture.get_image()
 	if frame_image == null or frame_image.is_empty():
-		return float(frame_texture.get_height()) * 0.5
+		var fallback_bottom := float(frame_texture.get_height()) * 0.5
+		_battle_frame_bottom_cache[cache_key] = fallback_bottom
+		return fallback_bottom
 	var bounds := frame_image.get_used_rect()
 	if bounds.size == Vector2i.ZERO:
-		return float(frame_image.get_height()) * 0.5
-	return (
+		var empty_bottom := float(frame_image.get_height()) * 0.5
+		_battle_frame_bottom_cache[cache_key] = empty_bottom
+		return empty_bottom
+	var local_bottom := (
 		float(bounds.position.y + bounds.size.y)
 		- float(frame_image.get_height()) * 0.5
 	)
+	_battle_frame_bottom_cache[cache_key] = local_bottom
+	return local_bottom
+
+
+func _warm_battle_frame_metrics() -> void:
+	if _sprite == null or _sprite.sprite_frames == null:
+		return
+	var previous_animation := _sprite.animation
+	var previous_frame := _sprite.frame
+	if _sprite.sprite_frames.has_animation("attack"):
+		_sprite.animation = "attack"
+		for frame_index in _sprite.sprite_frames.get_frame_count("attack"):
+			_sprite.frame = frame_index
+			_get_current_frame_local_bottom()
+	_sprite.animation = previous_animation
+	_sprite.frame = previous_frame
 
 
 func _cancel_special_behavior() -> void:
@@ -1946,11 +1985,57 @@ func _set_safe_bounds(min_x: float, max_x: float) -> void:
 
 
 func _get_drag_min_x() -> float:
-	return _min_x
+	if not _battle_mode:
+		return _min_x
+	var margin := _get_battle_edge_margin()
+	return minf(maxf(_min_x, margin), _get_drag_max_x_unchecked())
 
 
 func _get_drag_max_x() -> float:
-	return _max_x
+	return _get_drag_max_x_unchecked()
+
+
+func _get_drag_max_x_unchecked() -> float:
+	if not _battle_mode:
+		return _max_x
+	return maxf(
+		minf(_max_x, float(_window_size.x) - _get_battle_edge_margin()),
+		float(_window_size.x) * 0.5
+	)
+
+
+func _get_battle_edge_margin() -> float:
+	return minf(
+		float(_window_size.x) * 0.36,
+		maxf(BATTLE_EDGE_MARGIN_MIN, float(_window_size.x) * BATTLE_EDGE_MARGIN_RATIO)
+	)
+
+
+func _get_battle_pursuit_min_x() -> float:
+	return minf(
+		maxf(_min_x + BATTLE_ENEMY_SPAWN_CORRIDOR, _get_battle_melee_pursuit_margin()),
+		_get_battle_pursuit_max_x()
+	)
+
+
+func _get_battle_pursuit_max_x() -> float:
+	return maxf(
+		minf(
+			_max_x - BATTLE_ENEMY_SPAWN_CORRIDOR,
+			float(_window_size.x) - _get_battle_melee_pursuit_margin()
+		),
+		float(_window_size.x) * 0.5
+	)
+
+
+func _get_battle_melee_pursuit_margin() -> float:
+	return minf(
+		float(_window_size.x) * 0.24,
+		maxf(
+			BATTLE_MELEE_PURSUIT_MARGIN_MIN,
+			float(_window_size.x) * BATTLE_MELEE_PURSUIT_MARGIN_RATIO
+		)
+	)
 
 
 func _get_drag_min_y() -> float:

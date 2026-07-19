@@ -6,6 +6,7 @@ const SettingsWindow = preload("res://scripts/settings_window.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const EraProgression = preload("res://scripts/domain/era_progression.gd")
 
 
 static func run() -> Array[String]:
@@ -257,6 +258,7 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 	var coin_spin := settings.get("_debug_coin_spin") as SpinBox
 	var enemy_power_spin := settings.get("_debug_enemy_power_spin") as SpinBox
 	var game_speed_spin := settings.get("_debug_game_speed_spin") as SpinBox
+	var era_options := settings.get("_debug_era_options") as OptionButton
 	if faith_spin == null or not is_equal_approx(faith_spin.value, 12345.0):
 		failures.append("settings debug options must load the current faith value")
 	if coin_spin == null or int(coin_spin.value) != 6789:
@@ -265,6 +267,9 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("settings debug options must expose freely adjustable enemy power")
 	if game_speed_spin == null or not is_equal_approx(game_speed_spin.value, 3.0):
 		failures.append("settings debug options must expose an adjustable game speed")
+	settings.refresh_debug_era(3)
+	if era_options == null or era_options.item_count != EraProgression.get_era_count() or era_options.selected != 3:
+		failures.append("settings debug options must expose and synchronize every progression era")
 	var pet_level_spins: Dictionary = settings.get("_debug_pet_level_spins")
 	if pet_level_spins.size() != PetCatalog.ACTIVE_DESKTOP_PETS.size():
 		failures.append("settings debug options must expose an individual level control for every pet")
@@ -273,12 +278,17 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 	var debug_events: Array[String] = []
 	var debug_simulations: Array[Vector2] = []
 	var debug_level_snapshots: Array[Dictionary] = []
+	var debug_era_requests: Array[int] = []
 	settings.debug_event_requested.connect(func(event_type: String) -> void: debug_events.append(event_type))
 	settings.debug_simulation_requested.connect(
 		func(enemy_scale: float, game_speed: float) -> void:
 			debug_simulations.append(Vector2(enemy_scale, game_speed))
 	)
 	settings.debug_pet_levels_requested.connect(func(levels: Dictionary) -> void: debug_level_snapshots.append(levels))
+	settings.debug_era_requested.connect(func(era_index: int) -> void: debug_era_requests.append(era_index))
+	settings.call("_on_debug_era_selected", 4)
+	if debug_era_requests != [4]:
+		failures.append("changing the debug era selector must immediately request that era")
 	settings.call("_on_debug_event_pressed", "pilgrimage")
 	settings.call("_on_debug_event_pressed", "battle")
 	if debug_events != ["pilgrimage", "battle"]:
@@ -314,6 +324,16 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("debug enemy power must support reductions below normal")
 	if not is_equal_approx(float(main.get("_debug_game_speed")), 2.0) or not is_equal_approx(Engine.time_scale, 2.0):
 		failures.append("debug game speed must immediately control simulation speed")
+	main.set("_session_runtime_seconds", 9999.0)
+	main.call("_on_debug_era_requested", 2)
+	var victorian_start := EraProgression.get_era_start_runtime_seconds(2)
+	if (
+		not is_equal_approx(float(main.get("_total_runtime_seconds")), victorian_start)
+		or EraProgression.get_era_index(float(main.get("_total_runtime_seconds"))) != 2
+	):
+		failures.append("debug era changes must update the authoritative progression runtime")
+	if float(main.get("_session_runtime_seconds")) > victorian_start:
+		failures.append("moving progression backward must keep session and total runtime state consistent")
 	Engine.time_scale = 1.0
 	main.free()
 

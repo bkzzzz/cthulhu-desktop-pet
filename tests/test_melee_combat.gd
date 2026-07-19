@@ -8,8 +8,10 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_battle_facing_is_target_stable(failures)
 	_test_melee_chases_while_ranged_holds(failures)
+	_test_battle_pet_safe_horizontal_bounds(failures)
 	_test_freed_target_lock_recovers(failures)
 	_test_enemy_entry_can_take_damage(failures)
+	_test_melee_enemy_engages_pet_during_entry(failures)
 	_test_waves_enter_from_both_sides(failures)
 	_test_ranged_enemy_attacks_when_fully_visible(failures)
 	_test_two_sided_knockback(failures)
@@ -95,6 +97,63 @@ static func _test_melee_chases_while_ranged_holds(failures: Array[String]) -> vo
 	main.free()
 
 
+static func _test_battle_pet_safe_horizontal_bounds(failures: Array[String]) -> void:
+	var left_pet := Main.DesktopPetActor.new()
+	left_pet.setup("pet1", Vector2i(1000, 720), 0.0, 1000.0, 12.0, 704.0, false)
+	left_pet.set_battle_mode(true)
+	if left_pet.position.x < 160.0:
+		failures.append("battle pets must be pulled clear of the left enemy entrance")
+	left_pet.battle_move_toward(-200.0, 1.0, 500.0, -1.0)
+	if left_pet.position.x < 160.0:
+		failures.append("battle movement must clamp pets to the safe left combat bound")
+	left_pet.battle_move_toward(-200.0, 1.0, 500.0, -1.0, true)
+	if left_pet.position.x >= 160.0 or left_pet.position.x < 96.0:
+		failures.append("melee pursuit must extend past the formation bound without entering the left spawn corridor")
+	var left_visual_rect: Rect2 = left_pet.call("_get_sprite_visual_rect")
+	if left_visual_rect.position.x < Main.DesktopPetActor.BATTLE_ENEMY_SPAWN_CORRIDOR - 0.01:
+		failures.append("a pursuing melee pet's visible body must remain outside the left spawn corridor")
+
+	var right_pet := Main.DesktopPetActor.new()
+	right_pet.setup("pet1", Vector2i(1000, 720), 0.0, 1000.0, 988.0, 704.0, false)
+	right_pet.set_battle_mode(true)
+	if right_pet.position.x > 840.0:
+		failures.append("battle pets must be pulled clear of the right enemy entrance")
+	right_pet.battle_move_toward(1200.0, 1.0, 500.0, 1.0)
+	if right_pet.position.x > 840.0:
+		failures.append("battle movement must clamp pets to the safe right combat bound")
+	right_pet.battle_move_toward(1200.0, 1.0, 500.0, 1.0, true)
+	if right_pet.position.x <= 840.0 or right_pet.position.x > 904.0:
+		failures.append("melee pursuit must extend past the formation bound without entering the right spawn corridor")
+	var right_visual_rect: Rect2 = right_pet.call("_get_sprite_visual_rect")
+	if right_visual_rect.end.x > 1000.0 - Main.DesktopPetActor.BATTLE_ENEMY_SPAWN_CORRIDOR + 0.01:
+		failures.append("a pursuing melee pet's visible body must remain outside the right spawn corridor")
+	left_pet.free()
+	right_pet.free()
+
+	var main := Main.new()
+	main.set("_battle_active", true)
+	main.set("_pet_window_size", Vector2i(1000, 720))
+	var pursuing_pet := Main.DesktopPetActor.new()
+	pursuing_pet.setup("pet1", Vector2i(1000, 720), 0.0, 1000.0, 500.0, 704.0, false)
+	pursuing_pet.set_battle_mode(true)
+	main.add_child(pursuing_pet)
+	(main.get("_pets") as Array).append(pursuing_pet)
+	var actor_key := str(pursuing_pet.get_instance_id())
+	(main.get("_battle_pet_health") as Dictionary)[actor_key] = 10.0
+	(main.get("_battle_pet_formed") as Dictionary)[actor_key] = true
+	var edge_enemy := Node2D.new()
+	edge_enemy.position = Vector2(32.0, 704.0)
+	main.add_child(edge_enemy)
+	(main.get("_battle_enemies") as Array).append(edge_enemy)
+	main.call("_update_battle_pet_formation", 2.0)
+	var attack_range := float(pursuing_pet.get_battle_attack_range())
+	if pursuing_pet.position.x >= 160.0 or pursuing_pet.position.x < 96.0:
+		failures.append("melee formation AI must use the protected edge-pursuit bounds for edge enemies")
+	if pursuing_pet.position.distance_to(edge_enemy.position) > attack_range:
+		failures.append("melee pursuit must bring an edge-positioned enemy inside the pet's attack range")
+	main.free()
+
+
 static func _test_freed_target_lock_recovers(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_battle_active", true)
@@ -141,6 +200,34 @@ static func _test_enemy_entry_can_take_damage(failures: Array[String]) -> void:
 	elif main.call("_get_battle_target_for_pet", pet) != enemy:
 		failures.append("pets must retain their incoming target after its entrance ends")
 	main.free()
+
+
+static func _test_melee_enemy_engages_pet_during_entry(failures: Array[String]) -> void:
+	var target := Node2D.new()
+	target.position = Vector2(-20.0, 704.0)
+	var melee := EnemyActor.new()
+	melee.setup("villager1", Vector2(-90.0, 704.0), 704.0, 1.0, 420.0)
+	melee.set_target(target)
+	var melee_start_x := melee.position.x
+	melee.call("_process", 0.1)
+	var melee_sprite := melee.get_node_or_null("EnemySprite") as AnimatedSprite2D
+	if not is_equal_approx(melee.position.x, melee_start_x):
+		failures.append("a melee enemy must stop instead of running through a pet encountered during entry")
+	if melee_sprite == null or melee_sprite.animation != "attack":
+		failures.append("a melee enemy must immediately engage a valid pet already within attack range")
+
+	var ranged := EnemyActor.new()
+	ranged.setup("soldier2", Vector2(-90.0, 704.0), 704.0, 1.0, 420.0)
+	ranged.set_target(target)
+	var ranged_start_x := ranged.position.x
+	ranged.call("_process", 0.1)
+	var ranged_sprite := ranged.get_node_or_null("EnemySprite") as AnimatedSprite2D
+	if ranged.position.x <= ranged_start_x or ranged_sprite == null or ranged_sprite.animation != "run":
+		failures.append("ranged enemies must retain their fully-visible entrance behavior")
+
+	melee.free()
+	ranged.free()
+	target.free()
 
 
 static func _test_waves_enter_from_both_sides(failures: Array[String]) -> void:

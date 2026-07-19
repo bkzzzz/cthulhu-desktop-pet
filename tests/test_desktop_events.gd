@@ -54,6 +54,24 @@ static func _test_victory_loot_burst(failures: Array[String]) -> void:
 		failures.append("high-value victory loot must use the imported crystal denominations")
 	if Main.PresentationController.VICTORY_LOOT_DELAY_SECONDS <= 0.0:
 		failures.append("victory loot must wait until after the notification panel entrance")
+	for _frame in 150:
+		for drop_value in drops:
+			if is_instance_valid(drop_value):
+				(drop_value as Node2D).call("_process", 1.0 / 60.0)
+	if drops.any(func(drop: Node2D) -> bool: return not is_instance_valid(drop) or drop.is_queued_for_deletion()):
+		failures.append("victory loot must remain visible after finishing its spill")
+	presentation.call("_collect_victory_loot_drops")
+	for drop_value in drops:
+		var drop := drop_value as Node2D
+		if is_instance_valid(drop):
+			if not bool(drop.get("_celebration_collecting")):
+				failures.append("all victory coins must begin collecting toward the pointer together")
+				break
+			drop.call("_update_celebration_collection", Vector2(600.0, 240.0), 2.0)
+			drop.call("_update_celebration_collection", Vector2(600.0, 240.0), 0.01)
+			if not drop.is_queued_for_deletion():
+				failures.append("victory coins must disappear only after reaching their collection point")
+				break
 	main.free()
 
 
@@ -398,6 +416,10 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 		failures.append("victory must credit the complete advertised faith budget directly")
 	if not bool(main.get("_save_dirty")):
 		failures.append("victory rewards must immediately mark persistent progress for saving")
+	var settled_gold := int(main.get("_gold_coins"))
+	main.call("_finish_battle", true)
+	if int(main.get("_gold_coins")) != settled_gold:
+		failures.append("victory settlement must grant its authoritative reward exactly once")
 	main.set("_persistence_enabled", false)
 	main.free()
 

@@ -17,6 +17,22 @@ const FINAL_BOSS_FAITH_REWARD_MULTIPLIER := 2.0
 var _battle_visual_reward_drops := 0
 
 
+func _warm_battle_assets(schedule: Array) -> void:
+	var enemy_ids: Array[String] = []
+	for wave_value in schedule:
+		var wave: Dictionary = wave_value
+		for enemy_id_value in wave.get("types", []):
+			var enemy_id := String(enemy_id_value)
+			if not enemy_ids.has(enemy_id):
+				enemy_ids.append(enemy_id)
+	for enemy_id in enemy_ids:
+		EnemyActor.warm_up([enemy_id])
+		if is_inside_tree():
+			await get_tree().process_frame
+	BattleEffectActor.warm_up(_deployed_pet_ids)
+	EnemyProjectileActor.warm_up()
+
+
 func _get_battle_average_pet_level() -> float:
 	return EconomyBalance.average_level(_deployed_pet_ids, _pet_states)
 
@@ -483,7 +499,8 @@ func _update_battle_pet_formation(delta: float) -> void:
 				chase_x,
 				delta,
 				chase_speed,
-				target_direction
+				target_direction,
+				true
 			)
 
 func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:

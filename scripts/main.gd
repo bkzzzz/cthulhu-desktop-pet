@@ -243,6 +243,9 @@ func _get_enemy_schedule_combat_power() -> float:
 func _roll_battle_difficulty_scale() -> float:
 	return _battle_controller._roll_battle_difficulty_scale()
 
+func _warm_battle_assets(schedule: Array) -> void:
+	_battle_controller._warm_battle_assets(schedule)
+
 func _get_battle_difficulty_scale() -> float:
 	return _battle_controller._get_battle_difficulty_scale()
 
@@ -970,6 +973,9 @@ func _on_debug_economy_requested(faith_points: float, gold_coins: int) -> void:
 
 func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float) -> void:
 	_progression_controller._on_debug_simulation_requested(enemy_power_scale, game_speed)
+
+func _on_debug_era_requested(era_index: int) -> void:
+	_progression_controller._on_debug_era_requested(era_index)
 
 func _get_debug_pet_levels() -> Dictionary:
 	return _progression_controller._get_debug_pet_levels()
