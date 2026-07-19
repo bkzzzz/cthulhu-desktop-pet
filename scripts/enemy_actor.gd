@@ -152,6 +152,7 @@ const HIT_REACTION_SECONDS := 0.16
 
 static var _frames_cache := {}
 static var _alignment_cache := {}
+static var _run_half_width_cache := {}
 static var _chroma_shader: Shader
 
 var enemy_id := "villager1"
@@ -285,14 +286,15 @@ func _process(delta: float) -> void:
 		return
 
 	if not _entered:
-		var entry_distance := _entry_x - position.x
+		var entry_destination := _get_entry_destination_x()
+		var entry_distance := entry_destination - position.x
 		if absf(entry_distance) > 1.0:
 			_face_target(entry_distance)
-			position.x = move_toward(position.x, _entry_x, _move_speed * safe_delta)
+			position.x = move_toward(position.x, entry_destination, _move_speed * safe_delta)
 			_play_run(true)
 			_update_sprite_pose(safe_delta)
 			return
-		position.x = _entry_x
+		position.x = entry_destination
 		_entered = true
 
 	if _target == null or not is_instance_valid(_target):
@@ -332,7 +334,7 @@ func take_damage(
 	launch_velocity := Vector2.ZERO,
 	knockback_direction := -1.0
 ) -> void:
-	if _dead or not has_entered_battlefield():
+	if _dead:
 		return
 	health -= maxf(0.0, amount)
 	var battlefield_width := _get_battlefield_width()
@@ -432,9 +434,49 @@ func is_targetable() -> bool:
 
 
 func has_entered_battlefield() -> bool:
-	# Test-spawned and restored enemies may begin exactly at their entry post.
-	# Real waves can enter from either edge and remain protected until reaching it.
-	return _entered or absf(position.x - _entry_x) <= 0.5
+	# Test-spawned and restored enemies may begin exactly at their entrance goal.
+	return _entered or absf(position.x - _get_entry_destination_x()) <= 0.5
+
+
+func _get_entry_destination_x() -> float:
+	if not is_ranged:
+		return _entry_x
+	var visual_margin := _get_run_visual_half_width()
+	if _entry_side < 0:
+		return visual_margin
+	return _get_battlefield_width() - visual_margin
+
+
+func _get_run_visual_half_width() -> float:
+	if _run_half_width_cache.has(enemy_id):
+		return float(_run_half_width_cache[enemy_id])
+	if _sprite == null or _sprite.sprite_frames == null:
+		return 48.0
+	var animation_name := "run"
+	if not _sprite.sprite_frames.has_animation(animation_name):
+		return 48.0
+	var alignment_x := _get_animation_alignment(animation_name).x
+	var widest_extent := 0.0
+	for frame_index in _sprite.sprite_frames.get_frame_count(animation_name):
+		var frame_texture := _sprite.sprite_frames.get_frame_texture(animation_name, frame_index)
+		var frame_image := _get_atlas_frame_image(frame_texture)
+		if frame_image == null or frame_image.is_empty():
+			continue
+		var bounds := _get_visible_bounds(frame_image)
+		if bounds.size == Vector2i.ZERO:
+			continue
+		var half_frame_width := float(frame_image.get_width()) * 0.5
+		var raw_left := (float(bounds.position.x) - half_frame_width) * _visual_scale
+		var raw_right := (float(bounds.position.x + bounds.size.x) - half_frame_width) * _visual_scale
+		# Enemies can enter from either edge, so include the mirrored extents too.
+		widest_extent = maxf(widest_extent, absf(alignment_x + raw_left))
+		widest_extent = maxf(widest_extent, absf(alignment_x + raw_right))
+		widest_extent = maxf(widest_extent, absf(alignment_x - raw_left))
+		widest_extent = maxf(widest_extent, absf(alignment_x - raw_right))
+	# The hit squash can briefly widen the sprite during its entrance.
+	var safe_half_width := maxf(12.0, ceilf(widest_extent * 1.08 + 4.0))
+	_run_half_width_cache[enemy_id] = safe_half_width
+	return safe_half_width
 
 
 func get_entry_side() -> int:

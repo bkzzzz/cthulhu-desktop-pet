@@ -9,8 +9,9 @@ static func run() -> Array[String]:
 	_test_battle_facing_is_target_stable(failures)
 	_test_melee_chases_while_ranged_holds(failures)
 	_test_freed_target_lock_recovers(failures)
-	_test_enemy_entry_cannot_be_camped(failures)
+	_test_enemy_entry_can_take_damage(failures)
 	_test_waves_enter_from_both_sides(failures)
+	_test_ranged_enemy_attacks_when_fully_visible(failures)
 	_test_two_sided_knockback(failures)
 	_test_combat_health_bars_and_hit_reaction(failures)
 	_test_pet5_form_specific_rolling(failures)
@@ -118,7 +119,7 @@ static func _test_freed_target_lock_recovers(failures: Array[String]) -> void:
 	main.free()
 
 
-static func _test_enemy_entry_cannot_be_camped(failures: Array[String]) -> void:
+static func _test_enemy_entry_can_take_damage(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_battle_active", true)
 	var pet := Main.DesktopPetActor.new()
@@ -129,16 +130,16 @@ static func _test_enemy_entry_cannot_be_camped(failures: Array[String]) -> void:
 	main.add_child(enemy)
 	(main.get("_battle_enemies") as Array).append(enemy)
 	var health_before := enemy.get_health()
-	enemy.take_damage(999.0)
-	if enemy.get_health() != health_before:
-		failures.append("an offscreen enemy must be protected until it reaches its battlefield entry post")
+	enemy.take_damage(health_before * 0.25, 0.0)
+	if not is_equal_approx(enemy.get_health(), health_before * 0.75):
+		failures.append("an enemy must take damage while its running entrance animation is active")
 	if main.call("_get_battle_target_for_pet", pet) != enemy:
 		failures.append("pets must acquire incoming enemies immediately instead of waiting at an empty front line")
 	enemy.call("_process", 3.0)
 	if not bool(enemy.call("has_entered_battlefield")):
-		failures.append("an enemy must become targetable after reaching its entry post")
+		failures.append("a melee enemy must still finish running to its authored entry post")
 	elif main.call("_get_battle_target_for_pet", pet) != enemy:
-		failures.append("pets must immediately acquire an enemy after its protected entry ends")
+		failures.append("pets must retain their incoming target after its entrance ends")
 	main.free()
 
 
@@ -160,10 +161,56 @@ static func _test_waves_enter_from_both_sides(failures: Array[String]) -> void:
 	if int(left_enemy.call("get_entry_side")) != -1 or int(right_enemy.call("get_entry_side")) != 1:
 		failures.append("enemy actors must retain their left/right entry side for combat behavior")
 	if bool(right_enemy.call("has_entered_battlefield")):
-		failures.append("a right-side enemy must retain entry protection until reaching its mirrored post")
+		failures.append("a right-side ranged enemy must keep running until its full sprite is visible")
+	var right_health_before := float(right_enemy.call("get_health"))
+	right_enemy.call("take_damage", right_health_before * 0.25, 0.0)
+	if not is_equal_approx(float(right_enemy.call("get_health")), right_health_before * 0.75):
+		failures.append("right-side enemies must also take damage during their entrance")
 	right_enemy.call("_process", 6.0)
 	if not bool(right_enemy.call("has_entered_battlefield")):
-		failures.append("a right-side enemy must become vulnerable after reaching its mirrored post")
+		failures.append("a right-side enemy must finish entering from its mirrored edge")
+	main.free()
+
+
+static func _test_ranged_enemy_attacks_when_fully_visible(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_pet_window_size", Vector2i(1000, 720))
+	var target := Node2D.new()
+	target.position = Vector2(850.0, 704.0)
+	main.add_child(target)
+
+	var ranged := EnemyActor.new()
+	ranged.setup("soldier2", Vector2(-90.0, 704.0), 704.0, 1.0, 420.0)
+	main.add_child(ranged)
+	ranged.set_target(target)
+	var ranged_goal := float(ranged.call("_get_entry_destination_x"))
+	if ranged_goal >= 420.0:
+		failures.append("a ranged enemy's firing threshold must be the visible edge, not its deep formation post")
+	ranged.call("_process", 4.0)
+	ranged.set("_attack_animation_remaining", 0.0)
+	ranged.set("_attack_pending", false)
+	ranged.set("_attack_cooldown", 0.0)
+	ranged.call("_process", 0.01)
+	var ranged_sprite := ranged.get_node_or_null("EnemySprite") as AnimatedSprite2D
+	if not bool(ranged.call("has_entered_battlefield")):
+		failures.append("a ranged enemy must finish entering as soon as its full run sprite is visible")
+	if not is_equal_approx(ranged.position.x, ranged_goal):
+		failures.append("a ranged enemy must stop at the first fully-visible firing position")
+	if ranged_sprite == null or ranged_sprite.animation != "attack":
+		failures.append("a fully-visible ranged enemy with a target must attack immediately")
+
+	var melee := EnemyActor.new()
+	melee.setup("villager1", Vector2(-90.0, 704.0), 704.0, 1.0, 420.0)
+	main.add_child(melee)
+	melee.set_target(target)
+	melee.call("_process", 1.0)
+	if bool(melee.call("has_entered_battlefield")) or melee.position.x >= 420.0:
+		failures.append("melee enemies must retain their authored run-in behavior")
+	melee.call("_process", 4.0)
+	melee.call("_process", 0.01)
+	if not bool(melee.call("has_entered_battlefield")):
+		failures.append("melee enemies must still enter at their authored formation post")
+
 	main.free()
 
 
