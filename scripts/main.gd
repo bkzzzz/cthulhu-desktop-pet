@@ -15,6 +15,7 @@ const EnemyProjectileActor = preload("res://scripts/enemy_projectile_actor.gd")
 const BattleEffectActor = preload("res://scripts/battle_effect_actor.gd")
 const EventInvitation = preload("res://scripts/event_invitation.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
+const EvolutionWindowScript = preload("res://scripts/evolution_window.gd")
 const ShopWindowScript = preload("res://scripts/shop_window.gd")
 const GachaWindowScript = preload("res://scripts/gacha_window.gd")
 const NewsWindowScript = preload("res://scripts/news_window.gd")
@@ -78,23 +79,19 @@ const PET_AUTO_COIN_PILE_MAX := 10
 const DESKTOP_COIN_LIMIT := 96
 const CRYSTAL_UNLOCK_SCORES := {"C": 80, "S": 180, "G": 320}
 const CRYSTAL_RARITY_BONUSES := {1: 0, 2: 15, 3: 35, 4: 65, 5: 100}
-const PET11_ABSORB_INITIAL_MIN_SECONDS := 24.0
-const PET11_ABSORB_INITIAL_MAX_SECONDS := 42.0
-const PET11_ABSORB_COOLDOWN_MIN_SECONDS := 70.0
-const PET11_ABSORB_COOLDOWN_MAX_SECONDS := 115.0
-const PET11_ABSORB_HOLD_MIN_SECONDS := 4.0
-const PET11_ABSORB_HOLD_MAX_SECONDS := 7.0
-const PET11_BATTLE_ABSORB_MIN_SECONDS := 3.8
-const PET11_BATTLE_ABSORB_MAX_SECONDS := 5.2
-const PET11_BATTLE_FIRST_ABSORB_MIN_SECONDS := 0.65
-const PET11_BATTLE_FIRST_ABSORB_MAX_SECONDS := 1.15
 const UI_REFRESH_INTERVAL := 0.25
 const MANUAL_CLICK_RATE_SECONDS := 0.25
+# Large gacha requests are resolved incrementally. The hard chunk ceiling keeps
+# work deterministic, while the time budget protects slower machines/assets.
+const GACHA_BATCH_MAX_DRAWS_PER_FRAME := 128
+const GACHA_BATCH_FRAME_BUDGET_USEC := 1800
+const GACHA_BATCH_BUDGET_CHECK_INTERVAL := 16
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 10
+const SAVE_VERSION := 11
 const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const AUTOSAVE_INTERVAL_SECONDS := 30.0
+const SAVE_DEBOUNCE_SECONDS := 0.45
 const OFFLINE_PROGRESS_MAX_SECONDS := 12.0 * 60.0 * 60.0
 const OFFLINE_PROGRESS_EFFICIENCY := 0.5
 const NO_SAVE_ARGUMENT := "--no-save"
@@ -117,13 +114,20 @@ const BATTLE_INTERVAL_MAX_SECONDS := 600.0
 const BATTLE_DURATION_SECONDS := 42.0
 const BATTLE_DIFFICULTY_VARIANCE_MIN := 0.82
 const BATTLE_DIFFICULTY_VARIANCE_MAX := 1.18
-const BATTLE_DRAG_HINT_EN := "Drag pets beside an enemy to make them attack"
-const BATTLE_DRAG_HINT_ZH := "可以拖动宠物靠近敌人，让它主动进攻"
+const BATTLE_DRAG_HINT_EN := "Melee pets charge automatically; drag them forward to shield the ranged line"
+const BATTLE_DRAG_HINT_ZH := "近战宠物会自动冲锋；拖动宠物到前线可以保护后排远程宠物"
 const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
 const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
 const SMOKE_SHEET_TEXTURE := "res://assets/effects/smoke/smoke1_sheet.png"
 const SMOKE_FRAME_COUNT := 10
 const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10"]
+const MELEE_BATTLE_HEALTH_MULTIPLIER := 1.65
+const RANGED_BATTLE_HEALTH_MULTIPLIER := 0.88
+const MELEE_BATTLE_CHASE_SPEED := 285.0
+const PET5_BATTLE_CHASE_SPEED := 335.0
+const PET5_ROLL_OVERSHOOT := 82.0
+const PET5_ROLL_HIT_RADIUS := 48.0
+const PET5_ROLL_SPEED := 760.0
 
 # Runtime actors and input state
 var _pets: Array[Node2D] = []
@@ -177,6 +181,8 @@ var _battle_pet_max_health := {}
 var _battle_pet_attack_at := {}
 var _battle_pet_target_x := {}
 var _battle_pet_formed := {}
+var _battle_pet_enemy_targets := {}
+var _battle_pet5_rolls := {}
 var _battle_save_pending := false
 var _pending_battle_difficulty_scale := -1.0
 var _active_battle_difficulty_scale := -1.0
@@ -184,6 +190,8 @@ var _last_era_display := ""
 var _recovery_ui_refresh_time := 0.0
 var _smoke_frames: SpriteFrames
 var _inventory_window: Window
+var _evolution_window: Window
+var _pending_evolution_notifications: Array[String] = []
 var _shop_window: Window
 var _gacha_window: Window
 var _news_window: Window
@@ -197,7 +205,12 @@ var _gold_coins := 0
 var _gacha_draw_count := 0
 var _gacha_pity_count := 0
 var _gacha_history: Array[Dictionary] = []
+var _gacha_batch_active := false
+var _gacha_batch_token := 0
+var _gacha_batch_state: Dictionary = {}
 var _autosave_timer := 0.0
+var _save_dirty := false
+var _save_debounce_remaining := 0.0
 var _loaded_save_unix := 0.0
 var _loaded_menu_handle_anchor := -1.0
 var _persistence_enabled := true
@@ -218,7 +231,6 @@ var _next_news_at := 0.0
 var _news_milestone_check_timer := 0.0
 var _next_pet_coin_drop_at := {}
 var _pet_coin_drop_intervals := {}
-var _next_pet11_absorb_at := 0.0
 var _background_logic_time := 0.0
 var _pointer_hover_time := 0.0
 var _session_runtime_seconds := 0.0
@@ -229,11 +241,15 @@ var _language := "zh"
 var _debug_enemy_power_scale := 1.0
 var _debug_game_speed := 1.0
 var _simulation_now_seconds := 0.0
+var _background_faith_growth_cache_active := false
+var _background_faith_growth_cache := 0.0
 
 
 # Lifecycle
 func _ready() -> void:
-	Input.use_accumulated_input = false
+	# Pet dragging samples the global cursor every render frame, so dispatching
+	# every raw OS mouse packet only floods UI input without improving accuracy.
+	Input.use_accumulated_input = true
 	_rng.randomize()
 	_simulation_now_seconds = Time.get_unix_time_from_system()
 	_persistence_enabled = (
@@ -246,6 +262,7 @@ func _ready() -> void:
 		return
 	_place_pet_window()
 	_load_game()
+	_apply_automatic_evolution_thresholds()
 	_apply_offline_progress()
 	_initialize_news_feed()
 	_create_desktop_pets()
@@ -254,6 +271,7 @@ func _ready() -> void:
 	_create_offering_input_window()
 	_create_side_drawer()
 	_create_inventory_window()
+	_create_evolution_window()
 	_create_shop_window()
 	_create_gacha_window()
 	_create_news_window()
@@ -300,8 +318,14 @@ func _process(delta: float) -> void:
 		_pointer_hover_time = 0.0
 		_update_pet_hover()
 	if not _carried_offering.is_empty():
-		_update_offering_input_window()
-		_update_offering_cursor_state()
+		if (
+			_offering_input_window == null
+			or not _offering_input_window.visible
+			or _offering_input_window.position != get_window().position
+		):
+			_update_offering_input_window()
+		if not _offering_cursor_active:
+			_update_offering_cursor_state()
 
 	_background_logic_time += safe_delta
 	if _background_logic_time < BACKGROUND_LOGIC_INTERVAL:
@@ -310,11 +334,16 @@ func _process(delta: float) -> void:
 	_background_logic_time = 0.0
 	_update_pet_offering_buffs()
 	_update_recovery_states(logic_delta)
+	# Faith, follower and news updates ask for the same aggregate several times in
+	# one background tick. Compute it once, then leave event-driven calls outside
+	# this small scope fully live.
+	_background_faith_growth_cache = _calculate_faith_growth_rate()
+	_background_faith_growth_cache_active = true
 	_update_faith(logic_delta)
 	_update_followers(logic_delta)
 	_update_news(logic_delta)
+	_background_faith_growth_cache_active = false
 	_update_pet_emotions()
-	_update_pet11_absorb_ability()
 	_update_pilgrimage()
 	_update_event_invitations()
 	_update_battle(logic_delta)
@@ -395,7 +424,9 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 		max_x,
 		spawn_x,
 		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
-		_get_effective_pet_activity_range() != "full"
+		_get_effective_pet_activity_range() != "full",
+		bool(_get_pet_state(pet_id).get("evolved", false)),
+		PetProgression.progression_level(_get_pet_state(pet_id))
 	)
 	_ensure_pet_state(pet_id)
 	if actor.has_method("set_display_name"):
@@ -407,11 +438,11 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	actor.forced_target_reached.connect(_on_pet_forced_target_reached)
 	actor.notable_action.connect(_on_pet_notable_action)
 	actor.grabbed_changed.connect(_on_pet_grabbed_changed)
+	actor.battle_roll_swept.connect(_on_pet5_battle_roll_swept)
+	actor.battle_roll_finished.connect(_on_pet5_battle_roll_finished)
 	add_child(actor)
 	_pets.append(actor)
 	_schedule_pet_coin_drop(actor, _get_now_seconds())
-	if pet_id == "pet11" and _next_pet11_absorb_at <= 0.0:
-		_schedule_next_pet11_absorb(_get_now_seconds(), true)
 	if _pilgrimage_active and actor.has_method("set_autonomy_paused"):
 		actor.call("set_autonomy_paused", true)
 	elif _battle_active and actor.has_method("set_battle_mode"):
@@ -617,8 +648,9 @@ func _get_pet_roster_combat_power() -> float:
 		if not is_instance_valid(pet):
 			continue
 		var pet_id := _get_actor_pet_id(pet)
-		var level := PetProgression.progression_level(_get_pet_state(pet_id))
-		total += PetCatalog.get_combat_power(pet_id, level)
+		var state := _get_pet_state(pet_id)
+		var level := PetProgression.progression_level(state)
+		total += PetCatalog.get_combat_power(pet_id, level, bool(state.get("evolved", false)))
 	if total <= 0.0:
 		total = PetCatalog.get_combat_power("pet1", 1)
 	return total
@@ -953,11 +985,9 @@ func _start_battle() -> void:
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
+	_battle_pet_enemy_targets.clear()
+	_battle_pet5_rolls.clear()
 	_battle_save_pending = false
-	_next_pet11_absorb_at = _battle_started_at + _rng.randf_range(
-		PET11_BATTLE_FIRST_ABSORB_MIN_SECONDS,
-		PET11_BATTLE_FIRST_ABSORB_MAX_SECONDS
-	)
 	_update_actor_window_bounds()
 
 	var battle_pets: Array[Node2D] = []
@@ -969,9 +999,15 @@ func _start_battle() -> void:
 		var pet_id := _get_actor_pet_id(pet)
 		var level := PetProgression.progression_level(_get_pet_state(pet_id))
 		var rarity := clampi(int(PetCatalog.get_definition(pet_id).get("rarity_stars", 1)), 1, 5)
-		var pet_combat_power := PetCatalog.get_combat_power(pet_id, level)
+		var pet_combat_power := PetCatalog.get_combat_power(pet_id, level, bool(_get_pet_state(pet_id).get("evolved", false)))
 		var health_power_scale := clampf(sqrt(pet_combat_power / 20.0), 0.70, 3.0)
-		var max_health := (7.0 + float(rarity) * 1.8 + sqrt(float(level)) * 0.42) * health_power_scale
+		var is_ranged_pet := pet_id in RANGED_BATTLE_PET_IDS
+		var role_health_scale := RANGED_BATTLE_HEALTH_MULTIPLIER if is_ranged_pet else MELEE_BATTLE_HEALTH_MULTIPLIER
+		var max_health := (
+			(7.0 + float(rarity) * 1.8 + sqrt(float(level)) * 0.42)
+			* health_power_scale
+			* role_health_scale
+		)
 		var actor_key := str(pet.get_instance_id())
 		var formation_weight := (
 			0.5
@@ -982,10 +1018,18 @@ func _start_battle() -> void:
 		_battle_pet_max_health[actor_key] = max_health
 		_battle_pet_attack_at[actor_key] = _battle_started_at + _rng.randf_range(0.6, 1.2)
 		_battle_pet_formed[actor_key] = false
-		_battle_pet_target_x[actor_key] = lerpf(
-			float(_pet_window_size.x) * 0.70,
-			float(_pet_window_size.x) * 0.88,
-			formation_weight
+		_battle_pet_target_x[actor_key] = (
+			lerpf(
+				float(_pet_window_size.x) * 0.80,
+				float(_pet_window_size.x) * 0.90,
+				formation_weight
+			)
+			if is_ranged_pet
+			else lerpf(
+				float(_pet_window_size.x) * 0.64,
+				float(_pet_window_size.x) * 0.74,
+				formation_weight
+			)
 		)
 		if pet.has_method("set_battle_mode"):
 			pet.call("set_battle_mode", true)
@@ -997,9 +1041,9 @@ func _start_battle() -> void:
 	_publish_news({
 		"category": "公告",
 		"headline": (
-			"BATTLE: The pets have formed a defensive line on the right side of the desktop."
+			"BATTLE: Melee pets are charging while ranged pets hold the rear line."
 			if _language == "en"
-			else "战斗事件：宠物已组成防线；拖动宠物到敌人身边可以主动进攻！"
+			else "战斗事件：近战宠物会主动冲锋，远程宠物留守后排；可拖动近战宠物调整挡线位置。"
 		)
 	}, true, false)
 	_update_battle(0.0)
@@ -1042,33 +1086,60 @@ func _update_battle(delta: float) -> void:
 			continue
 		if now < float(_battle_pet_attack_at.get(actor_key, now)):
 			continue
-		var enemy_target := _get_nearest_battle_enemy(pet)
+		var enemy_target := _get_battle_target_for_pet(pet)
 		if enemy_target == null:
 			continue
 		var pet_id := _get_actor_pet_id(pet)
-		# pet11's entire battle kit is suction. It never enters the generic attack
-		# branch, so it cannot deal a hidden melee hit or spawn a friendly projectile.
-		if pet_id == "pet11":
-			_battle_pet_attack_at[actor_key] = now + 0.5
-			continue
 		var pet_data := PetCatalog.get_definition(pet_id)
 		var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
 		var level := PetProgression.progression_level(_get_pet_state(pet_id))
-		var pet_combat_power := PetCatalog.get_combat_power(pet_id, level)
+		var pet_combat_power := PetCatalog.get_combat_power(pet_id, level, bool(_get_pet_state(pet_id).get("evolved", false)))
 		var damage_power_scale := clampf(pow(pet_combat_power / 20.0, 0.35), 0.80, 2.5)
 		var damage := (1.05 + float(rarity) * 0.24 + sqrt(float(level)) * 0.055) * damage_power_scale
 		var is_ranged_pet := pet_id in RANGED_BATTLE_PET_IDS
-		if not is_ranged_pet and absf(pet.position.x - enemy_target.position.x) > 155.0:
+		var melee_attack_range := 155.0
+		if pet.has_method("get_battle_attack_range"):
+			melee_attack_range = float(pet.call("get_battle_attack_range"))
+		var attack_direction := enemy_target.position.x - pet.position.x
+		if is_zero_approx(attack_direction):
+			attack_direction = -1.0
+		# pet5's attack is the movement itself. It barrels through every enemy on
+		# the swept path; damage is applied by the per-frame sweep callback below.
+		if (
+			pet_id == "pet5"
+			and pet.has_method("uses_battle_roll_attack")
+			and bool(pet.call("uses_battle_roll_attack"))
+		):
+			var roll_target_x := enemy_target.position.x + signf(attack_direction) * PET5_ROLL_OVERSHOOT
+			var roll_distance := absf(clampf(
+				roll_target_x,
+				float(pet.call("_get_drag_min_x")),
+				float(pet.call("_get_drag_max_x"))
+			) - pet.position.x)
+			if bool(pet.call("begin_battle_roll_attack", roll_target_x, PET5_ROLL_SPEED)):
+				_battle_pet5_rolls[actor_key] = {
+					"damage": damage,
+					"knockback": 12.0 + float(rarity) * 1.5,
+					"visual_power": _get_battle_visual_power(rarity, level),
+					"hit_ids": {}
+				}
+				_battle_pet_attack_at[actor_key] = now + maxf(
+					1.05,
+					roll_distance / PET5_ROLL_SPEED + 0.38
+				)
+			else:
+				_battle_pet_attack_at[actor_key] = now + 0.18
 			continue
-		var attack_direction := signf(enemy_target.position.x - pet.position.x)
+		if not is_ranged_pet and absf(pet.position.x - enemy_target.position.x) > melee_attack_range:
+			continue
 		if pet.has_method("play_battle_attack_toward"):
-			pet.call("play_battle_attack_toward", attack_direction)
+			pet.call("play_battle_attack_toward", signf(attack_direction))
 		elif pet.has_method("play_battle_attack"):
 			pet.call("play_battle_attack")
 		var knockback := 12.0 + float(rarity) * 1.5
 		if is_ranged_pet:
 			var visual_power := _get_battle_visual_power(rarity, level)
-			_spawn_pet_projectile(pet, pet_id, enemy_target, attack_direction, damage, knockback, visual_power)
+			_spawn_pet_projectile(pet, pet_id, enemy_target, signf(attack_direction), damage, knockback, visual_power)
 		elif enemy_target.has_method("take_damage"):
 			var visual_power := _get_battle_visual_power(rarity, level)
 			var current_health := float(enemy_target.call("get_health")) if enemy_target.has_method("get_health") else INF
@@ -1107,16 +1178,62 @@ func _update_battle_pet_formation(delta: float) -> void:
 		if not is_instance_valid(pet):
 			continue
 		var actor_key := str(pet.get_instance_id())
-		if not _battle_pet_health.has(actor_key) or bool(_battle_pet_formed.get(actor_key, false)):
+		if not _battle_pet_health.has(actor_key):
 			continue
 		if pet.has_method("is_pointer_captured") and bool(pet.call("is_pointer_captured")):
 			continue
-		var target_x := float(_battle_pet_target_x.get(actor_key, float(_pet_window_size.x) * 0.78))
-		var reached_formation := true
+		if not bool(_battle_pet_formed.get(actor_key, false)):
+			var formation_x := float(_battle_pet_target_x.get(actor_key, float(_pet_window_size.x) * 0.78))
+			var reached_formation := true
+			if pet.has_method("battle_move_toward"):
+				# Enemies enter from the left. Pets keep watching that side while
+				# shifting into formation instead of flipping right for one frame.
+				reached_formation = bool(pet.call(
+					"battle_move_toward",
+					formation_x,
+					delta,
+					235.0,
+					-1.0
+				))
+			if reached_formation:
+				_battle_pet_formed[actor_key] = true
+			continue
+		if _battle_enemies.is_empty():
+			continue
+		if pet.has_method("is_battle_ready") and not bool(pet.call("is_battle_ready")):
+			continue
+		if pet.has_method("is_battle_attack_playing") and bool(pet.call("is_battle_attack_playing")):
+			continue
+		var enemy_target := _get_battle_target_for_pet(pet)
+		if enemy_target == null:
+			continue
+		var target_direction := enemy_target.position.x - pet.position.x
+		if is_zero_approx(target_direction):
+			target_direction = -1.0
+		var pet_id := _get_actor_pet_id(pet)
+		if pet_id in RANGED_BATTLE_PET_IDS:
+			if pet.has_method("face_battle_target"):
+				pet.call("face_battle_target", target_direction)
+			continue
+		var attack_range := 155.0
+		if pet.has_method("get_battle_attack_range"):
+			attack_range = float(pet.call("get_battle_attack_range"))
+		var current_distance := absf(target_direction)
+		if current_distance <= attack_range * 0.90:
+			if pet.has_method("face_battle_target"):
+				pet.call("face_battle_target", target_direction)
+			continue
+		var standoff_distance := maxf(46.0, attack_range * 0.72)
+		var chase_x := enemy_target.position.x - signf(target_direction) * standoff_distance
+		var chase_speed := PET5_BATTLE_CHASE_SPEED if pet_id == "pet5" else MELEE_BATTLE_CHASE_SPEED
 		if pet.has_method("battle_move_toward"):
-			reached_formation = bool(pet.call("battle_move_toward", target_x, delta, 235.0))
-		if reached_formation:
-			_battle_pet_formed[actor_key] = true
+			pet.call(
+				"battle_move_toward",
+				chase_x,
+				delta,
+				chase_speed,
+				target_direction
+			)
 
 
 func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
@@ -1345,6 +1462,77 @@ func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 	return nearest
 
 
+func _get_battle_target_for_pet(pet: Node2D) -> Node2D:
+	if pet == null or not is_instance_valid(pet):
+		return null
+	var actor_key := str(pet.get_instance_id())
+	# A defeated/launched enemy can leave a freed Object Variant in the lock map
+	# until the next target-selection pass. Casting that Variant first throws every
+	# frame and aborts both formation and combat updates, which looks like a frozen
+	# battle. Validate the raw Variant before performing any typed cast.
+	var current_target_value: Variant = _battle_pet_enemy_targets.get(actor_key, null)
+	if is_instance_valid(current_target_value):
+		var current_target := current_target_value as Node2D
+		if (
+			current_target != null
+			and not current_target.is_queued_for_deletion()
+			and _battle_enemies.has(current_target)
+			and (
+				not current_target.has_method("is_defeated")
+				or not bool(current_target.call("is_defeated"))
+			)
+		):
+			return current_target
+	_battle_pet_enemy_targets.erase(actor_key)
+	var next_target := _get_nearest_battle_enemy(pet)
+	if next_target == null:
+		_battle_pet_enemy_targets.erase(actor_key)
+	else:
+		_battle_pet_enemy_targets[actor_key] = next_target
+	return next_target
+
+
+func _on_pet5_battle_roll_swept(actor: Node2D, from_x: float, to_x: float) -> void:
+	if not _battle_active or actor == null or not is_instance_valid(actor):
+		return
+	var actor_key := str(actor.get_instance_id())
+	var roll_data: Dictionary = _battle_pet5_rolls.get(actor_key, {})
+	if roll_data.is_empty():
+		return
+	var hit_ids: Dictionary = roll_data.get("hit_ids", {})
+	var sweep_min := minf(from_x, to_x) - PET5_ROLL_HIT_RADIUS
+	var sweep_max := maxf(from_x, to_x) + PET5_ROLL_HIT_RADIUS
+	for enemy in _battle_enemies.duplicate():
+		if not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
+			continue
+		if enemy.has_method("is_defeated") and bool(enemy.call("is_defeated")):
+			continue
+		if enemy.position.x < sweep_min or enemy.position.x > sweep_max:
+			continue
+		var enemy_key := str(enemy.get_instance_id())
+		if hit_ids.has(enemy_key):
+			continue
+		hit_ids[enemy_key] = true
+		var impact_position: Vector2 = enemy.position + Vector2(0.0, -48.0)
+		if enemy.has_method("get_battle_hit_position"):
+			impact_position = enemy.call("get_battle_hit_position")
+		_spawn_battle_explosion(impact_position, float(roll_data.get("visual_power", 1.0)) * 0.88)
+		if enemy.has_method("take_damage"):
+			enemy.call(
+				"take_damage",
+				float(roll_data.get("damage", 0.0)),
+				float(roll_data.get("knockback", 0.0))
+			)
+	roll_data["hit_ids"] = hit_ids
+	_battle_pet5_rolls[actor_key] = roll_data
+
+
+func _on_pet5_battle_roll_finished(actor: Node2D) -> void:
+	if actor == null:
+		return
+	_battle_pet5_rolls.erase(str(actor.get_instance_id()))
+
+
 func _on_enemy_attack_landed(_enemy: Node2D, target: Node2D, damage: float) -> void:
 	_damage_battle_pet(target, damage, 13.0)
 
@@ -1368,6 +1556,7 @@ func _on_enemy_defeated(enemy: Node2D, reward_count: int) -> void:
 		return
 	var defeat_position := enemy.position + Vector2(0.0, -62.0)
 	_battle_enemies.erase(enemy)
+	_clear_battle_target_locks_for_enemy(enemy)
 	_spawn_battle_reward(defeat_position, reward_count)
 	if enemy.has_method("is_launched") and bool(enemy.call("is_launched")):
 		return
@@ -1380,8 +1569,17 @@ func _on_enemy_swallowed(enemy: Node2D, reward_count: int) -> void:
 		return
 	var reward_position := enemy.position + Vector2(0.0, -18.0)
 	_battle_enemies.erase(enemy)
+	_clear_battle_target_locks_for_enemy(enemy)
 	_spawn_battle_reward(reward_position, reward_count)
 	enemy.queue_free()
+
+
+func _clear_battle_target_locks_for_enemy(enemy: Node2D) -> void:
+	for actor_key_value in _battle_pet_enemy_targets.keys():
+		var actor_key := String(actor_key_value)
+		var target_value: Variant = _battle_pet_enemy_targets.get(actor_key, null)
+		if not is_instance_valid(target_value) or target_value == enemy:
+			_battle_pet_enemy_targets.erase(actor_key)
 
 
 func _spawn_battle_reward(drop_position: Vector2, reward_count: int) -> void:
@@ -1405,6 +1603,8 @@ func _defeat_battle_pet(actor: Node2D) -> void:
 	_battle_pet_attack_at.erase(actor_key)
 	_battle_pet_target_x.erase(actor_key)
 	_battle_pet_formed.erase(actor_key)
+	_battle_pet_enemy_targets.erase(actor_key)
+	_battle_pet5_rolls.erase(actor_key)
 	_spawn_smoke_effect(actor.position + Vector2(0.0, -58.0))
 	if actor.has_method("hide_for_battle_defeat"):
 		actor.call("hide_for_battle_defeat")
@@ -1466,9 +1666,10 @@ func _finish_battle(victory: bool) -> void:
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
+	_battle_pet_enemy_targets.clear()
+	_battle_pet5_rolls.clear()
 	_battle_wave_schedule.clear()
 	_active_battle_difficulty_scale = -1.0
-	_schedule_next_pet11_absorb(_get_now_seconds(), true)
 	_update_actor_window_bounds()
 	var now := _get_now_seconds()
 	_schedule_next_battle(now)
@@ -1488,7 +1689,7 @@ func _finish_battle(victory: bool) -> void:
 	_sync_inventory_window()
 	_refresh_pet_stats(true)
 	if _battle_save_pending:
-		_save_game()
+		_request_save()
 	_battle_save_pending = false
 
 
@@ -1557,105 +1758,6 @@ func _refresh_era_display(force := false) -> void:
 			_refresh_pet_stats(true)
 			if _inventory_window != null and _inventory_window.visible:
 				_sync_inventory_window()
-
-
-func _schedule_next_pet11_absorb(now: float, initial := false) -> void:
-	var delay_min := PET11_ABSORB_INITIAL_MIN_SECONDS if initial else PET11_ABSORB_COOLDOWN_MIN_SECONDS
-	var delay_max := PET11_ABSORB_INITIAL_MAX_SECONDS if initial else PET11_ABSORB_COOLDOWN_MAX_SECONDS
-	_next_pet11_absorb_at = now + _rng.randf_range(delay_min, delay_max)
-
-
-func _update_pet11_absorb_ability() -> void:
-	if _pilgrimage_active:
-		return
-	var pet11: Node2D
-	for pet in _pets:
-		if is_instance_valid(pet) and _get_actor_pet_id(pet) == "pet11":
-			pet11 = pet
-			break
-	if pet11 == null:
-		_next_pet11_absorb_at = 0.0
-		return
-	if pet11.has_method("is_pointer_captured") and bool(pet11.call("is_pointer_captured")):
-		return
-	if _battle_active:
-		_update_pet11_battle_absorb(pet11)
-		return
-	if _has_swallowed_pet():
-		return
-	var now := _get_now_seconds()
-	if _next_pet11_absorb_at <= 0.0:
-		_schedule_next_pet11_absorb(now, true)
-		return
-	if now < _next_pet11_absorb_at:
-		return
-
-	var candidates: Array[Node2D] = []
-	for pet in _pets:
-		if not is_instance_valid(pet) or pet == pet11:
-			continue
-		if pet.has_method("can_be_swallowed") and bool(pet.call("can_be_swallowed")):
-			candidates.append(pet)
-	if candidates.is_empty():
-		_next_pet11_absorb_at = now + 20.0
-		return
-	var target := candidates[_rng.randi_range(0, candidates.size() - 1)]
-	var started := bool(target.call(
-		"start_swallowed_by",
-		pet11,
-		_rng.randf_range(PET11_ABSORB_HOLD_MIN_SECONDS, PET11_ABSORB_HOLD_MAX_SECONDS)
-	))
-	if started:
-		_spawn_emotion(pet11, "suprised", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
-	_schedule_next_pet11_absorb(now)
-
-
-func _update_pet11_battle_absorb(pet11: Node2D) -> void:
-	var actor_key := str(pet11.get_instance_id())
-	if not _battle_pet_health.has(actor_key):
-		return
-	var now := _get_now_seconds()
-	if now < _next_pet11_absorb_at:
-		return
-	var target: Node2D
-	var nearest_distance := INF
-	# Enemies are the signature target. Range is intentionally the whole desktop so
-	# pet11 does not silently fail while it is holding the right-side battle line.
-	for enemy in _battle_enemies:
-		if not is_instance_valid(enemy) or not enemy.has_method("can_be_swallowed"):
-			continue
-		if not bool(enemy.call("can_be_swallowed")):
-			continue
-		var distance := pet11.position.distance_to(enemy.position)
-		if distance < nearest_distance:
-			nearest_distance = distance
-			target = enemy
-	if target == null:
-		for effect in _battle_effects:
-			if not is_instance_valid(effect) or not effect.has_method("can_be_swallowed"):
-				continue
-			if not bool(effect.call("can_be_swallowed")):
-				continue
-			var distance := pet11.position.distance_to(effect.position)
-			if distance < nearest_distance:
-				nearest_distance = distance
-				target = effect
-	if target == null:
-		_next_pet11_absorb_at = now + 0.75
-		return
-	if bool(target.call("start_swallowed_by", pet11)):
-		_spawn_emotion(pet11, "suprised", Vector2(-12.0, -18.0), EMOTION_SCALE, 0.0, true)
-	_next_pet11_absorb_at = now + _rng.randf_range(
-		PET11_BATTLE_ABSORB_MIN_SECONDS,
-		PET11_BATTLE_ABSORB_MAX_SECONDS
-	)
-
-
-func _has_swallowed_pet() -> bool:
-	for pet in _pets:
-		if is_instance_valid(pet) and pet.has_method("is_swallowed") and bool(pet.call("is_swallowed")):
-			return true
-	return false
 
 
 # Coin drops
@@ -2054,6 +2156,7 @@ func _create_side_drawer() -> void:
 	_side_drawer.pet_rename_requested.connect(_on_pet_detail_rename_requested)
 	_side_drawer.faith_add_requested.connect(_on_faith_add_requested)
 	_side_drawer.menu_handle_moved.connect(_on_menu_handle_moved)
+	_side_drawer.drawer_opened.connect(_on_drawer_opened)
 	if _loaded_menu_handle_anchor >= 0.0:
 		_side_drawer.set_menu_handle_anchor(_loaded_menu_handle_anchor)
 	_side_drawer.setup()
@@ -2068,7 +2171,17 @@ func _create_inventory_window() -> void:
 	add_child(_inventory_window)
 	_inventory_window.connect("pet_deploy_requested", Callable(self, "_on_inventory_pet_deploy_requested"))
 	_inventory_window.connect("pet_rename_requested", Callable(self, "_on_inventory_pet_rename_requested"))
+	_inventory_window.connect("pet_evolution_requested", Callable(self, "_on_inventory_pet_evolution_requested"))
 	_inventory_window.setup(_get_inventory_pet_entries())
+
+
+func _create_evolution_window() -> void:
+	_evolution_window = EvolutionWindowScript.new()
+	_evolution_window.visible = false
+	add_child(_evolution_window)
+	_evolution_window.dismissed.connect(_on_evolution_notification_dismissed)
+	_evolution_window.setup(_language)
+	_show_next_evolution_notification()
 
 
 func _sync_inventory_window() -> void:
@@ -2114,10 +2227,11 @@ func _create_settings_window() -> void:
 	_settings_window.debug_economy_requested.connect(_on_debug_economy_requested)
 	_settings_window.debug_simulation_requested.connect(_on_debug_simulation_requested)
 	_settings_window.debug_event_requested.connect(_on_debug_event_requested)
+	_settings_window.debug_pet_levels_requested.connect(_on_debug_pet_levels_requested)
 	_settings_window.quit_requested.connect(_on_quit_requested)
 	_settings_window.setup(_pet_activity_range, _language)
 	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
-	_settings_window.refresh_debug_values(_faith_points, _gold_coins, _debug_enemy_power_scale, _debug_game_speed)
+	_settings_window.refresh_debug_values(_faith_points, _gold_coins, _debug_enemy_power_scale, _debug_game_speed, _get_debug_pet_levels())
 
 
 # Window clickthrough and hit testing
@@ -2274,7 +2388,8 @@ func _get_window_mouse_position(window: Window) -> Vector2:
 
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0
-	_save_game()
+	if _save_dirty:
+		_save_game()
 	_clear_offering_cursor()
 
 
@@ -2295,6 +2410,7 @@ func _create_offering_input_window() -> void:
 	_offering_input_window.unfocusable = true
 	_offering_input_window.unresizable = true
 	_offering_input_window.always_on_top = false
+	_offering_input_window.transient = true
 	_offering_input_window.min_size = Vector2i.ZERO
 	_offering_input_window.size = Vector2i(
 		_pet_window_size.x,
@@ -2319,6 +2435,7 @@ func _update_offering_input_window() -> void:
 		if _offering_input_window.visible:
 			_offering_input_window.visible = false
 		return
+	var was_visible := _offering_input_window.visible
 	var usable_bottom := _pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS
 	var target_position := get_window().position
 	var target_size := Vector2i(_pet_window_size.x, usable_bottom)
@@ -2326,7 +2443,13 @@ func _update_offering_input_window() -> void:
 		_offering_input_window.position = target_position
 	if _offering_input_window.size != target_size:
 		_offering_input_window.size = target_size
-	_offering_input_window.visible = true
+	# Native child windows keep the z-order they had when first shown. Creating
+	# this transparent click receiver while the Shop window is still active can
+	# leave it behind the shop (and sometimes behind the desktop pet window), so
+	# the next click never reaches OfferingDropArea.
+	if not was_visible:
+		_offering_input_window.visible = true
+		_offering_input_window.move_to_foreground()
 
 
 func _on_offering_input(event: InputEvent) -> void:
@@ -2364,8 +2487,9 @@ func _choose_petting_emotion(pet_id: String) -> String:
 
 
 func _set_offering_cursor(texture_path: String) -> void:
-	var cursor_size := _get_scaled_cursor_size(texture_path, OFFERING_DROP_SCALE, OFFERING_CURSOR_SIZE)
-	if texture_path != _offering_cursor_path or cursor_size != _offering_cursor_size:
+	var cursor_size := _offering_cursor_size
+	if texture_path != _offering_cursor_path or cursor_size == Vector2i.ZERO:
+		cursor_size = _get_scaled_cursor_size(texture_path, OFFERING_DROP_SCALE, OFFERING_CURSOR_SIZE)
 		_offering_cursor_texture = _make_cursor_texture(texture_path, cursor_size)
 		_offering_cursor_path = texture_path
 		_offering_cursor_size = cursor_size
@@ -2597,13 +2721,31 @@ func _refresh_pet_stats(force := false) -> void:
 		_last_reported_faith_count = faith_count
 		_last_reported_growth_rate = growth_rate
 
-	if _side_drawer.has_method("refresh_pet_upgrades") and (force or faith_changed or growth_changed or _pet_upgrade_stats_dirty):
+	var upgrades_need_refresh := force or faith_changed or growth_changed or _pet_upgrade_stats_dirty
+	if not upgrades_need_refresh or not _side_drawer.has_method("refresh_pet_upgrades"):
+		return
+	var upgrade_ui_visible := (
+		not _side_drawer.has_method("is_upgrade_ui_visible")
+		or bool(_side_drawer.call("is_upgrade_ui_visible"))
+	)
+	if not upgrade_ui_visible:
+		# Keep one dirty bit instead of rebuilding ten rich rows while the native
+		# drawer window is closed. drawer_opened performs the authoritative refresh.
+		_pet_upgrade_stats_dirty = true
+		_last_reported_faith_count = faith_count
+		_last_reported_growth_rate = growth_rate
+		return
+	if upgrade_ui_visible:
 		_side_drawer.call("refresh_pet_upgrades", _get_pet_upgrade_entries())
 		_pet_upgrade_stats_dirty = false
 		_last_reported_faith_count = faith_count
 		_last_reported_growth_rate = growth_rate
 		if growth_changed:
 			_refresh_follower_display()
+
+
+func _on_drawer_opened() -> void:
+	_refresh_pet_stats(true)
 
 
 func _refresh_faith_display() -> void:
@@ -2914,6 +3056,13 @@ func _load_game() -> void:
 	)
 
 
+func _request_save() -> void:
+	if not _persistence_enabled:
+		return
+	_save_dirty = true
+	_save_debounce_remaining = SAVE_DEBOUNCE_SECONDS
+
+
 func _save_game() -> void:
 	if not _persistence_enabled:
 		return
@@ -2949,6 +3098,11 @@ func _save_game() -> void:
 	var save_error := save.save(SAVE_PATH)
 	if save_error != OK:
 		push_warning("Could not save game data: %s" % error_string(save_error))
+		_save_dirty = true
+		_save_debounce_remaining = 5.0
+		return
+	_save_dirty = false
+	_save_debounce_remaining = 0.0
 
 
 func _apply_offline_progress() -> void:
@@ -2971,11 +3125,18 @@ func _apply_offline_progress() -> void:
 func _update_autosave(delta: float) -> void:
 	if not _persistence_enabled:
 		return
+	var saved_this_tick := false
+	if _save_dirty:
+		_save_debounce_remaining = maxf(0.0, _save_debounce_remaining - maxf(0.0, delta))
+		if _save_debounce_remaining <= 0.0:
+			_save_game()
+			saved_this_tick = not _save_dirty
 	_autosave_timer += maxf(0.0, delta)
 	if _autosave_timer < AUTOSAVE_INTERVAL_SECONDS:
 		return
 	_autosave_timer = 0.0
-	_save_game()
+	if not saved_this_tick:
+		_save_game()
 
 
 func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
@@ -2989,13 +3150,18 @@ func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
 		if not state_value is Dictionary:
 			continue
 		var raw_state: Dictionary = state_value
+		var sanitized_level := clampi(
+			int(raw_state.get("upgrade_level", raw_state.get("count", 1))),
+			1,
+			PetProgression.MAX_LEVEL
+		)
 		var state := {
-			"upgrade_level": clampi(
-				int(raw_state.get("upgrade_level", raw_state.get("count", 1))),
-				1,
-				PetProgression.MAX_LEVEL
-			)
+			"upgrade_level": sanitized_level
 		}
+		# Form is derived from the current level. Persisted flags from older saves
+		# must never keep a downgraded debug pet in its evolved art.
+		if sanitized_level >= 100 and PetCatalog.has_evolution(pet_id):
+			state["evolved"] = true
 		var recover_until := maxf(0.0, float(raw_state.get("recover_until", 0.0)))
 		var recovery_duration := clampf(float(raw_state.get("recovery_duration", 0.0)), 0.0, 3600.0)
 		var recovery_started_at := maxf(0.0, float(raw_state.get("recovery_started_at", recover_until - recovery_duration)))
@@ -3118,6 +3284,11 @@ func _get_inventory_pet_entries() -> Array[Dictionary]:
 			continue
 		var entry := PetCatalog.make_inventory_entry(pet_id)
 		entry["name"] = _get_pet_display_name(pet_id)
+		var state := _get_pet_state(pet_id)
+		entry["texture"] = String(PetCatalog.get_runtime_definition(pet_id, bool(state.get("evolved", false))).get("icon", entry.get("texture", "")))
+		entry["level"] = PetProgression.progression_level(state)
+		entry["evolved"] = bool(state.get("evolved", false))
+		entry["has_evolution"] = PetCatalog.can_evolve(pet_id)
 		entry.merge(_get_pet_recovery_info(pet_id), true)
 		entries.append(entry)
 	return entries
@@ -3137,7 +3308,7 @@ func _select_pet(actor: Node2D) -> void:
 
 
 func _ensure_pet_state(pet_id: String) -> void:
-	if not _pet_states.has(pet_id):
+	if not _pet_states.has(pet_id) or not _pet_states[pet_id] is Dictionary:
 		_pet_states[pet_id] = {"upgrade_level": 1}
 		return
 
@@ -3148,9 +3319,13 @@ func _ensure_pet_state(pet_id: String) -> void:
 		PetProgression.MAX_LEVEL
 	)
 	for key in state.keys():
-		if key not in ["upgrade_level", "name", "recovery_started_at", "recover_until", "recovery_duration"]:
+		if key not in ["upgrade_level", "name", "evolved", "recovery_started_at", "recover_until", "recovery_duration"]:
 			state.erase(key)
 	state["upgrade_level"] = level
+	if bool(state.get("evolved", false)) and PetCatalog.has_evolution(pet_id):
+		state["evolved"] = true
+	else:
+		state.erase("evolved")
 	var custom_name := String(state.get("name", "")).strip_edges().left(40)
 	if custom_name.is_empty():
 		state.erase("name")
@@ -3170,7 +3345,11 @@ func _ensure_pet_state(pet_id: String) -> void:
 
 
 func _get_pet_state(pet_id: String) -> Dictionary:
-	_ensure_pet_state(pet_id)
+	# Loaded and externally supplied states are sanitized at their mutation
+	# boundaries. Re-sanitizing on every economy read used to walk and rewrite the
+	# same dictionary dozens of times per background tick.
+	if not _pet_states.has(pet_id) or not _pet_states[pet_id] is Dictionary:
+		_ensure_pet_state(pet_id)
 	return _pet_states[pet_id]
 
 
@@ -3224,7 +3403,7 @@ func _update_recovery_states(delta: float) -> void:
 			_sync_inventory_window()
 	if recovery_completed:
 		_refresh_pet_stats(true)
-		_save_game()
+		_request_save()
 
 
 func _get_pet_upgrade_entries() -> Array[Dictionary]:
@@ -3264,6 +3443,11 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			"age_text": _get_pet_age_text(pet_data),
 			"personality": String(pet_data.get("personality", "性格不详")),
 			"level": level,
+			"evolved": bool(state.get("evolved", false)),
+			"has_evolution": PetCatalog.can_evolve(pet_id),
+			"evolution_name": String(PetCatalog.get_evolution_definition(pet_id).get("evolution_name", "")),
+			"icon": String(PetCatalog.get_runtime_definition(pet_id, bool(state.get("evolved", false))).get("icon", "")),
+			"evolution_icon": String(PetCatalog.get_evolution_definition(pet_id).get("icon", pet_data.get("icon", ""))),
 			"is_max_level": is_max_level,
 			"cost": cost,
 			"current_fps": current_fps,
@@ -3308,6 +3492,12 @@ func _get_upgrade_cost(pet_id: String) -> int:
 
 
 func _get_faith_growth_rate() -> float:
+	if _background_faith_growth_cache_active:
+		return _background_faith_growth_cache
+	return _calculate_faith_growth_rate()
+
+
+func _calculate_faith_growth_rate() -> float:
 	var total_fps := 0.0
 	for pet_id_value in _unlocked_pet_ids:
 		var pet_id := String(pet_id_value)
@@ -3327,11 +3517,13 @@ func _get_follower_growth_rate() -> float:
 
 
 func _get_pet_faith_per_second(pet_id: String, level: int) -> float:
-	return PetProgression.faith_per_second(PetCatalog.get_definition(pet_id), level)
+	var value := PetProgression.faith_per_second(PetCatalog.get_definition(pet_id), level)
+	return value * (PetCatalog.EVOLUTION_PRODUCTION_MULTIPLIER if bool(_get_pet_state(pet_id).get("evolved", false)) else 1.0)
 
 
 func _get_pet_money_value_per_minute(pet_id: String, level: int) -> float:
-	return PetProgression.money_drop_value_per_minute(PetCatalog.get_definition(pet_id), level)
+	var value := PetProgression.money_drop_value_per_minute(PetCatalog.get_definition(pet_id), level)
+	return value * (PetCatalog.EVOLUTION_PRODUCTION_MULTIPLIER if bool(_get_pet_state(pet_id).get("evolved", false)) else 1.0)
 
 
 func _get_pet_offering_multiplier(pet_id: String, now := -1.0) -> float:
@@ -3405,10 +3597,12 @@ func _set_pet_custom_name(pet_id: String, custom_name: String) -> void:
 	_pet_states[pet_id] = state
 
 	_apply_pet_display_name(pet_id)
+	var display_name := _get_pet_display_name(pet_id)
 	if _inventory_window != null and _inventory_window.has_method("set_pet_name"):
 		_inventory_window.call("set_pet_name", pet_id, custom_name)
+	if _side_drawer != null and _side_drawer.has_method("set_pet_name"):
+		_side_drawer.call("set_pet_name", pet_id, display_name)
 	_pet_upgrade_stats_dirty = true
-	_refresh_pet_stats(true)
 
 
 func _grant_faith(amount: float) -> void:
@@ -3517,6 +3711,10 @@ func _on_pet_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
 		# Once the player takes command, stop the formation AI from pulling the
 		# pet back. Its dropped position becomes its new battle line.
 		_battle_pet_formed[str(actor.get_instance_id())] = true
+	else:
+		# Give a manually placed pet immediate feedback. Without this, releasing it
+		# can inherit nearly a full random attack cooldown and look unresponsive.
+		_battle_pet_attack_at[str(actor.get_instance_id())] = _get_now_seconds() + 0.06
 
 
 func _on_pet_notable_action(actor: Node2D, action_id: String) -> void:
@@ -3544,15 +3742,13 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 		return
 
 	_deployed_pet_ids.erase(pet_id)
-	if _inventory_window != null and _inventory_window.has_method("add_pet"):
-		_inventory_window.call("add_pet", pet_id, _get_pet_display_name(pet_id))
+	if _inventory_window != null:
+		_sync_inventory_window()
 
 	_pets.erase(actor)
 	var actor_key := str(actor.get_instance_id())
 	_next_pet_coin_drop_at.erase(actor_key)
 	_pet_coin_drop_intervals.erase(actor_key)
-	if pet_id == "pet11":
-		_next_pet11_absorb_at = 0.0
 	if _hovered_pet == actor:
 		_hovered_pet = null
 
@@ -3564,7 +3760,7 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 	actor.queue_free()
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
-	_save_game()
+	_request_save()
 
 
 func _finish_pending_offering_for_actor(actor: Node2D) -> void:
@@ -3641,7 +3837,8 @@ func _on_settings_requested() -> void:
 			_faith_points,
 			_gold_coins,
 			_debug_enemy_power_scale,
-			_debug_game_speed
+			_debug_game_speed,
+			_get_debug_pet_levels()
 		)
 	_settings_window.open_window()
 
@@ -3649,71 +3846,211 @@ func _on_settings_requested() -> void:
 func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 	if _gacha_window == null:
 		return
+	if _gacha_batch_active:
+		# A stale/direct second signal must not mutate the active batch or reserve
+		# another copy of its gold. In particular, do not mark a newly-replaced
+		# window busy for a result owned by the original request window.
+		return
 	var safe_draw_amount := clampi(draw_amount, 1, GachaProgression.MAX_BATCH_DRAWS)
-	var batch_cost := GachaProgression.draw_cost_total(_gacha_draw_count, safe_draw_amount)
-	if float(_gold_coins) < batch_cost:
+	var reserved_cost := int(round(GachaProgression.draw_cost_total(
+		_gacha_draw_count,
+		safe_draw_amount
+	)))
+	if _gold_coins < reserved_cost:
+		_set_gacha_request_pending(_gacha_window, false)
 		_sync_gacha_state()
 		return
 
-	var results: Array[Dictionary] = []
-	var gross_cost_spent := 0.0
-	for _draw_index in safe_draw_amount:
+	var owned_lookup := GachaProgression.make_unlocked_lookup(_unlocked_pet_ids)
+	var locked_pool := GachaProgression.make_locked_pool(owned_lookup)
+	var valid_pet_ids := {}
+	var pet_names := {}
+	for pool_entry_value in GachaProgression.PET_POOL:
+		var pool_entry: Dictionary = pool_entry_value
+		var pool_pet_id := String(pool_entry.get("pet_id", ""))
+		valid_pet_ids[pool_pet_id] = true
+		pet_names[pool_pet_id] = _get_pet_display_name(pool_pet_id)
+
+	_gacha_batch_token += 1
+	_gacha_batch_active = true
+	_gold_coins -= reserved_cost
+	_gacha_batch_state = {
+		"token": _gacha_batch_token,
+		"remaining": safe_draw_amount,
+		"reserved_cost": reserved_cost,
+		"spent_cost": 0,
+		"results": [],
+		"owned_lookup": owned_lookup,
+		"locked_pool": locked_pool,
+		"valid_pet_ids": valid_pet_ids,
+		"pet_names": pet_names,
+		"new_names": [],
+		"seen_new_ids": {},
+		"first_new_pet_id": "",
+		"duplicate_faith_total": 0,
+		"inventory_changed": false,
+		"news_item_name": "",
+		"window_ref": weakref(_gacha_window)
+	}
+	_set_gacha_request_pending(_gacha_window, true)
+	# Reflect the reserved balance immediately without rebuilding other UI.
+	_sync_gacha_state()
+	if is_inside_tree():
+		call_deferred("_process_gacha_draw_batch", _gacha_batch_token)
+
+
+func _process_gacha_draw_batch(batch_token: int = -1) -> void:
+	if not _gacha_batch_active:
+		return
+	var active_token := int(_gacha_batch_state.get("token", -1))
+	if batch_token < 0:
+		batch_token = active_token
+	if batch_token != active_token:
+		return
+
+	var frame_started_usec := Time.get_ticks_usec()
+	var processed_this_frame := 0
+	var remaining := maxi(0, int(_gacha_batch_state.get("remaining", 0)))
+	var spent_cost := maxi(0, int(_gacha_batch_state.get("spent_cost", 0)))
+	var results: Array = _gacha_batch_state.get("results", [])
+	var owned_lookup: Dictionary = _gacha_batch_state.get("owned_lookup", {})
+	var locked_pool: Array = _gacha_batch_state.get("locked_pool", [])
+	var valid_pet_ids: Dictionary = _gacha_batch_state.get("valid_pet_ids", {})
+	var pet_names: Dictionary = _gacha_batch_state.get("pet_names", {})
+	var new_names: Array = _gacha_batch_state.get("new_names", [])
+	var seen_new_ids: Dictionary = _gacha_batch_state.get("seen_new_ids", {})
+	var duplicate_faith_total := maxi(
+		0,
+		int(_gacha_batch_state.get("duplicate_faith_total", 0))
+	)
+
+	while remaining > 0 and processed_this_frame < GACHA_BATCH_MAX_DRAWS_PER_FRAME:
 		var cost := GachaProgression.draw_cost(_gacha_draw_count)
-		_gold_coins -= cost
-		gross_cost_spent += float(cost)
-		var result := GachaProgression.roll_pet(
+		var result := GachaProgression.roll_pet_with_context(
 			_rng.randf(),
-			_unlocked_pet_ids,
+			owned_lookup,
+			locked_pool,
 			_gacha_pity_count
 		)
 		if result.is_empty():
-			_gold_coins += cost
-			gross_cost_spent -= float(cost)
+			remaining = 0
+			_gacha_batch_state["failed"] = true
 			break
 
 		var pet_id := String(result.get("pet_id", ""))
-		if pet_id.is_empty() or not PetCatalog.GACHA_PETS.has(pet_id):
-			_gold_coins += cost
-			gross_cost_spent -= float(cost)
+		if pet_id.is_empty() or not valid_pet_ids.has(pet_id):
+			remaining = 0
+			_gacha_batch_state["failed"] = true
 			break
-		_ensure_pet_state(pet_id)
-		result["name"] = _get_pet_display_name(pet_id)
+
+		spent_cost += cost
+		result["name"] = String(pet_names.get(pet_id, pet_id))
 		if bool(result.get("is_new", false)):
-			_unlocked_pet_ids.append(pet_id)
-			_unlocked_pet_ids = _sanitize_pet_id_list(
-				_unlocked_pet_ids,
-				PetCatalog.ACTIVE_DESKTOP_PETS
-			)
-			if _inventory_window != null and _inventory_window.has_method("add_pet"):
-				_inventory_window.call("add_pet", pet_id, _get_pet_display_name(pet_id))
+			_ensure_pet_state(pet_id)
+			if not owned_lookup.has(pet_id):
+				owned_lookup[pet_id] = true
+				_unlocked_pet_ids.append(pet_id)
+				for locked_index in locked_pool.size():
+					var locked_entry: Dictionary = locked_pool[locked_index]
+					if String(locked_entry.get("pet_id", "")) == pet_id:
+						locked_pool.remove_at(locked_index)
+						break
+			if not seen_new_ids.has(pet_id):
+				seen_new_ids[pet_id] = true
+				new_names.append(String(result.get("name", pet_id)))
+				if String(_gacha_batch_state.get("first_new_pet_id", "")).is_empty():
+					_gacha_batch_state["first_new_pet_id"] = pet_id
+			_gacha_batch_state["inventory_changed"] = true
 		else:
 			var duplicate_faith := GachaProgression.duplicate_faith_reward(cost, result)
 			_faith_points += float(duplicate_faith)
 			result["duplicate_faith"] = duplicate_faith
+			duplicate_faith_total += duplicate_faith
 
 		_gacha_pity_count = GachaProgression.next_pity_count(_gacha_pity_count, result)
 		_gacha_draw_count += 1
 		_gacha_history.push_front(result.duplicate(true))
 		if _gacha_history.size() > 10:
 			_gacha_history.resize(10)
-		results.append(result.duplicate(true))
+		results.append(result)
+		if (
+			String(_gacha_batch_state.get("news_item_name", "")).is_empty()
+			or bool(result.get("is_new", false))
+		):
+			_gacha_batch_state["news_item_name"] = String(result.get("name", "未知宠物"))
+
+		remaining -= 1
+		processed_this_frame += 1
+		if (
+			processed_this_frame % GACHA_BATCH_BUDGET_CHECK_INTERVAL == 0
+			and Time.get_ticks_usec() - frame_started_usec >= GACHA_BATCH_FRAME_BUDGET_USEC
+		):
+			break
+
+	_gacha_batch_state["remaining"] = remaining
+	_gacha_batch_state["spent_cost"] = spent_cost
+	_gacha_batch_state["duplicate_faith_total"] = duplicate_faith_total
+	if remaining <= 0:
+		_finish_gacha_draw_batch(active_token)
+		return
+	if is_inside_tree():
+		call_deferred("_process_gacha_draw_batch", active_token)
+
+
+func _finish_gacha_draw_batch(batch_token: int) -> void:
+	if not _gacha_batch_active or batch_token != int(_gacha_batch_state.get("token", -1)):
+		return
+	var completed_state := _gacha_batch_state
+	_gacha_batch_active = false
+	_gacha_batch_state = {}
+
+	var reserved_cost := maxi(0, int(completed_state.get("reserved_cost", 0)))
+	var spent_cost := clampi(int(completed_state.get("spent_cost", 0)), 0, reserved_cost)
+	_gold_coins += reserved_cost - spent_cost
+	var results: Array = completed_state.get("results", [])
+	var request_window_ref := completed_state.get("window_ref") as WeakRef
+	var request_window: Variant = request_window_ref.get_ref() if request_window_ref != null else null
+
+	if results.is_empty():
+		_set_gacha_request_pending(request_window, false)
+		_sync_gacha_state()
+		return
+
+	_unlocked_pet_ids = _sanitize_pet_id_list(
+		_unlocked_pet_ids,
+		PetCatalog.ACTIVE_DESKTOP_PETS
+	)
+	var batch_summary := {
+		"new_names": (completed_state.get("new_names", []) as Array).duplicate(),
+		"first_new_pet_id": String(completed_state.get("first_new_pet_id", "")),
+		"duplicate_faith_total": maxi(0, int(completed_state.get("duplicate_faith_total", 0)))
+	}
+	_show_coin_change_popup(_get_window_mouse_position(get_window()), -spent_cost)
+	if is_instance_valid(request_window) and request_window.has_method("show_results"):
+		request_window.call("show_results", results, batch_summary)
+	_set_gacha_request_pending(request_window, false)
+	if bool(completed_state.get("inventory_changed", false)):
+		_sync_inventory_window()
+	# Debug levels can be set before a pet is owned. If that pet is later drawn at
+	# Lv.100, acquisition is also a threshold event and must evolve it immediately.
+	_apply_automatic_evolution_thresholds()
+	var news_item_name := String(completed_state.get("news_item_name", ""))
+	if not news_item_name.is_empty():
 		_try_queue_news_event(
 			"gacha",
-			{"item_name": String(result.get("name", "未知宠物"))},
+			{"item_name": news_item_name},
 			"gacha",
 			5.0
 		)
-
-	if results.is_empty():
-		_sync_gacha_state()
-		return
-	_show_coin_change_popup(_get_window_mouse_position(get_window()), -int(round(gross_cost_spent)))
-	_gacha_window.show_results(results)
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
 	_refresh_coin_display()
-	_sync_gacha_state()
-	_save_game()
+	_request_save()
+
+
+func _set_gacha_request_pending(window_value: Variant, pending: bool) -> void:
+	if is_instance_valid(window_value) and window_value.has_method("set_draw_request_pending"):
+		window_value.call("set_draw_request_pending", pending)
 
 
 func _on_shop_purchase_requested(good_id: String) -> void:
@@ -3743,7 +4080,6 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 		carried["purchase_price"] = price
 		_carried_offering = carried
 		_set_offering_cursor(String(_carried_offering.get("texture", "")))
-		_update_offering_input_window()
 		_show_coin_change_popup(_get_window_mouse_position(get_window()), -price)
 		_sync_shop_state()
 		_shop_window.call(
@@ -3756,9 +4092,10 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 			_shop_window.call("close_window")
 		else:
 			_shop_window.visible = false
+		call_deferred("_update_offering_input_window")
 		_refresh_pet_stats(true)
 		_refresh_coin_display()
-		_save_game()
+		_request_save()
 		return
 
 	_gold_coins -= price
@@ -3768,13 +4105,13 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 	_shop_window.call("set_purchase_result", good_id, true, ("Purchased: %s" if _language == "en" else "购买成功：%s") % String(good.get("name", "商品")))
 	_refresh_pet_stats(true)
 	_refresh_coin_display()
-	_save_game()
+	_request_save()
 
 
 func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
 	if pet_id.is_empty() or not _is_pet_unlocked(pet_id) or _deployed_pet_ids.has(pet_id):
 		return
-	if _battle_active or _pilgrimage_active or _is_pet_recovering(pet_id):
+	if _is_pet_recovering(pet_id):
 		_sync_inventory_window()
 		return
 
@@ -3788,16 +4125,130 @@ func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
 		_inventory_window.call("remove_pet", pet_id)
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
-	_save_game()
+	_request_save()
 
 
 func _on_inventory_pet_rename_requested(pet_id: String, custom_name: String) -> void:
 	_set_pet_custom_name(pet_id, custom_name)
 
 
+func _on_inventory_pet_evolution_requested(pet_id: String) -> void:
+	# Kept for compatibility with an already-open legacy inventory window. Level
+	# thresholds are processed globally; there is no manual evolution choice.
+	_apply_automatic_evolution_thresholds()
+
+
+func _apply_automatic_evolution_thresholds() -> bool:
+	var changed := false
+	for pet_id_value in _unlocked_pet_ids:
+		var pet_id := String(pet_id_value)
+		if not PetCatalog.has_evolution(pet_id):
+			continue
+		var state := _get_pet_state(pet_id)
+		var should_be_evolved := PetProgression.progression_level(state) >= 100
+		var was_evolved := bool(state.get("evolved", false))
+		if was_evolved == should_be_evolved:
+			continue
+		if should_be_evolved:
+			state["evolved"] = true
+			if not _pending_evolution_notifications.has(pet_id):
+				_pending_evolution_notifications.append(pet_id)
+		else:
+			state.erase("evolved")
+			_pending_evolution_notifications.erase(pet_id)
+			if (
+				_evolution_window != null
+				and _evolution_window.visible
+				and String(_evolution_window.get("_pet_id")) == pet_id
+			):
+				_evolution_window.call("close_window")
+		_pet_states[pet_id] = state
+		_replace_deployed_pet_form(pet_id)
+		changed = true
+	if changed:
+		_pet_upgrade_stats_dirty = true
+		if _inventory_window != null:
+			_sync_inventory_window()
+	_show_next_evolution_notification()
+	return changed
+
+
+func _show_next_evolution_notification() -> void:
+	if _evolution_window == null or _evolution_window.visible:
+		return
+	while not _pending_evolution_notifications.is_empty():
+		var pet_id := String(_pending_evolution_notifications.pop_front())
+		if not _is_pet_unlocked(pet_id) or not bool(_get_pet_state(pet_id).get("evolved", false)):
+			continue
+		_evolution_window.call(
+			"open_for_pet",
+			pet_id,
+			_get_pet_display_name(pet_id),
+			PetProgression.progression_level(_get_pet_state(pet_id))
+		)
+		return
+
+
+func _on_evolution_notification_dismissed() -> void:
+	call_deferred("_show_next_evolution_notification")
+
+
+func _replace_deployed_pet_form(pet_id: String) -> void:
+	for pet in _pets.duplicate():
+		if not is_instance_valid(pet) or _get_actor_pet_id(pet) != pet_id:
+			continue
+		var spawn_x: float = float(pet.position.x)
+		var old_actor_key := str(pet.get_instance_id())
+		var battle_health: Variant = _battle_pet_health.get(old_actor_key, null)
+		var battle_max_health: Variant = _battle_pet_max_health.get(old_actor_key, null)
+		var battle_attack_at: Variant = _battle_pet_attack_at.get(old_actor_key, null)
+		var battle_target_x: Variant = _battle_pet_target_x.get(old_actor_key, null)
+		var battle_formed: Variant = _battle_pet_formed.get(old_actor_key, null)
+		var battle_enemy_target: Variant = _battle_pet_enemy_targets.get(old_actor_key, null)
+		_battle_pet_health.erase(old_actor_key)
+		_battle_pet_max_health.erase(old_actor_key)
+		_battle_pet_attack_at.erase(old_actor_key)
+		_battle_pet_target_x.erase(old_actor_key)
+		_battle_pet_formed.erase(old_actor_key)
+		_battle_pet_enemy_targets.erase(old_actor_key)
+		_battle_pet5_rolls.erase(old_actor_key)
+		_next_pet_coin_drop_at.erase(old_actor_key)
+		_pet_coin_drop_intervals.erase(old_actor_key)
+		_pets.erase(pet)
+		pet.queue_free()
+		var evolved_pet := _spawn_desktop_pet(pet_id, spawn_x)
+		if evolved_pet != null and battle_health != null:
+			var new_actor_key := str(evolved_pet.get_instance_id())
+			_battle_pet_health[new_actor_key] = battle_health
+			_battle_pet_max_health[new_actor_key] = battle_max_health
+			_battle_pet_attack_at[new_actor_key] = battle_attack_at
+			_battle_pet_target_x[new_actor_key] = battle_target_x
+			_battle_pet_formed[new_actor_key] = battle_formed
+			# Evolution can replace an actor on the same frame its enemy disappears.
+			# Never copy a freed target lock into the replacement actor.
+			if is_instance_valid(battle_enemy_target):
+				var battle_enemy_target_node := battle_enemy_target as Node2D
+				if not battle_enemy_target_node.is_queued_for_deletion():
+					_battle_pet_enemy_targets[new_actor_key] = battle_enemy_target_node
+		return
+
+
+func _sync_deployed_pet_level(pet_id: String) -> void:
+	if pet_id.is_empty():
+		return
+	var level := PetProgression.progression_level(_get_pet_state(pet_id))
+	for pet in _pets:
+		if (
+			is_instance_valid(pet)
+			and _get_actor_pet_id(pet) == pet_id
+			and pet.has_method("set_pet_level")
+		):
+			pet.call("set_pet_level", level)
+
+
 func _on_pet_detail_rename_requested(pet_id: String, custom_name: String) -> void:
 	_set_pet_custom_name(pet_id, custom_name)
-	_save_game()
+	_request_save()
 
 
 # Offerings
@@ -3819,7 +4270,7 @@ func _cancel_carried_offering() -> void:
 				("Placement cancelled. Refunded $%d gold" if _language == "en" else "已取消投放，返还 $%d 金币") % refund
 			)
 	call_deferred("_update_offering_input_window")
-	_save_game()
+	_request_save()
 
 
 func _drop_carried_offering(window_position: Vector2) -> void:
@@ -3830,7 +4281,7 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 	_carried_offering.clear()
 	_clear_offering_cursor()
 	call_deferred("_update_offering_input_window")
-	_save_game()
+	_request_save()
 
 	var texture := load(String(offering.get("texture", ""))) as Texture2D
 	if texture == null:
@@ -4025,7 +4476,7 @@ func _finish_offering_consumed(
 	else:
 		_show_status_popup(popup_position, "No pet collected the offering" if _language == "en" else "没有宠物接取贡品", Color(1.0, 0.68, 0.48, 1.0))
 	_refresh_pet_stats(true)
-	_save_game()
+	_request_save()
 
 
 func _apply_pet_offering_buff(pet_id: String, offering: Dictionary) -> void:
@@ -4191,6 +4642,8 @@ func _on_pet_upgrade_requested(pet_id: String) -> void:
 		PetProgression.MAX_LEVEL
 	)
 	_selected_pet_id = pet_id
+	_apply_automatic_evolution_thresholds()
+	_sync_deployed_pet_level(pet_id)
 	_pet_upgrade_stats_dirty = true
 	_refresh_pet_stats(true)
 	_try_queue_news_event(
@@ -4200,7 +4653,7 @@ func _on_pet_upgrade_requested(pet_id: String) -> void:
 		40.0,
 		0.45
 	)
-	_save_game()
+	_request_save()
 
 
 func _on_faith_add_requested(amount: int) -> void:
@@ -4208,12 +4661,12 @@ func _on_faith_add_requested(amount: int) -> void:
 	_grant_faith(faith_gain)
 	_show_faith_change_popup(_get_window_mouse_position(get_window()), faith_gain)
 	_refresh_pet_stats(true)
-	_save_game()
+	_request_save()
 
 
 func _on_menu_handle_moved(anchor: float) -> void:
 	_loaded_menu_handle_anchor = clampf(anchor, 0.0, 1.0)
-	_save_game()
+	_request_save()
 
 
 func _on_activity_range_changed(range_mode: String) -> void:
@@ -4221,7 +4674,7 @@ func _on_activity_range_changed(range_mode: String) -> void:
 		return
 	_pet_activity_range = range_mode
 	_update_actor_window_bounds()
-	_save_game()
+	_request_save()
 
 
 func _on_debug_economy_requested(faith_points: float, gold_coins: int) -> void:
@@ -4239,9 +4692,10 @@ func _on_debug_economy_requested(faith_points: float, gold_coins: int) -> void:
 			_faith_points,
 			_gold_coins,
 			_debug_enemy_power_scale,
-			_debug_game_speed
+			_debug_game_speed,
+			_get_debug_pet_levels()
 		)
-	_save_game()
+	_request_save()
 
 
 func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float) -> void:
@@ -4254,8 +4708,35 @@ func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 			_faith_points,
 			_gold_coins,
 			_debug_enemy_power_scale,
-			_debug_game_speed
+			_debug_game_speed,
+			_get_debug_pet_levels()
 		)
+
+
+func _get_debug_pet_levels() -> Dictionary:
+	var levels := {}
+	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+		var pet_id := String(pet_id_value)
+		levels[pet_id] = PetProgression.progression_level(_get_pet_state(pet_id))
+	return levels
+
+
+func _on_debug_pet_levels_requested(levels: Dictionary) -> void:
+	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+		var pet_id := String(pet_id_value)
+		if not levels.has(pet_id):
+			continue
+		var state := _get_pet_state(pet_id)
+		state["upgrade_level"] = clampi(int(levels[pet_id]), 1, PetProgression.MAX_LEVEL)
+		_pet_states[pet_id] = state
+	_apply_automatic_evolution_thresholds()
+	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+		_sync_deployed_pet_level(String(pet_id_value))
+	_pet_upgrade_stats_dirty = true
+	_refresh_pet_stats(true)
+	if _inventory_window != null and _inventory_window.visible:
+		_sync_inventory_window()
+	_request_save()
 
 
 func _on_debug_event_requested(event_type: String) -> void:
@@ -4275,7 +4756,7 @@ func _on_debug_event_requested(event_type: String) -> void:
 func _on_language_changed(language_code: String) -> void:
 	_language = "en" if language_code == "en" else "zh"
 	_apply_language()
-	_save_game()
+	_request_save()
 
 
 func _apply_language() -> void:
@@ -4290,6 +4771,8 @@ func _apply_language() -> void:
 		_gacha_window.call("set_language", _language)
 	if _inventory_window != null and _inventory_window.has_method("set_language"):
 		_inventory_window.call("set_language", _language)
+	if _evolution_window != null and _evolution_window.has_method("set_language"):
+		_evolution_window.call("set_language", _language)
 	if _news_window != null and _news_window.has_method("set_language"):
 		_news_window.call("set_language", _language)
 	for pet in _pets:

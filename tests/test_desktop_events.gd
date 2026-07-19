@@ -13,12 +13,12 @@ static func run() -> Array[String]:
 	_test_era_progression(failures)
 	_test_enemy_roles_and_frames(failures)
 	_test_enemy_projectiles_and_special_defeats(failures)
-	_test_pet11_cross_screen_battle_swallow(failures)
 	_test_pet_combat_assets(failures)
 	_test_pet6_dragged_combat(failures)
 	_test_era_age_and_difficulty(failures)
 	_test_recovery_pauses_production(failures)
 	_test_battle_activity_override(failures)
+	_test_inventory_deploy_during_events(failures)
 	_test_battle_starts_first_wave(failures)
 	return failures
 
@@ -158,15 +158,9 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 	target.position = Vector2(600.0, 360.0)
 	var arrow := EnemyProjectileActor.new()
 	arrow.setup("arrow", Vector2(80.0, 280.0), target, 1.0, 1.0)
-	if not bool(arrow.call("can_be_swallowed")):
-		failures.append("soldier2 arrows must be real projectiles that pet11 can swallow")
 	var arrow_sprite := arrow.get_node_or_null("EnemyProjectileSprite") as Sprite2D
 	if arrow_sprite == null or arrow_sprite.texture == null:
 		failures.append("soldier2 arrows must use the imported arrow asset")
-	var pet11 := Main.DesktopPetActor.new()
-	pet11.setup("pet11", Vector2i(900, 500), 0.0, 900.0, 640.0, 484.0, false)
-	if not bool(arrow.call("start_swallowed_by", pet11)):
-		failures.append("pet11 must be able to intercept swallowable enemy projectiles")
 	arrow.free()
 
 	var bullet := EnemyProjectileActor.new()
@@ -198,23 +192,6 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 	if enemy.position == launch_start:
 		failures.append("launched enemies must visibly fly instead of disappearing immediately")
 	enemy.free()
-	var swallowed_enemy := EnemyActor.new()
-	swallowed_enemy.setup("villager2", Vector2(420.0, 484.0), 484.0, 1.0, 420.0)
-	var swallow_completed := [false]
-	swallowed_enemy.swallowed.connect(func(_actor: Node2D, _reward: int) -> void: swallow_completed[0] = true)
-	if not swallowed_enemy.start_swallowed_by(pet11):
-		failures.append("pet11 must be able to swallow ordinary enemies")
-	swallowed_enemy.call("_process", float(swallowed_enemy.get("_swallow_duration")) + 0.01)
-	if not swallow_completed[0]:
-		failures.append("swallowed enemies must finish by disappearing into pet11")
-	swallowed_enemy.free()
-	pet11.set_battle_mode(true)
-	pet11.position.x = 890.0
-	pet11.receive_battle_hit(1000.0)
-	var pet_rect: Rect2 = pet11.call("_get_sprite_visual_rect")
-	if pet_rect.end.x > 900.5:
-		failures.append("battle knockback must never push a pet outside the desktop")
-	pet11.free()
 	target.free()
 
 
@@ -247,56 +224,15 @@ static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 	main.free()
 
 
-static func _test_pet11_cross_screen_battle_swallow(failures: Array[String]) -> void:
-	var main := Main.new()
-	main.set("_battle_active", true)
-	main.set("_next_pet11_absorb_at", 0.0)
-	var pet11 := Main.DesktopPetActor.new()
-	pet11.setup("pet11", Vector2i(1400, 720), 0.0, 1400.0, 1240.0, 704.0, false)
-	pet11.set_battle_mode(true)
-	main.add_child(pet11)
-	(main.get("_pets") as Array).append(pet11)
-	(main.get("_battle_pet_health") as Dictionary)[str(pet11.get_instance_id())] = 10.0
-	var enemy := EnemyActor.new()
-	enemy.setup("victorian_boss", Vector2(80.0, 704.0), 704.0, 1.0, 80.0)
-	main.add_child(enemy)
-	(main.get("_battle_enemies") as Array).append(enemy)
-	main.call("_update_pet11_battle_absorb", pet11)
-	if not bool(enemy.call("is_being_swallowed")):
-		failures.append("pet11 must pull any enemy, including a boss, into its body from across the desktop")
-	var swallow_duration := float(enemy.get("_swallow_duration"))
-	if swallow_duration < 1.25 or swallow_duration > 2.8:
-		failures.append("pet11 suction must finish at the new faster but still visible speed")
-	var enemy_sprite := enemy.get_node_or_null("EnemySprite") as AnimatedSprite2D
-	var initial_scale := enemy_sprite.scale if enemy_sprite != null else Vector2.ZERO
-	var mouth_position := pet11.get_swallow_mouth_position()
-	if mouth_position.distance_to(pet11.position) > 4.0:
-		failures.append("pet11's suction target must be the visible center of its vortex")
-	enemy.call("_process", swallow_duration * 0.08)
-	if not bool(enemy.call("is_being_swallowed")):
-		failures.append("a cross-screen enemy must remain visible during suction")
-	if enemy_sprite != null and enemy_sprite.scale.x >= initial_scale.x:
-		failures.append("pet11 suction must start shrinking the enemy on its first frames")
-	if enemy_sprite != null and is_zero_approx(enemy_sprite.rotation):
-		failures.append("pet11 suction must rotate the enemy from the beginning")
-	var approach_visual_position := enemy.position + enemy_sprite.position
-	if approach_visual_position.distance_to(mouth_position) >= Vector2(80.0, 704.0).distance_to(mouth_position):
-		failures.append("pet11 suction must visibly carry the enemy toward the vortex")
-	if Main._get_enemy_launch_direction() >= 0.0:
-		failures.append("melee launch defeats must always throw invaders toward the left side of the desktop")
-	main.free()
-
-
 static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	for pet_id in ["pet3", "pet4", "pet5", "pet6"]:
 		var pet_data := Main.PetCatalog.get_definition(pet_id)
 		var frames := Main.PetCatalog.build_frames(pet_id)
-		var expected_count := 16 if pet_id == "pet3" else 12
-		if not frames.has_animation("attack") or frames.get_frame_count("attack") != expected_count:
+		if not frames.has_animation("attack") or frames.get_frame_count("attack") != 12:
 			failures.append("%s must use its authored melee attack sheet" % pet_id)
 		if not FileAccess.file_exists(String(pet_data.get("attack", ""))):
 			failures.append("%s must reference the corrected attack asset filename" % pet_id)
-		if not bool(pet_data.get("attack_faces_right", false)):
+		if not pet_data.has("attack_faces_right"):
 			failures.append("%s must declare the authored attack-sheet direction explicitly" % pet_id)
 	var melee_pet := Main.DesktopPetActor.new()
 	melee_pet.setup("pet3", Vector2i(900, 600), 0.0, 900.0, 640.0, 584.0, false)
@@ -305,11 +241,11 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	var melee_sprite := melee_pet.get_node_or_null("pet3Sprite") as AnimatedSprite2D
 	if melee_sprite == null or melee_sprite.animation != "attack":
 		failures.append("melee pets must switch to their attack animation when striking")
-	elif not melee_sprite.flip_h:
-		failures.append("a right-facing attack sheet must flip visually when striking left")
+	elif melee_sprite.flip_h != bool(Main.PetCatalog.get_definition("pet3").get("attack_faces_right", false)):
+		failures.append("pet3 must flip exactly once when its authored attack faces away from a left-side target")
 	elif melee_sprite.frame != 0:
 		failures.append("horizontal facing changes must not reverse or skip the authored attack frame order")
-	if float(melee_pet.get_battle_attack_duration()) < 16.0 / 12.0:
+	if float(melee_pet.get_battle_attack_duration()) < 12.0 / 12.0:
 		failures.append("combat cooldowns must leave enough time for all authored attack frames to play")
 	melee_pet.free()
 	var pet6 := Main.DesktopPetActor.new()
@@ -334,17 +270,36 @@ static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
 	main.set("_battle_next_wave_index", 0)
 	var pet6 := Main.DesktopPetActor.new()
 	pet6.setup("pet6", Vector2i(1000, 720), 0.0, 1000.0, 720.0, 704.0, false)
-	pet6.position.x = 620.0
-	pet6.set_autonomy_paused(true)
-	pet6.set("_behavior", Main.DesktopPetActor.Behavior.DOZING)
+	# The long attack art is visibly beside the enemy at this spacing, while the
+	# old hard-coded 155px origin check incorrectly rejected it.
+	pet6.position.x = 820.0
 	pet6.set_battle_mode(true)
 	main.add_child(pet6)
+	pet6.grabbed_changed.connect(Callable(main, "_on_pet_grabbed_changed"))
 	(main.get("_pets") as Array).append(pet6)
 	var actor_key := str(pet6.get_instance_id())
 	(main.get("_battle_pet_health") as Dictionary)[actor_key] = 10.0
 	(main.get("_battle_pet_max_health") as Dictionary)[actor_key] = 10.0
-	(main.get("_battle_pet_formed") as Dictionary)[actor_key] = true
-	(main.get("_battle_pet_attack_at") as Dictionary)[actor_key] = 0.0
+	# Exercise the same state transitions as a real mouse drag. The previous bug
+	# left ordinary pets permanently marked FALLING after their feet reached the
+	# taskbar, so is_battle_ready() rejected every future attack.
+	pet6.set("_pointer_held", true)
+	pet6.set("_pointer_hold_time", 0.4)
+	pet6.call("_begin_grab")
+	pet6.position = Vector2(820.0, 520.0)
+	pet6.call("_finish_pointer_hold", true)
+	if int(pet6.get("_behavior")) != Main.DesktopPetActor.Behavior.FALLING:
+		failures.append("releasing a dragged pet6 above the taskbar must enter its landing state")
+	for _step in 180:
+		pet6.call("_update_falling", 1.0 / 60.0)
+		if int(pet6.get("_behavior")) != Main.DesktopPetActor.Behavior.FALLING:
+			break
+	if not pet6.is_battle_ready():
+		failures.append(
+			"pet6 must leave FALLING and become battle-ready after a real drag landing (behavior=%s y=%.1f rest=%.1f held=%s)"
+			% [pet6.get("_behavior"), pet6.position.y, float(pet6.call("_get_rest_y")), pet6.get("_pointer_held")]
+		)
+	main.set("_simulation_now_seconds", 1000.07)
 	var enemy := EnemyActor.new()
 	enemy.setup("villager1", Vector2(530.0, 704.0), 704.0, 1.0, 530.0)
 	main.add_child(enemy)
@@ -357,11 +312,11 @@ static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
 			"a dragged pet6 beside an enemy must visibly attack instead of sleeping (animation=%s ready=%s formed=%s distance=%.1f)"
 			% [String(sprite.animation) if sprite != null else "missing", pet6.is_battle_ready(), (main.get("_battle_pet_formed") as Dictionary).get(actor_key, false), absf(pet6.position.x - enemy.position.x)]
 		)
+	elif sprite.flip_h:
+		failures.append("pet6's authored left-facing attack must not flip away from an enemy standing on its left")
 	if enemy.get_health() >= health_before:
 		failures.append("a dragged pet6 attack must apply real enemy damage")
 	main.free()
-	if BattleEffectActor.PROJECTILE_CONFIG.has("pet11") or Main.RANGED_BATTLE_PET_IDS.has("pet11"):
-		failures.append("pet11 must be a suction-only fighter with no friendly projectile configuration")
 	for pet_id in Main.RANGED_BATTLE_PET_IDS:
 		var config: Dictionary = BattleEffectActor.PROJECTILE_CONFIG.get(pet_id, {})
 		if config.is_empty() or not FileAccess.file_exists(String(config.get("sheet", ""))):
@@ -415,6 +370,34 @@ static func _test_battle_activity_override(failures: Array[String]) -> void:
 	main.set("_battle_active", true)
 	if String(main.call("_get_effective_pet_activity_range")) != "full":
 		failures.append("battle events must temporarily open the entire desktop activity range")
+	main.free()
+
+
+static func _test_inventory_deploy_during_events(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	var unlocked: Array = main.get("_unlocked_pet_ids")
+	unlocked.clear()
+	unlocked.append_array(["pet2", "pet3"])
+	var deployed: Array = main.get("_deployed_pet_ids")
+	deployed.clear()
+
+	main.set("_battle_active", true)
+	main.call("_on_inventory_pet_deploy_requested", "pet2")
+	var pets: Array = main.get("_pets")
+	if pets.size() != 1 or not deployed.has("pet2"):
+		failures.append("storage must deploy an owned pet while a battle is active")
+	elif not bool((pets[0] as Node2D).get("_battle_mode")):
+		failures.append("a pet deployed from storage during battle must join battle mode immediately")
+
+	main.set("_battle_active", false)
+	main.set("_pilgrimage_active", true)
+	main.call("_on_inventory_pet_deploy_requested", "pet3")
+	if pets.size() != 2 or not deployed.has("pet3"):
+		failures.append("storage must deploy an owned pet while a pilgrimage is active")
+	elif not bool((pets[1] as Node2D).get("_autonomy_paused")):
+		failures.append("a pet deployed from storage during pilgrimage must join the paused procession state")
 	main.free()
 
 

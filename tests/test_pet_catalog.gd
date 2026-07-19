@@ -7,20 +7,20 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	var expected_pets := [
 		"pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
-		"pet8", "pet9", "pet10", "pet11"
+		"pet8", "pet9", "pet10"
 	]
 	var desktop_scales := {}
 	var behavior_styles := {}
 	var minimum_scale := INF
 	var maximum_scale := 0.0
 	if PetCatalog.ACTIVE_DESKTOP_PETS != expected_pets:
-		failures.append("all eleven pets must be active")
+		failures.append("the ten current pets must be active in authored order")
 	if PetCatalog.STARTER_UNLOCKED_PETS != ["pet1"]:
 		failures.append("only pet1 may be unlocked at the start of a fresh game")
 	if PetCatalog.INVENTORY_STARTER_PETS != ["pet1"]:
 		failures.append("the starter roster must not expose gacha pets")
 	if PetCatalog.GACHA_PETS != expected_pets.slice(1):
-		failures.append("pet2 through pet11 must be acquired through pet gacha")
+		failures.append("pet2 through pet10 must be acquired through pet gacha")
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
@@ -60,10 +60,12 @@ static func run() -> Array[String]:
 			if path.is_empty() or not FileAccess.file_exists(path):
 				failures.append("%s must provide %s" % [pet_id, key])
 		var frames := PetCatalog.build_frames(pet_id)
-		if frames.get_frame_count("idle") != 12:
-			failures.append("%s idle must contain 12 frames" % pet_id)
-		if frames.get_frame_count("walk") != 12:
-			failures.append("%s walk fallback must contain 12 frames" % pet_id)
+		var expected_idle_count := 1 if pet_id == "pet5" else (10 if pet_id == "pet10" else 12)
+		var expected_walk_count := 10 if pet_id == "pet10" else 12
+		if frames.get_frame_count("idle") != expected_idle_count:
+			failures.append("%s idle must contain %d authored frames" % [pet_id, expected_idle_count])
+		if frames.get_frame_count("walk") != expected_walk_count:
+			failures.append("%s walk must contain %d authored frames" % [pet_id, expected_walk_count])
 		if float(definition.get("base_fps", 0.0)) <= 0.0:
 			failures.append("%s must produce faith" % pet_id)
 		if float(definition.get("base_money_rate", 4.0 + float(definition.get("rarity_stars", 1)) * 3.0)) <= 0.0:
@@ -87,9 +89,15 @@ static func run() -> Array[String]:
 			failures.append("%s must define a varied personality emotion profile" % pet_id)
 		if emotion_weights.has("hungry"):
 			failures.append("%s personality must not use the removed hunger emotion" % pet_id)
-	for new_pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+	for new_pet_id in ["pet8", "pet9"]:
 		if float(PetCatalog.get_definition(new_pet_id).get("desktop_scale", 0.0)) < 0.90:
 			failures.append("%s must visually match the established desktop pet size" % new_pet_id)
+	var base_pet10_scale := float(PetCatalog.get_definition("pet10").get("desktop_scale", 0.0))
+	var evolved_pet10_scale := float(PetCatalog.get_evolution_definition("pet10").get("desktop_scale", 0.0))
+	if base_pet10_scale > 0.72:
+		failures.append("base pet10 must retain its deliberately small juvenile silhouette")
+	if evolved_pet10_scale <= base_pet10_scale:
+		failures.append("pet10 evolution must unlock a visibly larger authored scale")
 	_test_new_pet_animation_preserves_pixels(failures)
 	if desktop_scales.size() == 1:
 		failures.append("desktop pets must use varied sizes")
@@ -97,14 +105,18 @@ static func run() -> Array[String]:
 		failures.append("the expanded desktop roster must retain varied behavior styles")
 	if minimum_scale > 0.7:
 		failures.append("the smallest desktop pet must be visibly small")
-	if maximum_scale - minimum_scale < 0.6:
+	# Catalogue scale is only meaningful together with each sheet's cell size
+	# (the evolved coins use 256 px cells while several pets use 128 px cells).
+	# Keep variation, but do not force one 128 px pet to be oversized merely to
+	# create a large raw-number spread.
+	if maximum_scale - minimum_scale < 0.45:
 		failures.append("desktop pet sizes must have a clear visual range")
-	for climbing_pet_id in ["pet1", "pet4", "pet5"]:
+	for climbing_pet_id in ["pet1", "pet4"]:
 		if float(PetCatalog.get_definition(climbing_pet_id).get("wall_chance", 0.0)) <= 0.0:
 			failures.append("%s must occasionally climb a screen edge" % climbing_pet_id)
 		if not bool(PetCatalog.get_definition(climbing_pet_id).get("can_wall_crawl", false)):
 			failures.append("%s wall-crawl chance must be backed by explicit permission" % climbing_pet_id)
-	for ground_pet_id in ["pet2", "pet3", "pet6", "pet7", "pet9"]:
+	for ground_pet_id in ["pet2", "pet3", "pet5", "pet6", "pet7", "pet9"]:
 		if float(PetCatalog.get_definition(ground_pet_id).get("wall_chance", 0.0)) > 0.0:
 			failures.append("%s must remain a ground-only pet" % ground_pet_id)
 		if bool(PetCatalog.get_definition(ground_pet_id).get("can_wall_crawl", false)):
@@ -118,22 +130,39 @@ static func run() -> Array[String]:
 	if PetCatalog.choose_weighted_emotion("pet2", 0.1) != "sleepy":
 		failures.append("pet2 personality must strongly prefer sleepy emotions")
 	var pet2_frames := PetCatalog.build_frames("pet2")
+	var pet2_definition := PetCatalog.get_definition("pet2")
+	if (
+		String(pet2_definition.get("walk", "")) != String(pet2_definition.get("idle", ""))
+		or String(pet2_definition.get("attack", "")) != String(pet2_definition.get("idle", ""))
+	):
+		failures.append("base pet2 must deliberately reuse its floating cycle for idle, walk, and ranged attack")
 	_check_frame_count(failures, pet2_frames, "close_eye", 16)
 	_check_frame_count(failures, pet2_frames, "open_eye", 16)
 	_check_frame_count(failures, pet2_frames, "sleep", 7)
 	var pet3_frames := PetCatalog.build_frames("pet3")
+	_check_frame_count(failures, pet3_frames, "attack", 12)
 	_check_frame_count(failures, pet3_frames, "burrow", 12)
 	_check_frame_count(failures, pet3_frames, "emerge", 12)
+	var pet5_frames := PetCatalog.build_frames("pet5")
+	_check_frame_count(failures, pet5_frames, "idle", 1)
+	_check_frame_count(failures, pet5_frames, "walk", 12)
+	_check_frame_count(failures, pet5_frames, "attack", 12)
+	if float(PetCatalog.get_definition("pet5").get("desktop_scale", 99.0)) > 0.95:
+		failures.append("base pet5's full-frame ball must stay compact")
 	var pet6_definition := PetCatalog.get_definition("pet6")
 	if bool(pet6_definition.get("align_frames_to_floor", true)):
-		failures.append("pet6 must preserve its authored foot line instead of aligning its lower hands")
-	if int(pet6_definition.get("frame_foot_y", 0)) != 232:
-		failures.append("pet6 must use its authored y=232 body/foot contact line")
+		failures.append("pet6 must preserve its authored frame rather than vertically rewriting it")
+	if bool(pet6_definition.get("faces_right", true)) or bool(pet6_definition.get("attack_faces_right", true)):
+		failures.append("base pet6 art is authored facing left for both movement and attack")
 	var pet6_frames := PetCatalog.build_frames("pet6")
 	var pet6_idle_frame := pet6_frames.get_frame_texture("idle", 0).get_image()
-	if pet6_idle_frame.get_size() != Vector2i(256, 256):
-		failures.append("pet6's 1024x768 sheets must slice into 256x256 frames")
+	if pet6_idle_frame.get_size() != Vector2i(128, 128):
+		failures.append("base pet6 sheets must slice into 128x128 frames")
 	var pet7_definition := PetCatalog.get_definition("pet7")
+	if float(pet7_definition.get("desktop_scale", 0.0)) < 0.65:
+		failures.append("base pet7's coin must remain clearly visible at low levels")
+	if float(PetCatalog.get_evolution_definition("pet7").get("desktop_scale", 0.0)) < 0.50:
+		failures.append("evolved pet7's coin must not retain its old undersized scale")
 	if not bool(pet7_definition.get("rolls_while_walking", false)):
 		failures.append("pet7 must roll its idle art while walking")
 	if float(pet7_definition.get("ground_offset_y", 0.0)) <= 0.0:
@@ -141,17 +170,21 @@ static func run() -> Array[String]:
 	var pet7_frames := PetCatalog.build_frames("pet7")
 	_check_frame_count(failures, pet7_frames, "idle", 12)
 	_check_frame_count(failures, pet7_frames, "walk", 12)
-	for pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+	for pet_id in ["pet7", "pet8", "pet9"]:
 		var frames := PetCatalog.build_frames(pet_id)
 		_check_frame_count(failures, frames, "idle", 12)
 		_check_frame_count(failures, frames, "walk", 12)
-	var pet9_definition := PetCatalog.get_definition("pet9")
-	if String(pet9_definition.get("walk", "")).is_empty():
-		failures.append("pet9 must use its dedicated walk animation sheet")
-	for idle_mover_id in ["pet8", "pet10", "pet11"]:
-		if not String(PetCatalog.get_definition(idle_mover_id).get("walk", "")).is_empty():
-			failures.append("%s must move by reusing its idle animation" % idle_mover_id)
-	var icon_path := String(PetCatalog.get_definition("pet11").get("icon", ""))
+		_check_frame_count(failures, frames, "attack", 12)
+		var unified_path := String(PetCatalog.get_definition(pet_id).get("idle", ""))
+		if (
+			String(PetCatalog.get_definition(pet_id).get("walk", "")) != unified_path
+			or String(PetCatalog.get_definition(pet_id).get("attack", "")) != unified_path
+		):
+			failures.append("%s must keep idle, movement, and attack on its unified authored sheet" % pet_id)
+	var pet10_frames := PetCatalog.build_frames("pet10")
+	for animation_name in ["idle", "walk", "attack"]:
+		_check_frame_count(failures, pet10_frames, animation_name, 10)
+	var icon_path := String(PetCatalog.get_definition("pet10").get("icon", ""))
 	var first_icon := PetCatalog.make_icon_texture(icon_path, 12)
 	var cached_icon := PetCatalog.make_icon_texture(icon_path, 6)
 	if first_icon == null or cached_icon == null or first_icon.get_instance_id() != cached_icon.get_instance_id():
@@ -160,10 +193,10 @@ static func run() -> Array[String]:
 
 
 static func _test_new_pet_animation_preserves_pixels(failures: Array[String]) -> void:
-	for pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+	for pet_id in ["pet8", "pet9", "pet10"]:
 		var definition := PetCatalog.get_definition(pet_id)
 		var built_frames := PetCatalog.build_frames(pet_id)
-		var animations := ["idle", "walk"] if pet_id == "pet9" else ["idle"]
+		var animations := ["idle", "walk", "attack"]
 		for animation_name in animations:
 			var sheet_path := String(definition.get(animation_name, ""))
 			var sheet_texture := load(sheet_path) as Texture2D

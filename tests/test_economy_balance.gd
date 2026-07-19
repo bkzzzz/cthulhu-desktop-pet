@@ -46,7 +46,9 @@ static func _check_unlock_curve(failures: Array[String]) -> void:
 static func _check_duplicate_reward(failures: Array[String]) -> void:
 	var draw_cost := 1000
 	var two_star_duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
-	var five_star_duplicate := GachaProgression.roll_pet(0.999, PetCatalog.ACTIVE_DESKTOP_PETS, 0)
+	# The final pool entry is now pet10 (four stars); sample the pet6 boundary
+	# explicitly so this remains a genuine five-star duplicate comparison.
+	var five_star_duplicate := GachaProgression.roll_pet(0.73, PetCatalog.ACTIVE_DESKTOP_PETS, 0)
 	var two_star_reward := GachaProgression.duplicate_faith_reward(draw_cost, two_star_duplicate)
 	var five_star_reward := GachaProgression.duplicate_faith_reward(draw_cost, five_star_duplicate)
 	if two_star_reward != 650:

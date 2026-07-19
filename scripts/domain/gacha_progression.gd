@@ -45,11 +45,7 @@ const PET_POOL := [
 	},
 	{
 		"pet_id": "pet10",
-		"weight": 3.5
-	},
-	{
-		"pet_id": "pet11",
-		"weight": 2.5
+		"weight": 6.0
 	}
 ]
 
@@ -79,15 +75,36 @@ static func draw_cost_total(draw_count: int, draw_amount: int) -> float:
 
 
 static func roll_pet(unit_roll: float, unlocked_pet_ids: Array, pity_count := 0) -> Dictionary:
+	var unlocked := make_unlocked_lookup(unlocked_pet_ids)
+	var locked_pool := make_locked_pool(unlocked)
+	return roll_pet_with_context(unit_roll, unlocked, locked_pool, pity_count)
+
+
+static func make_unlocked_lookup(unlocked_pet_ids: Array) -> Dictionary:
 	var unlocked := {}
 	for pet_id_value in unlocked_pet_ids:
 		unlocked[String(pet_id_value)] = true
+	return unlocked
 
+
+static func make_locked_pool(unlocked_lookup: Dictionary) -> Array:
 	var locked_pool: Array = []
 	for entry_value in PET_POOL:
 		var entry: Dictionary = entry_value
-		if not unlocked.has(String(entry.get("pet_id", ""))):
+		if not unlocked_lookup.has(String(entry.get("pet_id", ""))):
 			locked_pool.append(entry)
+	return locked_pool
+
+
+# Batch callers retain these two tiny lookup structures between rolls. This
+# avoids rebuilding the owned set and locked-pet pool thousands of times while
+# preserving the exact single-draw probabilities and pity behavior.
+static func roll_pet_with_context(
+	unit_roll: float,
+	unlocked_lookup: Dictionary,
+	locked_pool: Array,
+	pity_count := 0
+) -> Dictionary:
 
 	var pool: Array = PET_POOL
 	if not locked_pool.is_empty() and maxi(0, pity_count) >= NEW_PET_PITY_DRAWS - 1:
@@ -95,7 +112,7 @@ static func roll_pet(unit_roll: float, unlocked_pet_ids: Array, pity_count := 0)
 	var result := _roll_from_pool(pool, unit_roll)
 	if result.is_empty():
 		return {}
-	result["is_new"] = not unlocked.has(String(result.get("pet_id", "")))
+	result["is_new"] = not unlocked_lookup.has(String(result.get("pet_id", "")))
 	result["duplicate_faith"] = 0
 	return result
 

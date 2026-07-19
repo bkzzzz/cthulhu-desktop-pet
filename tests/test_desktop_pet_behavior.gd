@@ -20,7 +20,6 @@ static func run() -> Array[String]:
 	_test_ground_alignment(failures)
 	_test_pet6_taskbar_alignment_and_wall_rule(failures)
 	_test_pet7_directional_roll(failures)
-	_test_pet11_swallow_cycle(failures)
 	_test_wall_alignment_and_descent(failures)
 	_test_grab_offset(failures)
 	_test_burrow_reaction(failures)
@@ -240,7 +239,9 @@ static func _test_hide_then_pop(failures: Array[String]) -> void:
 
 
 static func _test_ground_alignment(failures: Array[String]) -> void:
-	for pet_id in ["pet1", "pet3", "pet4", "pet5", "pet9"]:
+	# Floating pets deliberately hover above the taskbar. Pixel-exact foot checks
+	# only apply to creatures whose authored locomotion is ground-bound.
+	for pet_id in ["pet1", "pet3", "pet4", "pet5"]:
 		var actor := DesktopPetActor.new()
 		actor.setup(pet_id, Vector2i(1200, 720), 72.0, 1100.0, 600.0)
 		var sprite := actor.get_node("%sSprite" % pet_id) as AnimatedSprite2D
@@ -270,7 +271,7 @@ static func _test_pet6_taskbar_alignment_and_wall_rule(failures: Array[String]) 
 	var definition := PetCatalog.get_definition("pet6")
 	var contact_line := actor.position.y + (
 		(float(definition.get("frame_foot_y", 0)) + 1.0 - float(definition.get("frame_center_y", 0.0)))
-		* float(definition.get("desktop_scale", 1.0))
+		* float(actor.get("_pet_scale"))
 	)
 	if absf(contact_line - 720.0) > 0.05:
 		failures.append("pet6's authored feet must stand on the usable taskbar boundary")
@@ -279,8 +280,8 @@ static func _test_pet6_taskbar_alignment_and_wall_rule(failures: Array[String]) 
 	var idle_bounds := _get_visible_alpha_bounds(idle_image)
 	var local_visible_bottom := float(idle_bounds.end.y) - (float(idle_image.get_height()) * 0.5)
 	var visible_bottom := actor.position.y + (local_visible_bottom * sprite.scale.y)
-	if visible_bottom <= 720.0 or visible_bottom >= 744.0:
-		failures.append("pet6's lower hand may overlap below its foot line without leaving the visual window")
+	if visible_bottom > 744.0:
+		failures.append("pet6's visible pixels must stay inside its transparent desktop window")
 	actor.call("_update_interaction_area")
 	if actor.get_interaction_rect().end.y > 720.01:
 		failures.append("pet6's taskbar-overlapping hand must remain click-through")
@@ -383,7 +384,7 @@ static func _test_floater_interaction_height(failures: Array[String]) -> void:
 
 
 static func _test_new_pet_visible_boundaries(failures: Array[String]) -> void:
-	for pet_id in ["pet8", "pet9", "pet10", "pet11"]:
+	for pet_id in ["pet8", "pet9", "pet10"]:
 		var actor := DesktopPetActor.new()
 		actor.setup(pet_id, Vector2i(1600, 1000), 0.0, 1600.0, 800.0, 984.0, false)
 		actor.position = Vector2(float(actor.get("_min_x")), float(actor.call("_get_drag_min_y")))
@@ -396,35 +397,8 @@ static func _test_new_pet_visible_boundaries(failures: Array[String]) -> void:
 			failures.append("%s must stay inside the usable desktop while moving or being dragged" % pet_id)
 		actor.free()
 
-
-static func _test_pet11_swallow_cycle(failures: Array[String]) -> void:
-	var pet11 := DesktopPetActor.new()
-	pet11.setup("pet11", Vector2i(1600, 1000), 0.0, 1600.0, 900.0)
-	var target := DesktopPetActor.new()
-	target.setup("pet8", Vector2i(1600, 1000), 0.0, 1600.0, 420.0)
-	if not target.start_swallowed_by(pet11, 1.0):
-		failures.append("pet11 must be able to start swallowing another available pet")
-		target.free()
-		pet11.free()
-		return
-	target.call("_update_swallowed", DesktopPetActor.SWALLOW_IN_DURATION + 0.01)
-	var target_sprite := target.get_node("pet8Sprite") as AnimatedSprite2D
-	if target_sprite.visible or not target.is_swallowed():
-		failures.append("a swallowed pet must disappear inside pet11 during the hold")
-	target.call("_update_swallowed", 1.1)
-	if not target_sprite.visible:
-		failures.append("pet11 must visibly spit the swallowed pet back out")
-	target.call("_update_swallowed", DesktopPetActor.SWALLOW_OUT_DURATION + 0.01)
-	if target.is_swallowed() or int(target.get("_behavior")) != DesktopPetActor.Behavior.IDLE:
-		failures.append("a spat-out pet must fully return to normal autonomous behavior")
-	if not target_sprite.scale.is_equal_approx(Vector2.ONE * float(target.get("_pet_scale"))):
-		failures.append("a spat-out pet must restore its authored desktop scale")
-	target.free()
-	pet11.free()
-
-
 static func _test_wall_alignment_and_descent(failures: Array[String]) -> void:
-	for pet_id in ["pet1", "pet4", "pet5"]:
+	for pet_id in ["pet1", "pet4"]:
 		var actor := DesktopPetActor.new()
 		actor.setup(pet_id, Vector2i(1200, 720), 72.0, 1100.0, 600.0)
 		var sprite := actor.get_node("%sSprite" % pet_id) as AnimatedSprite2D

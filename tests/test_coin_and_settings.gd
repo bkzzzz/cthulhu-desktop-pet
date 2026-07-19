@@ -5,6 +5,7 @@ const CoinDrop = preload("res://scripts/coin_drop.gd")
 const SettingsWindow = preload("res://scripts/settings_window.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
+const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
 
 static func run() -> Array[String]:
@@ -120,19 +121,21 @@ static func _test_crystal_progression_gates(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
 	main.set("_pet_window_size", Vector2i(1200, 720))
-	(main.get("_pet_states") as Dictionary)["pet11"] = {"upgrade_level": 300}
-	var pet11 := DesktopPetActor.new()
-	pet11.setup("pet11", Vector2i(1200, 720), 0.0, 1200.0, 500.0, 704.0, false)
-	main.add_child(pet11)
-	(main.get("_pets") as Array).append(pet11)
-	main.call("_spawn_pet_coin_pile", pet11, 16.0)
-	var found_copper := false
+	(main.get("_pet_states") as Dictionary)["pet10"] = {"upgrade_level": 300}
+	var pet10 := DesktopPetActor.new()
+	pet10.setup("pet10", Vector2i(1200, 720), 0.0, 1200.0, 500.0, 704.0, false)
+	main.add_child(pet10)
+	(main.get("_pets") as Array).append(pet10)
+	# Use a deliberately accumulated interval so the pile has enough value to
+	# pay for the crystal tier unlocked by this high-level pet.
+	main.call("_spawn_pet_coin_pile", pet10, 600.0)
+	var found_crystal := false
 	for drop in main.get("_coin_drops") as Array:
-		if String(drop.get("coin_type")) == "C":
-			found_copper = true
+		if String(drop.get("coin_type")) in ["C", "S", "G"]:
+			found_crystal = true
 			break
-	if not found_copper:
-		failures.append("a high-level five-star pet must produce a copper crystal in a qualifying pile")
+	if not found_crystal:
+		failures.append("a high-level late-roster pet must produce a crystal in a qualifying pile")
 	if int(main.get("_gold_coins")) != 0:
 		failures.append("crystals must remain collectible drops instead of directly crediting money")
 	main.free()
@@ -206,7 +209,7 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("settings must display the current session runtime")
 	if total_label == null or total_label.text != "01:02:03":
 		failures.append("settings must display the persisted total runtime")
-	settings.refresh_debug_values(12345.0, 6789, 2.5, 3.0)
+	settings.refresh_debug_values(12345.0, 6789, 2.5, 3.0, {"pet1": 100, "pet6": 246})
 	var faith_spin := settings.get("_debug_faith_spin") as SpinBox
 	var coin_spin := settings.get("_debug_coin_spin") as SpinBox
 	var enemy_power_spin := settings.get("_debug_enemy_power_spin") as SpinBox
@@ -219,19 +222,28 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("settings debug options must expose freely adjustable enemy power")
 	if game_speed_spin == null or not is_equal_approx(game_speed_spin.value, 3.0):
 		failures.append("settings debug options must expose an adjustable game speed")
+	var pet_level_spins: Dictionary = settings.get("_debug_pet_level_spins")
+	if pet_level_spins.size() != PetCatalog.ACTIVE_DESKTOP_PETS.size():
+		failures.append("settings debug options must expose an individual level control for every pet")
+	elif int((pet_level_spins["pet1"] as SpinBox).value) != 100 or int((pet_level_spins["pet6"] as SpinBox).value) != 246:
+		failures.append("settings must load every pet's current level into its own control")
 	var debug_events: Array[String] = []
 	var debug_simulations: Array[Vector2] = []
+	var debug_level_snapshots: Array[Dictionary] = []
 	settings.debug_event_requested.connect(func(event_type: String) -> void: debug_events.append(event_type))
 	settings.debug_simulation_requested.connect(
 		func(enemy_scale: float, game_speed: float) -> void:
 			debug_simulations.append(Vector2(enemy_scale, game_speed))
 	)
+	settings.debug_pet_levels_requested.connect(func(levels: Dictionary) -> void: debug_level_snapshots.append(levels))
 	settings.call("_on_debug_event_pressed", "pilgrimage")
 	settings.call("_on_debug_event_pressed", "battle")
 	if debug_events != ["pilgrimage", "battle"]:
 		failures.append("settings debug options must expose direct pilgrimage and battle triggers")
 	if debug_simulations.size() != 2 or not debug_simulations.back().is_equal_approx(Vector2(2.5, 3.0)):
 		failures.append("debug event buttons must apply the typed multipliers before dropping an invitation")
+	if debug_level_snapshots.size() != 2 or int(debug_level_snapshots.back().get("pet6", 0)) != 246:
+		failures.append("debug apply/event actions must include the individually typed pet levels")
 	var snapshot_main := Main.new()
 	snapshot_main.set("_persistence_enabled", false)
 	snapshot_main.set("_settings_window", settings)

@@ -50,16 +50,20 @@ var _result_action_button: Button
 var _result_skip_all_button: Button
 var _result_overlay: Control
 var _draw_button: Button
-var _draw_ten_toggle: CheckBox
-var _draw_amount_selector: OptionButton
-var _custom_draw_amount: SpinBox
+var _draw_amount_buttons: Dictionary = {}
+var _custom_draw_input: LineEdit
+var _custom_draw_row: Control
+var _selected_draw_preset := 1
+var _updating_custom_input := false
 var _machine_view: TextureRect
 var _machine_stage: Control
 var _egg_views: Array[TextureRect] = []
 var _egg_home_positions: Array[Vector2] = []
 var _animation_tween: Tween
 var _animation_playing := false
+var _draw_request_pending := false
 var _pending_results: Array[Dictionary] = []
+var _prepared_batch_summary: Dictionary = {}
 var _result_index := 0
 var _showing_batch_summary := false
 var _coin_balance := 0.0
@@ -116,8 +120,6 @@ func set_language(language_code: String) -> void:
 	_language = "en" if language_code == "en" else "zh"
 	_refresh_draw_amount_labels()
 	title = "Pet Gacha" if _language == "en" else "宠物扭蛋"
-	if _draw_ten_toggle != null:
-		_draw_ten_toggle.text = "Draw ten" if _language == "en" else "扭十次"
 	if _result_title != null and _pending_results.is_empty():
 		_result_title.text = "WAITING FOR DRAW" if _language == "en" else "等待抽取"
 	if _result_detail != null and _pending_results.is_empty():
@@ -131,14 +133,26 @@ func show_result(result: Dictionary) -> void:
 	show_results([result])
 
 
-func show_results(results: Array) -> void:
+func show_results(results: Array, batch_summary: Dictionary = {}) -> void:
 	_pending_results.clear()
 	for result_value in results:
 		if result_value is Dictionary and not (result_value as Dictionary).is_empty():
-			_pending_results.append((result_value as Dictionary).duplicate(true))
+			# Main hands this array off after its batch is complete, so retaining the
+			# immutable result dictionaries avoids a 10,000-entry deep-copy spike.
+			_pending_results.append(result_value as Dictionary)
+	_prepared_batch_summary = batch_summary.duplicate(true)
 	_result_index = 0
 	if not _animation_playing:
 		_reveal_current_result()
+
+
+func set_draw_request_pending(pending: bool) -> void:
+	_draw_request_pending = pending
+	_update_draw_button()
+
+
+func is_draw_request_pending() -> bool:
+	return _draw_request_pending
 
 
 func _create_content() -> void:
@@ -229,45 +243,68 @@ func _create_content() -> void:
 	_draw_button.pressed.connect(_on_draw_button_pressed)
 	button_center.add_child(_draw_button)
 
-	var toggle_center := CenterContainer.new()
-	toggle_center.custom_minimum_size = Vector2(CONTENT_WIDTH, 34.0)
-	toggle_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_child(toggle_center)
-	_draw_ten_toggle = CheckBox.new()
-	_draw_ten_toggle.name = "DrawTenToggle"
-	_draw_ten_toggle.text = "扭十次"
-	_draw_ten_toggle.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	_draw_ten_toggle.add_theme_font_size_override("font_size", 17)
-	_draw_ten_toggle.add_theme_color_override("font_color", Color(0.82, 0.86, 0.72))
-	_draw_ten_toggle.toggled.connect(_on_draw_ten_toggled)
-	_draw_ten_toggle.visible = false
-	toggle_center.add_child(_draw_ten_toggle)
-
+	var amount_card := PanelContainer.new()
+	amount_card.name = "DrawAmountCard"
+	amount_card.custom_minimum_size = Vector2(CONTENT_WIDTH - 56.0, 86.0)
+	amount_card.add_theme_stylebox_override(
+		"panel",
+		_make_button_style(Color(0.025, 0.075, 0.06, 0.96), Color(0.32, 0.38, 0.22, 0.9), false)
+	)
+	content.add_child(amount_card)
+	var amount_margin := MarginContainer.new()
+	amount_margin.add_theme_constant_override("margin_left", 12)
+	amount_margin.add_theme_constant_override("margin_top", 8)
+	amount_margin.add_theme_constant_override("margin_right", 12)
+	amount_margin.add_theme_constant_override("margin_bottom", 8)
+	amount_card.add_child(amount_margin)
+	var amount_content := VBoxContainer.new()
+	amount_content.add_theme_constant_override("separation", 7)
+	amount_margin.add_child(amount_content)
+	var amount_title := _make_label("抽取次数", 14, Color(0.69, 0.74, 0.57))
+	amount_title.name = "DrawAmountTitle"
+	amount_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	amount_content.add_child(amount_title)
 	var amount_row := HBoxContainer.new()
 	amount_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	amount_row.add_theme_constant_override("separation", 8)
-	amount_row.custom_minimum_size = Vector2(CONTENT_WIDTH, 40.0)
-	content.add_child(amount_row)
-	_draw_amount_selector = OptionButton.new()
-	_draw_amount_selector.name = "DrawAmountSelector"
-	_draw_amount_selector.custom_minimum_size = Vector2(210.0, 38.0)
-	for amount in [1, 10, 100, 1000]:
-		_draw_amount_selector.add_item("", amount)
-	_draw_amount_selector.add_item("", -1)
-	_draw_amount_selector.select(0)
-	_draw_amount_selector.item_selected.connect(_on_draw_amount_selected)
-	amount_row.add_child(_draw_amount_selector)
-	_custom_draw_amount = SpinBox.new()
-	_custom_draw_amount.name = "CustomDrawAmount"
-	_custom_draw_amount.custom_minimum_size = Vector2(128.0, 38.0)
-	_custom_draw_amount.min_value = 1.0
-	_custom_draw_amount.max_value = float(GachaProgression.MAX_BATCH_DRAWS)
-	_custom_draw_amount.step = 1.0
-	_custom_draw_amount.value = 100.0
-	_custom_draw_amount.visible = false
-	_custom_draw_amount.value_changed.connect(_on_custom_draw_amount_changed)
-	amount_row.add_child(_custom_draw_amount)
+	amount_row.add_theme_constant_override("separation", 7)
+	amount_content.add_child(amount_row)
+	for amount in [1, 10, 100, 1000, -1]:
+		var amount_button := Button.new()
+		amount_button.name = "DrawAmount%s" % ("Custom" if amount < 0 else str(amount))
+		amount_button.text = "自定义" if amount < 0 else "×%d" % amount
+		amount_button.custom_minimum_size = Vector2(86.0 if amount < 0 else 69.0, 35.0)
+		amount_button.toggle_mode = true
+		amount_button.button_pressed = amount == 1
+		amount_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		amount_button.add_theme_font_size_override("font_size", 15)
+		amount_button.pressed.connect(_on_draw_amount_preset_pressed.bind(amount))
+		amount_row.add_child(amount_button)
+		_draw_amount_buttons[amount] = amount_button
+	_custom_draw_row = HBoxContainer.new()
+	_custom_draw_row.name = "CustomDrawAmountRow"
+	_custom_draw_row.visible = false
+	(_custom_draw_row as HBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+	(_custom_draw_row as HBoxContainer).add_theme_constant_override("separation", 8)
+	amount_content.add_child(_custom_draw_row)
+	var custom_label := _make_label("自定义数量", 14, Color(0.76, 0.79, 0.63))
+	_custom_draw_row.add_child(custom_label)
+	_custom_draw_input = LineEdit.new()
+	_custom_draw_input.name = "CustomDrawAmount"
+	_custom_draw_input.custom_minimum_size = Vector2(154.0, 35.0)
+	_custom_draw_input.placeholder_text = "1 - %d" % GachaProgression.MAX_BATCH_DRAWS
+	_custom_draw_input.text = "100"
+	_custom_draw_input.max_length = 7
+	_custom_draw_input.select_all_on_focus = true
+	_custom_draw_input.add_theme_font_size_override("font_size", 17)
+	_custom_draw_input.add_theme_color_override("font_color", Color(0.96, 0.88, 0.65))
+	_custom_draw_input.add_theme_color_override("caret_color", Color(0.98, 0.82, 0.38))
+	_custom_draw_input.add_theme_stylebox_override("normal", _make_button_style(Color(0.01, 0.04, 0.032, 1.0), Color(0.5, 0.48, 0.27, 0.92), true))
+	_custom_draw_input.add_theme_stylebox_override("focus", _make_button_style(Color(0.035, 0.09, 0.07, 1.0), Color(0.86, 0.7, 0.3, 1.0), true))
+	_custom_draw_input.text_changed.connect(_on_custom_draw_text_changed)
+	_custom_draw_input.text_submitted.connect(_on_custom_draw_text_submitted)
+	_custom_draw_row.add_child(_custom_draw_input)
 	_refresh_draw_amount_labels()
+	_update_draw_amount_button_styles()
 
 
 func _create_egg_pile() -> void:
@@ -384,9 +421,10 @@ func _create_result_overlay() -> void:
 
 
 func _on_draw_button_pressed() -> void:
-	if _draw_button == null or _draw_button.disabled or _animation_playing:
+	if _draw_button == null or _draw_button.disabled or _animation_playing or _draw_request_pending:
 		return
 	_pending_results.clear()
+	_prepared_batch_summary.clear()
 	_result_index = 0
 	_showing_batch_summary = false
 	_result_overlay.visible = false
@@ -394,27 +432,52 @@ func _on_draw_button_pressed() -> void:
 	draw_requested.emit(_selected_draw_amount())
 
 
-func _on_draw_ten_toggled(_enabled: bool) -> void:
+func _on_draw_amount_preset_pressed(amount: int) -> void:
+	_selected_draw_preset = amount
+	if _custom_draw_row != null:
+		_custom_draw_row.visible = amount < 0
+	_update_draw_amount_button_styles()
+	_update_draw_button()
+	if amount < 0 and _custom_draw_input != null:
+		_custom_draw_input.call_deferred("grab_focus")
+
+
+func _on_custom_draw_text_changed(new_text: String) -> void:
+	if _updating_custom_input:
+		return
+	var digits := ""
+	for index in new_text.length():
+		var character := new_text.substr(index, 1)
+		if character >= "0" and character <= "9":
+			digits += character
+	if digits != new_text:
+		_updating_custom_input = true
+		_custom_draw_input.text = digits
+		_custom_draw_input.caret_column = digits.length()
+		_updating_custom_input = false
 	_update_draw_button()
 
 
-func _on_draw_amount_selected(index: int) -> void:
-	if _custom_draw_amount != null:
-		_custom_draw_amount.visible = _draw_amount_selector.get_item_id(index) < 0
-	_update_draw_button()
+func _on_custom_draw_text_submitted(_new_text: String) -> void:
+	_normalize_custom_draw_input()
 
 
-func _on_custom_draw_amount_changed(_value: float) -> void:
+func _normalize_custom_draw_input() -> void:
+	if _custom_draw_input == null:
+		return
+	var amount := clampi(int(_custom_draw_input.text) if _custom_draw_input.text.is_valid_int() else 1, 1, GachaProgression.MAX_BATCH_DRAWS)
+	_updating_custom_input = true
+	_custom_draw_input.text = str(amount)
+	_updating_custom_input = false
 	_update_draw_button()
 
 
 func _selected_draw_amount() -> int:
-	if _draw_amount_selector == null:
+	if _selected_draw_preset > 0:
+		return _selected_draw_preset
+	if _custom_draw_input == null or not _custom_draw_input.text.is_valid_int():
 		return 1
-	var selected_id := _draw_amount_selector.get_selected_id()
-	if selected_id > 0:
-		return selected_id
-	return clampi(int(round(_custom_draw_amount.value)), 1, GachaProgression.MAX_BATCH_DRAWS)
+	return clampi(int(_custom_draw_input.text), 1, GachaProgression.MAX_BATCH_DRAWS)
 
 
 func _selected_draw_cost() -> float:
@@ -468,12 +531,12 @@ func _clamp_egg_position(position_value: Vector2) -> Vector2:
 		clampf(
 			position_value.x,
 			EGG_POSITION_BOUNDS.position.x,
-			EGG_POSITION_BOUNDS.end.x
+			EGG_POSITION_BOUNDS.end.x - 0.001
 		),
 		clampf(
 			position_value.y,
 			EGG_POSITION_BOUNDS.position.y,
-			EGG_POSITION_BOUNDS.end.y
+			EGG_POSITION_BOUNDS.end.y - 0.001
 		)
 	)
 
@@ -550,20 +613,28 @@ func _show_batch_summary() -> void:
 	if _pending_results.is_empty():
 		return
 	var new_names: Array[String] = []
-	var seen_new_ids := {}
 	var duplicate_faith_total := 0
 	var first_new_pet_id := ""
-	for result in _pending_results:
-		duplicate_faith_total += maxi(0, int(result.get("duplicate_faith", 0)))
-		if not bool(result.get("is_new", false)):
-			continue
-		var pet_id := String(result.get("pet_id", ""))
-		if seen_new_ids.has(pet_id):
-			continue
-		seen_new_ids[pet_id] = true
-		if first_new_pet_id.is_empty():
-			first_new_pet_id = pet_id
-		new_names.append(String(result.get("name", PetCatalog.get_definition(pet_id).get("name", pet_id))))
+	if not _prepared_batch_summary.is_empty():
+		for name_value in _prepared_batch_summary.get("new_names", []):
+			new_names.append(String(name_value))
+		duplicate_faith_total = maxi(0, int(_prepared_batch_summary.get("duplicate_faith_total", 0)))
+		first_new_pet_id = String(_prepared_batch_summary.get("first_new_pet_id", ""))
+	else:
+		# Direct/unit callers can still supply raw results without a prepared
+		# summary. Production batches build this incrementally across frames.
+		var seen_new_ids := {}
+		for result in _pending_results:
+			duplicate_faith_total += maxi(0, int(result.get("duplicate_faith", 0)))
+			if not bool(result.get("is_new", false)):
+				continue
+			var pet_id := String(result.get("pet_id", ""))
+			if seen_new_ids.has(pet_id):
+				continue
+			seen_new_ids[pet_id] = true
+			if first_new_pet_id.is_empty():
+				first_new_pet_id = pet_id
+			new_names.append(String(result.get("name", PetCatalog.get_definition(pet_id).get("name", pet_id))))
 	_showing_batch_summary = true
 	_result_progress.text = "%d DRAWS" % _pending_results.size()
 	_result_title.text = "BATCH RESULT" if _language == "en" else "批量扭蛋结果"
@@ -584,6 +655,7 @@ func _show_batch_summary() -> void:
 
 func _close_results() -> void:
 	_pending_results.clear()
+	_prepared_batch_summary.clear()
 	_result_index = 0
 	_showing_batch_summary = false
 	_result_overlay.visible = false
@@ -594,19 +666,39 @@ func _close_results() -> void:
 
 
 func _refresh_draw_amount_labels() -> void:
-	if _draw_amount_selector == null:
-		return
-	_draw_amount_selector.set_item_text(0, "DRAW ×1" if _language == "en" else "扭蛋 ×1")
-	_draw_amount_selector.set_item_text(1, "DRAW ×10" if _language == "en" else "扭蛋 ×10")
-	_draw_amount_selector.set_item_text(2, "DRAW ×100" if _language == "en" else "扭蛋 ×100")
-	_draw_amount_selector.set_item_text(3, "DRAW ×1000" if _language == "en" else "扭蛋 ×1000")
-	_draw_amount_selector.set_item_text(4, "CUSTOM" if _language == "en" else "自定义")
+	var title_label := find_child("DrawAmountTitle", true, false) as Label
+	if title_label != null:
+		title_label.text = "DRAW AMOUNT" if _language == "en" else "抽取次数"
+	var custom_button := _draw_amount_buttons.get(-1) as Button
+	if custom_button != null:
+		custom_button.text = "CUSTOM" if _language == "en" else "自定义"
+	if _custom_draw_row != null and _custom_draw_row.get_child_count() > 0:
+		(_custom_draw_row.get_child(0) as Label).text = "Amount" if _language == "en" else "自定义数量"
+
+
+func _update_draw_amount_button_styles() -> void:
+	for amount_value in _draw_amount_buttons:
+		var amount := int(amount_value)
+		var button := _draw_amount_buttons[amount] as Button
+		if button == null:
+			continue
+		var selected := amount == _selected_draw_preset
+		button.set_pressed_no_signal(selected)
+		button.add_theme_color_override("font_color", Color(0.08, 0.11, 0.07) if selected else Color(0.86, 0.84, 0.65))
+		button.add_theme_stylebox_override(
+			"normal",
+			_make_button_style(
+				Color(0.78, 0.72, 0.38, 1.0) if selected else Color(0.04, 0.11, 0.085, 1.0),
+				Color(0.94, 0.82, 0.42, 1.0) if selected else Color(0.32, 0.4, 0.24, 0.9),
+				true
+			)
+		)
 
 
 func _update_draw_button() -> void:
 	if _draw_button == null:
 		return
-	if _animation_playing:
+	if _animation_playing or _draw_request_pending:
 		_draw_button.disabled = true
 		_draw_button.text = "DRAWING…" if _language == "en" else "扭蛋中…"
 		return

@@ -18,12 +18,17 @@ func _render_previews() -> void:
 	var initial_path := OS.get_user_data_dir().path_join("gacha_initial_preview.png")
 	window.get_texture().get_image().save_png(initial_path)
 	window.call("_apply_egg_shuffle_step", 0)
-	var selector: OptionButton = window.get("_draw_amount_selector")
-	selector.select(3)
+	window.call("_on_draw_amount_preset_pressed", 1000)
 	window.call("_update_draw_button")
 	await process_frame
 	var shuffle_path := OS.get_user_data_dir().path_join("gacha_shuffle_preview.png")
 	window.get_texture().get_image().save_png(shuffle_path)
+	window.call("_on_draw_amount_preset_pressed", -1)
+	var custom_input: LineEdit = window.get("_custom_draw_input")
+	custom_input.text = "237"
+	await process_frame
+	var custom_path := OS.get_user_data_dir().path_join("gacha_custom_preview.png")
+	window.get_texture().get_image().save_png(custom_path)
 
 	var duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
 	duplicate["name"] = "深渊凝视"
@@ -38,6 +43,7 @@ func _render_previews() -> void:
 	window.get_texture().get_image().save_png(result_path)
 	print("PREVIEW_INITIAL=%s" % initial_path)
 	print("PREVIEW_SHUFFLE=%s" % shuffle_path)
+	print("PREVIEW_CUSTOM=%s" % custom_path)
 	print("PREVIEW_RESULT=%s" % result_path)
 	window.queue_free()
 	quit(0)

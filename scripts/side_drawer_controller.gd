@@ -10,6 +10,7 @@ signal pet_upgrade_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
 signal faith_add_requested(amount: int)
 signal menu_handle_moved(anchor: float)
+signal drawer_opened
 
 # Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
@@ -24,7 +25,7 @@ const DRAWER_CONTENT_MARGIN_X := 34
 const DRAWER_CONTENT_WIDTH := DRAWER_PANEL_WIDTH - (DRAWER_CONTENT_MARGIN_X * 2)
 const DRAWER_SLIDE_SPEED := 1800.0
 const DRAWER_CONTENT_TOP_MARGIN := 46
-const ERA_LABEL_TOP := 20.0
+const ERA_LABEL_HEIGHT := 34.0
 const MENU_WINDOW_SIZE := Vector2i(228, 150)
 const MENU_TO_DRAWER_GAP := 2
 const MENU_DRAG_THRESHOLD := 6.0
@@ -83,10 +84,11 @@ const DRAWER_SYMBOL_COUNT := 22
 const DRAWER_SYMBOL_SIZE := Vector2(28.0, 40.0)
 const DRAWER_SYMBOL_SPEED_MIN := 18.0
 const DRAWER_SYMBOL_SPEED_MAX := 42.0
+const DRAWER_SYMBOL_UPDATE_INTERVAL := 1.0 / 30.0
 const UPGRADE_EFFECT_SIZE := Vector2(150.0, 142.0)
 const UPGRADE_DETAIL_HOVER_DELAY := 0.45
 const UPGRADE_DETAIL_HIDE_GRACE := 0.22
-const UPGRADE_DETAIL_SIZE := Vector2i(396, 236)
+const UPGRADE_DETAIL_SIZE := Vector2i(420, 280)
 const UPGRADE_DETAIL_GAP := 14
 const UPGRADE_DETAIL_SCREEN_MARGIN := 24
 const UPGRADE_DETAIL_SAFE_PADDING := 18.0
@@ -116,6 +118,8 @@ var _upgrade_detail_window: Window
 var _upgrade_detail_name_edit: LineEdit
 var _upgrade_detail_rarity_label: Label
 var _upgrade_detail_profile_label: Label
+var _upgrade_detail_evolution_icon: TextureRect
+var _upgrade_detail_evolution_label: Label
 var _upgrade_detail_stats_label: RichTextLabel
 var _hovered_upgrade_pet_id := ""
 var _hovered_upgrade_button: Control
@@ -161,6 +165,7 @@ var _upgrade_bonus_labels := {}
 var _upgrade_last_levels := {}
 var _upgrade_affordables := {}
 var _upgrade_recovery_rings := {}
+var _upgrade_icons := {}
 var _ui_theme: Theme
 var _ui_font: Font
 var _upgrade_row_texture: Texture2D
@@ -168,6 +173,7 @@ var _menu_hit_images := {}
 var _bookmark_labels := {}
 var _language := "zh"
 var _rng := RandomNumberGenerator.new()
+var _drawer_symbol_update_time := 0.0
 
 
 # Lifecycle
@@ -191,9 +197,14 @@ func _process(delta: float) -> void:
 	_update_drawer_slide(delta)
 	if _drawer_window != null and _drawer_window.visible:
 		_update_upgrade_detail_hover(delta)
-		_update_drawer_background_symbols(delta)
+		_drawer_symbol_update_time += maxf(0.0, delta)
+		if _drawer_symbol_update_time >= DRAWER_SYMBOL_UPDATE_INTERVAL:
+			_update_drawer_background_symbols(_drawer_symbol_update_time)
+			_drawer_symbol_update_time = 0.0
 		if _adder_glow != null:
 			_adder_glow.rotation += GLOW_ROTATION_SPEED * delta
+	else:
+		_drawer_symbol_update_time = 0.0
 
 
 # Public refresh API
@@ -221,49 +232,100 @@ func refresh_pet_upgrades(entries: Array) -> void:
 	var next_entries := []
 	for entry_value in entries:
 		var entry: Dictionary = entry_value
-		next_entries.append(entry.duplicate(true))
+		next_entries.append(entry.duplicate())
+	_upgrade_entries = next_entries
+	# The drawer spends most of its life closed. Keep the data current without
+	# invalidating dozens of labels, textures and controls that cannot be seen.
+	if _drawer_window != null and not _drawer_window.visible and not _drawer_open:
+		return
+
+	for entry_value in next_entries:
+		var entry: Dictionary = entry_value
 		var pet_id := String(entry.get("id", ""))
 		var level_label := _upgrade_level_labels.get(pet_id) as Label
 		var name_label := _upgrade_name_labels.get(pet_id) as Label
 		var level := _get_upgrade_level(entry)
 		var recovering := bool(entry.get("recovering", false))
 		if name_label != null:
-			name_label.text = String(entry.get("name", _get_pet_display_name(pet_id, PetCatalog.get_definition(pet_id))))
-			_fit_font_to_text(name_label, name_label.text, 19, 12, 12)
+			_set_fitted_label_text(
+				name_label,
+				String(entry.get("name", _get_pet_display_name(pet_id, PetCatalog.get_definition(pet_id)))),
+				19,
+				12,
+				12
+			)
 		if level_label != null:
-			level_label.text = ("LEVEL\n%s" if _language == "en" else "等级\n%s") % _get_upgrade_level_text(entry)
-			_fit_font_to_text(level_label, level_label.text, 25, 18, 6)
+			_set_fitted_label_text(
+				level_label,
+				("LEVEL\n%s" if _language == "en" else "等级\n%s") % _get_upgrade_level_text(entry),
+				25,
+				18,
+				6
+			)
 			if _upgrade_last_levels.has(pet_id) and level > int(_upgrade_last_levels.get(pet_id, level)):
 				_pulse_count_label(level_label)
 		_upgrade_last_levels[pet_id] = level
 
 		var cost_label := _upgrade_cost_labels.get(pet_id) as Label
 		var affordable: bool = entry.get("affordable", false) == true
+		var affordability_changed := (
+			not _upgrade_affordables.has(pet_id)
+			or bool(_upgrade_affordables.get(pet_id, false)) != affordable
+		)
 		_upgrade_affordables[pet_id] = affordable
 		var upgrade_button := _upgrade_buttons.get(pet_id) as TextureButton
 		if upgrade_button != null:
-			_set_upgrade_row_affordable(upgrade_button, affordable)
-			upgrade_button.tooltip_text = _get_upgrade_tooltip_text(entry)
+			if affordability_changed:
+				_set_upgrade_row_affordable(upgrade_button, affordable)
+			var next_tooltip := _get_upgrade_tooltip_text(entry)
+			if upgrade_button.tooltip_text != next_tooltip:
+				upgrade_button.tooltip_text = next_tooltip
 		var recovery_ring := _upgrade_recovery_rings.get(pet_id) as Control
 		if recovery_ring != null:
-			recovery_ring.visible = recovering
+			if recovery_ring.visible != recovering:
+				recovery_ring.visible = recovering
 			if recovering:
 				recovery_ring.call("set_progress", float(entry.get("recovery_progress", 0.0)))
+		var icon := _upgrade_icons.get(pet_id) as TextureRect
+		if icon != null:
+			var icon_path := String(entry.get("icon", PetCatalog.get_definition(pet_id).get("icon", "")))
+			if String(icon.get_meta("source_path", "")) != icon_path:
+				icon.texture = PetCatalog.make_icon_texture(icon_path, 12)
+				icon.set_meta("source_path", icon_path)
 
 		if cost_label != null:
-			cost_label.text = _get_upgrade_cost_text(entry)
-			_fit_font_to_text(cost_label, cost_label.text, 19, 14, 6)
-			cost_label.add_theme_color_override("font_color", Color(0.78, 0.96, 0.76, 1.0) if affordable else Color(0.84, 0.76, 0.66, 1.0))
+			_set_fitted_label_text(cost_label, _get_upgrade_cost_text(entry), 19, 14, 6)
+			if affordability_changed:
+				cost_label.add_theme_color_override("font_color", Color(0.78, 0.96, 0.76, 1.0) if affordable else Color(0.84, 0.76, 0.66, 1.0))
 
 		var bonus_label := _upgrade_bonus_labels.get(pet_id) as Label
 		if bonus_label != null:
-			bonus_label.text = _get_upgrade_growth_text(entry)
-			_fit_font_to_text(bonus_label, bonus_label.text, 17, 11, 18)
+			_set_fitted_label_text(bonus_label, _get_upgrade_growth_text(entry), 17, 11, 18)
 
-	_upgrade_entries = next_entries
 	if _upgrade_detail_window != null and _upgrade_detail_window.visible and not _upgrade_detail_pet_id.is_empty():
 		if _upgrade_detail_source_button != null and is_instance_valid(_upgrade_detail_source_button):
 			_show_upgrade_detail_panel(_upgrade_detail_pet_id, _upgrade_detail_source_button)
+
+
+func set_pet_name(pet_id: String, display_name: String) -> void:
+	if pet_id.is_empty():
+		return
+	for entry_index in _upgrade_entries.size():
+		var entry: Dictionary = _upgrade_entries[entry_index]
+		if String(entry.get("id", "")) != pet_id:
+			continue
+		entry["name"] = display_name
+		_upgrade_entries[entry_index] = entry
+		break
+	var name_label := _upgrade_name_labels.get(pet_id) as Label
+	if name_label != null:
+		_set_fitted_label_text(name_label, display_name, 19, 12, 12)
+	if (
+		_upgrade_detail_pet_id == pet_id
+		and _upgrade_detail_name_edit != null
+		and not _upgrade_detail_name_edit.has_focus()
+	):
+		_upgrade_detail_name_edit.text = display_name
 
 
 func refresh_era(display_text: String) -> void:
@@ -320,6 +382,10 @@ func get_menu_handle_anchor() -> float:
 		return clampf(_menu_handle_anchor, 0.0, 1.0)
 	var usable_rect := _get_current_screen_usable_rect()
 	return _get_default_menu_anchor(_get_current_screen_rect(), usable_rect)
+
+
+func is_upgrade_ui_visible() -> bool:
+	return _drawer_open or (_drawer_window != null and _drawer_window.visible)
 
 
 # Menu and drawer windows
@@ -441,7 +507,6 @@ func _create_drawer_window() -> void:
 	_drawer_root.add_child(_drawer_panel)
 	_create_drawer_symbol_layer()
 	_create_upgrade_detail_panel()
-	_create_era_label()
 
 	var margin := MarginContainer.new()
 	margin.z_index = 2
@@ -459,8 +524,9 @@ func _create_drawer_window() -> void:
 	margin.add_child(content)
 
 	content.add_child(_make_faith_adder_stage())
+	_create_era_label(content)
 	var upgrade_offset := Control.new()
-	upgrade_offset.custom_minimum_size = Vector2(1, 8)
+	upgrade_offset.custom_minimum_size = Vector2(1, 4)
 	content.add_child(upgrade_offset)
 	content.add_child(_make_upgrade_scroller())
 
@@ -474,28 +540,25 @@ func _create_drawer_window() -> void:
 	_refresh_drawer_geometry(false)
 
 
-func _create_era_label() -> void:
+func _create_era_label(parent: Node) -> void:
 	_era_label = Label.new()
 	_era_label.name = "EraDisplay"
-	# PanelContainer controls the rect of every direct Control child.  Keeping the
-	# era label under it made Godot stretch the label over the whole panel, which
-	# is why its text still appeared around the middle despite a manual position.
-	# The root is not a Container, so this position remains the real top-left
-	# overlay above the adder on every desktop size.
-	_era_label.position = Vector2(
-		DRAWER_BOOKMARK_WIDTH - 10 + DRAWER_CONTENT_MARGIN_X,
-		ERA_LABEL_TOP
-	)
-	_era_label.size = Vector2(300.0, 32.0)
-	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_era_label.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, ERA_LABEL_HEIGHT)
+	_era_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_era_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_era_label.z_index = 12
 	_era_label.add_theme_font_size_override("font_size", 17)
 	_era_label.add_theme_color_override("font_color", Color(0.94, 0.82, 0.48, 0.98))
 	_era_label.add_theme_color_override("font_outline_color", Color(0.02, 0.025, 0.02, 1.0))
 	_era_label.add_theme_constant_override("outline_size", 3)
-	_drawer_root.add_child(_era_label)
+	var era_style := StyleBoxFlat.new()
+	era_style.bg_color = Color(0.035, 0.065, 0.045, 0.78)
+	era_style.border_color = Color(0.48, 0.43, 0.22, 0.72)
+	era_style.set_border_width_all(1)
+	era_style.set_corner_radius_all(7)
+	_era_label.add_theme_stylebox_override("normal", era_style)
+	parent.add_child(_era_label)
 
 
 func _make_drawer_background_texture() -> Texture2D:
@@ -654,16 +717,47 @@ func _create_upgrade_detail_panel() -> void:
 
 	_upgrade_detail_profile_label = Label.new()
 	_upgrade_detail_profile_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_upgrade_detail_profile_label.custom_minimum_size = Vector2(358.0, 62.0)
+	_upgrade_detail_profile_label.custom_minimum_size = Vector2(382.0, 52.0)
 	_upgrade_detail_profile_label.add_theme_font_size_override("font_size", 14)
 	_upgrade_detail_profile_label.add_theme_color_override("font_color", Color(0.78, 0.76, 0.62, 1.0))
 	content.add_child(_upgrade_detail_profile_label)
+
+	var evolution_panel := PanelContainer.new()
+	evolution_panel.name = "EvolutionPreview"
+	evolution_panel.custom_minimum_size = Vector2(382.0, 92.0)
+	var evolution_style := StyleBoxFlat.new()
+	evolution_style.bg_color = Color(0.025, 0.045, 0.035, 0.94)
+	evolution_style.border_color = Color(0.42, 0.46, 0.28, 0.86)
+	evolution_style.set_border_width_all(1)
+	evolution_style.set_corner_radius_all(7)
+	evolution_panel.add_theme_stylebox_override("panel", evolution_style)
+	content.add_child(evolution_panel)
+	var evolution_row := HBoxContainer.new()
+	evolution_row.add_theme_constant_override("separation", 12)
+	evolution_panel.add_child(evolution_row)
+	var evolution_center := CenterContainer.new()
+	evolution_center.custom_minimum_size = Vector2(88.0, 88.0)
+	evolution_row.add_child(evolution_center)
+	_upgrade_detail_evolution_icon = TextureRect.new()
+	_upgrade_detail_evolution_icon.name = "EvolutionFormIcon"
+	_upgrade_detail_evolution_icon.custom_minimum_size = Vector2(78.0, 78.0)
+	_upgrade_detail_evolution_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_upgrade_detail_evolution_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	evolution_center.add_child(_upgrade_detail_evolution_icon)
+	_upgrade_detail_evolution_label = Label.new()
+	_upgrade_detail_evolution_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_upgrade_detail_evolution_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_upgrade_detail_evolution_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_upgrade_detail_evolution_label.custom_minimum_size = Vector2(270.0, 88.0)
+	_upgrade_detail_evolution_label.add_theme_font_size_override("font_size", 15)
+	_upgrade_detail_evolution_label.add_theme_color_override("font_color", Color(0.84, 0.82, 0.62, 1.0))
+	evolution_row.add_child(_upgrade_detail_evolution_label)
 
 	_upgrade_detail_stats_label = RichTextLabel.new()
 	_upgrade_detail_stats_label.bbcode_enabled = true
 	_upgrade_detail_stats_label.fit_content = true
 	_upgrade_detail_stats_label.scroll_active = false
-	_upgrade_detail_stats_label.custom_minimum_size = Vector2(362.0, 48.0)
+	_upgrade_detail_stats_label.custom_minimum_size = Vector2(362.0, 38.0)
 	_upgrade_detail_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_upgrade_detail_stats_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_upgrade_detail_stats_label.add_theme_font_size_override("normal_font_size", 15)
@@ -835,7 +929,17 @@ func _make_upgrade_scroller() -> ScrollContainer:
 
 
 func _get_upgrade_scroll_height() -> float:
-	var fixed_height := DRAWER_CONTENT_TOP_MARGIN + 20.0 + ADDER_STAGE_HEIGHT + 8.0 + 34.0
+	# Everything outside the scroller: panel margins, faith stage, era strip,
+	# spacer, footer, and the four ten-pixel VBox gaps between five children.
+	var fixed_height := (
+		DRAWER_CONTENT_TOP_MARGIN
+		+ 20.0
+		+ ADDER_STAGE_HEIGHT
+		+ ERA_LABEL_HEIGHT
+		+ 4.0
+		+ 28.0
+		+ 40.0
+	)
 	var available := float(_drawer_screen_size.y) - fixed_height
 	return clampf(available, UPGRADE_SCROLL_MIN_HEIGHT, UPGRADE_SCROLL_MAX_HEIGHT)
 
@@ -855,6 +959,7 @@ func _make_upgrade_column() -> Control:
 	_upgrade_last_levels.clear()
 	_upgrade_affordables.clear()
 	_upgrade_recovery_rings.clear()
+	_upgrade_icons.clear()
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		column.add_child(_make_pet_upgrade_row(String(pet_id_value)))
 	for index in UPGRADE_LOCKED_ROWS:
@@ -1011,6 +1116,7 @@ func _make_upgrade_profile_box(pet_id: String, pet_data: Dictionary) -> Control:
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	center.add_child(icon)
+	_upgrade_icons[pet_id] = icon
 
 	var recovery_ring: Control = RecoveryProgressRing.new()
 	recovery_ring.name = "%sRecoveryRing" % pet_id
@@ -1034,6 +1140,20 @@ func _make_upgrade_profile_box_style() -> StyleBoxFlat:
 
 
 # Formatting and style helpers
+func _set_fitted_label_text(
+	label: Label,
+	next_text: String,
+	max_size: int,
+	min_size: int,
+	comfortable_chars: int
+) -> bool:
+	if label == null or label.text == next_text:
+		return false
+	label.text = next_text
+	_fit_font_to_text(label, next_text, max_size, min_size, comfortable_chars)
+	return true
+
+
 func _fit_font_to_text(control: Control, text: String, max_size: int, min_size: int, comfortable_chars: int) -> void:
 	if control == null:
 		return
@@ -1419,6 +1539,18 @@ func _get_upgrade_cost_text(entry: Dictionary) -> String:
 	return ("COST %s" if _language == "en" else "消耗 %s") % _format_number(float(entry.get("cost", 0.0)))
 
 
+func _get_upgrade_evolution_text(entry: Dictionary, pet_id: String) -> String:
+	if bool(entry.get("evolved", false)):
+		var evolved_name := String(entry.get("evolution_name", "")).strip_edges()
+		if evolved_name.is_empty():
+			evolved_name = String(entry.get("name", pet_id))
+		return ("EVOLUTION COMPLETE\n%s" if _language == "en" else "进化完成\n%s") % evolved_name
+	var level := maxi(1, int(entry.get("level", 1)))
+	return (
+		"EVOLUTION AT LV.100\nCurrent Lv.%d" if _language == "en" else "Lv.100 进化\n当前 Lv.%d"
+	) % level
+
+
 func _get_pet_display_name(pet_id: String, pet_data: Dictionary) -> String:
 	for entry_value in _upgrade_entries:
 		var entry: Dictionary = entry_value
@@ -1450,6 +1582,12 @@ func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 		_upgrade_detail_rarity_label.text = _get_rarity_stars_text(entry, pet_data)
 	if _upgrade_detail_profile_label != null:
 		_upgrade_detail_profile_label.text = _get_pet_profile_text(entry, pet_data)
+	if _upgrade_detail_evolution_icon != null:
+		var evolution_icon_path := String(entry.get("evolution_icon", pet_data.get("icon", "")))
+		_upgrade_detail_evolution_icon.texture = PetCatalog.make_icon_texture(evolution_icon_path, 8)
+		_upgrade_detail_evolution_icon.modulate = Color.WHITE if bool(entry.get("evolved", false)) else Color(0.24, 0.18, 0.22, 0.92)
+	if _upgrade_detail_evolution_label != null:
+		_upgrade_detail_evolution_label.text = _get_upgrade_evolution_text(entry, pet_id)
 	if _upgrade_detail_stats_label != null:
 		_upgrade_detail_stats_label.text = "[color=#b9dc8a]%s[/color]" % _get_money_rate_text(entry)
 
@@ -1886,9 +2024,13 @@ func _toggle_drawer() -> void:
 	_drawer_target_x = _drawer_screen_position.x if _drawer_open else _drawer_closed_x
 
 	if _drawer_open:
+		# Data can change while the window is hidden; paint the cached snapshot once
+		# on open instead of continuously touching invisible controls.
+		refresh_pet_upgrades(_upgrade_entries)
 		if not _drawer_window.visible or _drawer_window.position.x < _drawer_screen_position.x or _drawer_window.position.x >= _drawer_closed_x:
 			_drawer_window.position = Vector2i(_drawer_closed_x, _drawer_screen_position.y)
 		_drawer_window.visible = true
+		drawer_opened.emit()
 
 
 func _get_menu_handle_x(screen_rect: Rect2i) -> int:

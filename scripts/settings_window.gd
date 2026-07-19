@@ -6,6 +6,10 @@ signal quit_requested
 signal debug_economy_requested(faith_points: float, gold_coins: int)
 signal debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 signal debug_event_requested(event_type: String)
+signal debug_pet_levels_requested(levels: Dictionary)
+
+const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 
 const WINDOW_SIZE := Vector2i(720, 720)
 const BACKGROUND_TEXTURE := "res://assets/ui/setting/settingUI.png"
@@ -40,6 +44,8 @@ var _debug_enemy_power_label: Label
 var _debug_enemy_power_spin: SpinBox
 var _debug_game_speed_label: Label
 var _debug_game_speed_spin: SpinBox
+var _debug_pet_levels_title: Label
+var _debug_pet_level_spins: Dictionary = {}
 var _debug_apply_button: Button
 var _debug_event_title_label: Label
 var _debug_pilgrimage_button: Button
@@ -85,7 +91,8 @@ func refresh_debug_values(
 	faith_points: float,
 	gold_coins: int,
 	enemy_power_scale := 1.0,
-	game_speed := 1.0
+	game_speed := 1.0,
+	pet_levels := {}
 ) -> void:
 	if _debug_faith_spin != null:
 		_debug_faith_spin.value = clampf(faith_points, 0.0, _debug_faith_spin.max_value)
@@ -95,6 +102,12 @@ func refresh_debug_values(
 		_debug_enemy_power_spin.value = clampf(enemy_power_scale, 0.0, _debug_enemy_power_spin.max_value)
 	if _debug_game_speed_spin != null:
 		_debug_game_speed_spin.value = clampf(game_speed, _debug_game_speed_spin.min_value, _debug_game_speed_spin.max_value)
+	if pet_levels is Dictionary:
+		for pet_id_value in _debug_pet_level_spins:
+			var pet_id := String(pet_id_value)
+			var spin := _debug_pet_level_spins[pet_id] as SpinBox
+			if spin != null:
+				spin.value = clampi(int((pet_levels as Dictionary).get(pet_id, spin.value)), 1, PetProgression.MAX_LEVEL)
 
 
 func set_activity_range(activity_range: String) -> void:
@@ -259,8 +272,8 @@ func _create_content() -> void:
 func _create_debug_panel() -> void:
 	_debug_panel = PanelContainer.new()
 	_debug_panel.name = "DebugPanel"
-	_debug_panel.position = Vector2(142.0, 65.0)
-	_debug_panel.size = Vector2(436.0, 590.0)
+	_debug_panel.position = Vector2(24.0, 24.0)
+	_debug_panel.size = Vector2(672.0, 672.0)
 	_debug_panel.visible = false
 	_debug_panel.z_index = 20
 	_debug_panel.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -276,7 +289,7 @@ func _create_debug_panel() -> void:
 	margin.add_theme_constant_override("margin_bottom", 24)
 	_debug_panel.add_child(margin)
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 8)
+	content.add_theme_constant_override("separation", 6)
 	margin.add_child(content)
 
 	_debug_title_label = _make_label("调试选项", 28, Color(0.94, 0.84, 0.62, 1.0))
@@ -317,6 +330,37 @@ func _create_debug_panel() -> void:
 	_debug_game_speed_spin = _make_debug_multiplier_spin_box(0.1, 20.0, 0.1)
 	game_speed_row.add_child(_debug_game_speed_spin)
 	content.add_child(game_speed_row)
+
+	_debug_pet_levels_title = _make_label("宠物等级（逐只设置）", 17, Color(0.9, 0.78, 0.52, 1.0))
+	_debug_pet_levels_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(_debug_pet_levels_title)
+	var pet_level_scroll := ScrollContainer.new()
+	pet_level_scroll.name = "DebugPetLevelScroll"
+	pet_level_scroll.custom_minimum_size = Vector2(600.0, 138.0)
+	pet_level_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content.add_child(pet_level_scroll)
+	var pet_level_grid := GridContainer.new()
+	pet_level_grid.name = "DebugPetLevelGrid"
+	pet_level_grid.columns = 4
+	pet_level_grid.add_theme_constant_override("h_separation", 8)
+	pet_level_grid.add_theme_constant_override("v_separation", 5)
+	pet_level_scroll.add_child(pet_level_grid)
+	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+		var pet_id := String(pet_id_value)
+		var pet_label := _make_label(pet_id.to_upper(), 14, Color(0.74, 0.8, 0.68, 1.0))
+		pet_label.custom_minimum_size = Vector2(66.0, 34.0)
+		pet_level_grid.add_child(pet_label)
+		var pet_level_spin := SpinBox.new()
+		pet_level_spin.name = "Debug%sLevel" % pet_id.capitalize()
+		pet_level_spin.min_value = 1.0
+		pet_level_spin.max_value = float(PetProgression.MAX_LEVEL)
+		pet_level_spin.step = 1.0
+		pet_level_spin.rounded = true
+		pet_level_spin.value = 1.0
+		pet_level_spin.custom_minimum_size = Vector2(205.0, 34.0)
+		pet_level_spin.add_theme_font_size_override("font_size", 15)
+		pet_level_grid.add_child(pet_level_spin)
+		_debug_pet_level_spins[pet_id] = pet_level_spin
 
 	_debug_apply_button = Button.new()
 	_debug_apply_button.text = "应用数值"
@@ -408,8 +452,13 @@ func _emit_debug_values() -> void:
 	var gold_coins := int(round(_debug_coin_spin.value))
 	var enemy_power_scale := _debug_enemy_power_spin.value
 	var game_speed := _debug_game_speed_spin.value
+	var pet_levels := {}
+	for pet_id_value in _debug_pet_level_spins:
+		var pet_id := String(pet_id_value)
+		pet_levels[pet_id] = int(round((_debug_pet_level_spins[pet_id] as SpinBox).value))
 	debug_economy_requested.emit(faith_points, gold_coins)
 	debug_simulation_requested.emit(enemy_power_scale, game_speed)
+	debug_pet_levels_requested.emit(pet_levels)
 
 
 func _on_debug_event_pressed(event_type: String) -> void:
@@ -505,6 +554,8 @@ func _apply_language() -> void:
 		_debug_enemy_power_label.text = "Enemy power" if english else "敌军战力倍率"
 	if _debug_game_speed_label != null:
 		_debug_game_speed_label.text = "Game speed" if english else "游戏速度倍率"
+	if _debug_pet_levels_title != null:
+		_debug_pet_levels_title.text = "PET LEVELS (INDIVIDUAL)" if english else "宠物等级（逐只设置）"
 	if _debug_apply_button != null:
 		_debug_apply_button.text = "APPLY VALUES" if english else "应用数值"
 	if _debug_event_title_label != null:

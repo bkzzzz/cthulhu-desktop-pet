@@ -2,12 +2,12 @@ extends RefCounted
 
 const ACTIVE_DESKTOP_PETS := [
 	"pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
-	"pet8", "pet9", "pet10", "pet11"
+	"pet8", "pet9", "pet10"
 ]
 const STARTER_UNLOCKED_PETS := ["pet1"]
 const GACHA_PETS := [
 	"pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
-	"pet8", "pet9", "pet10", "pet11"
+	"pet8", "pet9", "pet10"
 ]
 const INVENTORY_STARTER_PETS := STARTER_UNLOCKED_PETS
 
@@ -15,8 +15,11 @@ const INVENTORY_STARTER_PETS := STARTER_UNLOCKED_PETS
 const BASE_COMBAT_POWER := {
 	"pet1": 12.0, "pet2": 17.0, "pet3": 22.0, "pet4": 28.0,
 	"pet5": 34.0, "pet6": 40.0, "pet7": 45.0, "pet8": 52.0,
-	"pet9": 60.0, "pet10": 70.0, "pet11": 82.0
+	"pet9": 60.0, "pet10": 70.0
 }
+
+const EVOLUTION_POWER_MULTIPLIER := 1.85
+const EVOLUTION_PRODUCTION_MULTIPLIER := 1.5
 
 const DEFINITIONS := {
 	"pet1": {
@@ -48,7 +51,7 @@ const DEFINITIONS := {
 		"wall_chance": 0.08,
 		"can_wall_crawl": true,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 105,
+		"frame_foot_y": 110,
 		"ground_offset_y": 0.0,
 		"ambient_emotion_interval_min": 150.0,
 		"ambient_emotion_interval_max": 250.0,
@@ -60,7 +63,14 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet1/pet1.png",
 		"idle": "res://assets/NewCharacters/pet1/pet1Idle.png",
-		"walk": "res://assets/NewCharacters/pet1/pet1Walk.png"
+		"walk": "res://assets/NewCharacters/pet1/pet1Walk.png",
+		"attack": "res://assets/NewCharacters/pet1/pet1Attack.png",
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		# The newly-authored base walk and attack sheets both face right.
+		"faces_right": true,
+		"attack_faces_right": true
 	},
 	"pet2": {
 		"id": "pet2",
@@ -98,7 +108,7 @@ const DEFINITIONS := {
 		"pop_height_min": 44.0,
 		"pop_height_max": 78.0,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 112,
+		"frame_foot_y": 106,
 		"ground_offset_y": -86.0,
 		"faces_right": true,
 		"ambient_emotion_interval_min": 160.0,
@@ -111,7 +121,11 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet2/pet2.png",
 		"idle": "res://assets/NewCharacters/pet2/pet2Idle.png",
-		"walk": "",
+		# This floater has one authored motion cycle. Reuse it deliberately for
+		# travel and ranged attacks instead of falling back to a synthetic lunge.
+		"walk": "res://assets/NewCharacters/pet2/pet2Idle.png",
+		"attack": "res://assets/NewCharacters/pet2/pet2Idle.png",
+		"attack_align_to_floor": false,
 		"closing_eye": "res://assets/NewCharacters/pet2/pet2ClosingEye.png",
 		"sleep": "res://assets/NewCharacters/pet2/pet2Sleep.png"
 	},
@@ -145,7 +159,7 @@ const DEFINITIONS := {
 		"special_time_min": 1.3,
 		"special_time_max": 3.6,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 108,
+		"frame_foot_y": 109,
 		"ground_offset_y": 0.0,
 		"ambient_emotion_interval_min": 150.0,
 		"ambient_emotion_interval_max": 260.0,
@@ -160,10 +174,10 @@ const DEFINITIONS := {
 		"walk": "res://assets/NewCharacters/pet3/pet3Walk.png",
 		"attack": "res://assets/NewCharacters/pet3/pet3Attack.png",
 		"attack_columns": 4,
-		"attack_rows": 4,
+		"attack_rows": 3,
 		"attack_faces_right": true,
 		"attack_frame_foot_y": 172,
-		"burrow": "res://assets/NewCharacters/pet3/pet3BurrowUnder.png"
+		"burrow": "res://assets/NewCharacters/pet3/pet3Burrow.png"
 	},
 	"pet4": {
 		"id": "pet4",
@@ -194,7 +208,7 @@ const DEFINITIONS := {
 		"wall_chance": 0.05,
 		"can_wall_crawl": true,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 108,
+		"frame_foot_y": 111,
 		"ground_offset_y": 0.0,
 		"ambient_emotion_interval_min": 170.0,
 		"ambient_emotion_interval_max": 280.0,
@@ -222,8 +236,10 @@ const DEFINITIONS := {
 		"age": "19岁",
 		"base_age_years": 19,
 		"personality": "胆大但不吵闹，通常守在任务栏附近，偶尔沿屏幕边缘活动。",
-		"desktop_scale": 1.25,
-		"behavior": "wall_climber",
+		# The ball fills nearly the whole 128 px frame. Keep its adult footprint
+		# compact so the level-growth multiplier does not turn it into a wall.
+		"desktop_scale": 0.90,
+		"behavior": "roller",
 		"walk_speed": 27.0,
 		"walk_speed_variance": 5.0,
 		"walk_distance_min": 55.0,
@@ -239,12 +255,14 @@ const DEFINITIONS := {
 		"doze_time_max": 16.0,
 		"hide_time_min": 4.0,
 		"hide_time_max": 10.0,
-		"wall_chance": 0.08,
-		"can_wall_crawl": true,
+		"wall_chance": 0.0,
+		"can_wall_crawl": false,
+		"rolls_while_walking": true,
+		"walk_rotation_speed": 5.6,
 		"special_time_min": 1.0,
 		"special_time_max": 4.0,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 108,
+		"frame_foot_y": 121,
 		"ground_offset_y": 0.0,
 		"ambient_emotion_interval_min": 160.0,
 		"ambient_emotion_interval_max": 270.0,
@@ -255,13 +273,15 @@ const DEFINITIONS := {
 		"base_fps": 0.625,
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet5/pet5.png",
-		"idle": "res://assets/NewCharacters/pet5/pet5Idle.png",
-		"walk": "res://assets/NewCharacters/pet5/pet5Walk.png",
-		"attack": "res://assets/NewCharacters/pet5/pet5Attack.png",
+		"idle": "res://assets/NewCharacters/pet5/pet5_Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet5/pet5_Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet5/pet5_Idle_Walk_Attack.png",
+		"idle_frame_indices": [0],
 		"attack_columns": 4,
 		"attack_rows": 3,
-		"attack_faces_right": true,
-		"attack_frame_foot_y": 172
+		"align_frames_to_floor": false,
+		"attack_align_to_floor": false,
+		"attack_faces_right": true
 	},
 	"pet6": {
 		"id": "pet6",
@@ -292,10 +312,8 @@ const DEFINITIONS := {
 		"hide_time_max": 12.0,
 		"wall_chance": 0.0,
 		"can_wall_crawl": false,
-		"frame_center_y": 128.0,
-		# The body/feet use y=232 as their authored contact line. The long hand
-		# reaches y=236 and is intentionally allowed to extend below that line.
-		"frame_foot_y": 232,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 106,
 		"align_frames_to_floor": false,
 		"ground_offset_y": 0.0,
 		"ambient_emotion_interval_min": 180.0,
@@ -312,12 +330,14 @@ const DEFINITIONS := {
 		"attack": "res://assets/NewCharacters/pet6/pet6Attack.png",
 		"attack_columns": 4,
 		"attack_rows": 3,
-		"attack_faces_right": true,
-		# The 384px attack frames and 256px idle frames share the same authored
-		# contact line relative to their centers (+104px). Per-frame bottom-pixel
-		# alignment mistakes the swinging tentacles for feet and makes the body hop.
+		"faces_right": false,
+		"attack_faces_right": false,
+		# pet6's authored strike reaches far beyond its compact idle body. Battle
+		# proximity is measured from actor origins, so use the visible strike reach
+		# instead of the generic small-pet melee radius.
+		"battle_attack_range": 320.0,
 		"attack_align_to_floor": false,
-		"attack_frame_foot_y": 296
+		"attack_frame_foot_y": 175
 	},
 	"pet7": {
 		"id": "pet7",
@@ -327,7 +347,10 @@ const DEFINITIONS := {
 		"rarity_stars": 5,
 		"age": "年代无法考证",
 		"personality": "沉默、稳重，大部分时间原地待着，偶尔沿任务栏滚一段路。",
-		"desktop_scale": 0.42,
+		# The base coin uses a 128 px cell and was much smaller than the other pets.
+		# This remains visibly young at low levels while reaching a clear silhouette
+		# near the evolution threshold.
+		"desktop_scale": 0.70,
 		"behavior": "roller",
 		"walk_speed": 55.0,
 		"walk_speed_variance": 5.0,
@@ -344,8 +367,8 @@ const DEFINITIONS := {
 		"can_wall_crawl": false,
 		"rolls_while_walking": true,
 		"walk_rotation_speed": 5.2,
-		"frame_center_y": 128.0,
-		"frame_foot_y": 214,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 126,
 		"ground_offset_y": 6.0,
 		"ambient_emotion_interval_min": 190.0,
 		"ambient_emotion_interval_max": 300.0,
@@ -356,8 +379,10 @@ const DEFINITIONS := {
 		"base_fps": 0.16,
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet7/pet7.png",
-		"idle": "res://assets/NewCharacters/pet7/pet7Idle.png",
-		"walk": ""
+		"idle": "res://assets/NewCharacters/pet7/pet7Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet7/pet7Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet7/pet7Idle_Walk_Attack.png",
+		"attack_align_to_floor": false
 	},
 	"pet8": {
 		"id": "pet8",
@@ -387,7 +412,7 @@ const DEFINITIONS := {
 		"air_roam_legs_max": 4,
 		"float_bob_amplitude": 18.0,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 112,
+		"frame_foot_y": 126,
 		"align_frames_to_floor": false,
 		"ground_offset_y": -56.0,
 		"ambient_emotion_interval_min": 165.0,
@@ -400,21 +425,21 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"base_money_rate": 14.0,
 		"icon": "res://assets/NewCharacters/pet8/pet8.png",
-		"idle": "res://assets/NewCharacters/pet8/pet8Idle.png",
-		"walk": ""
+		"idle": "res://assets/NewCharacters/pet8/pet8Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet8/pet8Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet8/pet8Idle_Walk_Attack.png",
+		"attack_align_to_floor": false
 	},
 	"pet9": {
 		"id": "pet9",
-		"name": "环冠古根",
-		"species": "远古根系眷族",
-		"description": "背负环冠的古老根系，移动时会使用专门的行走姿态。",
+		"name": "浮游尖碑",
+		"species": "深空遗物",
+		"description": "长出触须的三棱尖碑，以漂浮代替步行。",
 		"rarity_stars": 4,
-		"age": "至少400岁",
-		"base_age_years": 400,
-		"age_qualifier": "at_least",
-		"personality": "沉稳而固执，会缓慢巡视自己认定的领地。",
+		"age": "年代无法测定",
+		"personality": "寡言、冷淡，偶尔沿高处横穿桌面。",
 		"desktop_scale": 1.00,
-		"behavior": "watcher",
+		"behavior": "sleepy_floater",
 		"walk_speed": 22.0,
 		"walk_speed_variance": 2.0,
 		"walk_distance_min": 110.0,
@@ -423,13 +448,14 @@ const DEFINITIONS := {
 		"idle_time_min": 13.0,
 		"idle_time_max": 26.0,
 		"special_chance": 0.0,
-		"doze_chance": 0.12,
+		"doze_chance": 0.0,
 		"hide_chance": 0.0,
 		"can_hide": false,
 		"can_wall_crawl": false,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 127,
-		"ground_offset_y": 0.0,
+		"frame_foot_y": 120,
+		"align_frames_to_floor": false,
+		"ground_offset_y": -72.0,
 		"ambient_emotion_interval_min": 175.0,
 		"ambient_emotion_interval_max": 285.0,
 		"emotion_weights": {"sleepy": 0.34, "confused": 0.28, "happy": 0.24, "suprised": 0.14},
@@ -440,18 +466,22 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"base_money_rate": 17.0,
 		"icon": "res://assets/NewCharacters/pet9/pet9.png",
-		"idle": "res://assets/NewCharacters/pet9/pet9Idle.png",
-		"walk": "res://assets/NewCharacters/pet9/pet9Walk.png"
+		"idle": "res://assets/NewCharacters/pet9/pet9Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet9/pet9Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet9/pet9Idle_Walk_Attack.png",
+		"attack_align_to_floor": false
 	},
 	"pet10": {
 		"id": "pet10",
-		"name": "浮游尖碑",
-		"species": "深空遗物",
-		"description": "长出触须的黑色尖碑，以漂浮代替步行。",
+		"name": "幼生涡核",
+		"species": "活体奇点",
+		"description": "一枚有意识的微型涡核，中心闪烁着尚未成形的星群。",
 		"rarity_stars": 4,
-		"age": "年代无法测定",
-		"personality": "寡言、冷淡，偶尔沿高处横穿桌面。",
-		"desktop_scale": 1.02,
+		"age": "诞生时间未知",
+		"personality": "好奇且危险，喜欢安静地绕着其他眷族漂游。",
+		# The juvenile singularity is deliberately much smaller than its evolved
+		# form; level growth cannot cross the base-form size ceiling.
+		"desktop_scale": 0.68,
 		"behavior": "sleepy_floater",
 		"walk_speed": 27.0,
 		"walk_speed_variance": 3.0,
@@ -469,7 +499,7 @@ const DEFINITIONS := {
 		"air_roam_legs_max": 5,
 		"float_bob_amplitude": 15.0,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 110,
+		"frame_foot_y": 125,
 		"align_frames_to_floor": false,
 		"ground_offset_y": -72.0,
 		"ambient_emotion_interval_min": 180.0,
@@ -482,50 +512,249 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"base_money_rate": 20.0,
 		"icon": "res://assets/NewCharacters/pet10/pet10.png",
-		"idle": "res://assets/NewCharacters/pet10/pet10Idle.png",
-		"walk": ""
+		"idle": "res://assets/NewCharacters/pet10/pet10Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet10/pet10Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet10/pet10Idle_Walk_Attack.png",
+		"idle_skip_empty_frames": true,
+		"walk_skip_empty_frames": true,
+		"attack_skip_empty_frames": true,
+		"attack_align_to_floor": false
+	}
+}
+
+# Evolution overrides are deliberately complete for animation-specific fields.
+# Empty paths prevent an evolved form from accidentally borrowing incompatible
+# sleep/burrow sheets from its smaller base form.
+const EVOLUTION_DEFINITIONS := {
+	"pet1": {
+		"evolution_name": "腐生母巢",
+		"icon": "res://assets/NewCharacters/pet1/pet1Evolved/pet1Evolved.png",
+		"idle": "res://assets/NewCharacters/pet1/pet1Evolved/pet1EvolvedIdle.png",
+		"walk": "res://assets/NewCharacters/pet1/pet1Evolved/pet1EvolvedWalk.png",
+		"attack": "res://assets/NewCharacters/pet1/pet1Evolved/pet1EvolvedAttack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		"desktop_scale": 1.0,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 101,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_frame_foot_y": 209,
+		"attack_align_to_floor": false,
+		"faces_right": true,
+		"attack_faces_right": true,
+		"battle_attack_range": 245.0,
+		"can_wall_crawl": false,
+		"wall_chance": 0.0,
+		"doze_chance": 0.0
 	},
-	"pet11": {
-		"id": "pet11",
-		"name": "噬界涡核",
-		"species": "活体奇点",
-		"description": "一枚有意识的微型涡核，偶尔会把其他宠物吸入体内，再过一会吐出来。",
-		"rarity_stars": 5,
-		"age": "诞生时间未知",
-		"personality": "好奇且危险，把同伴短暂吞进去似乎只是它的游戏。",
-		"desktop_scale": 1.10,
-		"behavior": "sleepy_floater",
-		"walk_speed": 25.0,
-		"walk_speed_variance": 3.0,
-		"walk_distance_min": 100.0,
-		"walk_distance_max": 260.0,
-		"activity_chance": 0.13,
-		"idle_time_min": 14.0,
-		"idle_time_max": 27.0,
-		"special_chance": 0.0,
+	"pet2": {
+		"evolution_name": "渊空凝视者",
+		"icon": "res://assets/NewCharacters/pet2/pet2Evolved/pet2Evolved.png",
+		"idle": "res://assets/NewCharacters/pet2/pet2Evolved/pet2Evolved_Idle_sleep_closingEyes_Attack.png",
+		"walk": "res://assets/NewCharacters/pet2/pet2Evolved/pet2Evolved_Idle_sleep_closingEyes_Attack.png",
+		"attack": "res://assets/NewCharacters/pet2/pet2Evolved/pet2Evolved_Idle_sleep_closingEyes_Attack.png",
+		"closing_eye": "res://assets/NewCharacters/pet2/pet2Evolved/pet2Evolved_Idle_sleep_closingEyes_Attack.png",
+		"sleep": "res://assets/NewCharacters/pet2/pet2Evolved/pet2Evolved_Idle_sleep_closingEyes_Attack.png",
+		"burrow": "",
+		"desktop_scale": 0.68,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 102,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"closing_eye_columns": 4,
+		"closing_eye_rows": 3,
+		"sleep_columns": 4,
+		"sleep_rows": 3,
+		"sleep_skip_empty_frames": false,
+		"faces_right": false,
+		"attack_faces_right": false,
 		"doze_chance": 0.0,
 		"hide_chance": 0.0,
 		"can_hide": false,
-		"air_roam_chance": 0.16,
-		"air_roam_legs_min": 2,
-		"air_roam_legs_max": 4,
-		"float_bob_amplitude": 13.0,
+		"special_chance": 0.0
+	},
+	"pet3": {
+		"evolution_name": "白骨掘行者",
+		"icon": "res://assets/NewCharacters/pet3/pet3Evolved/pet3Evolved.png",
+		"idle": "res://assets/NewCharacters/pet3/pet3Evolved/pet3EvolvedIdle.png",
+		"walk": "res://assets/NewCharacters/pet3/pet3Evolved/pet3EvolvedWalk.png",
+		"attack": "res://assets/NewCharacters/pet3/pet3Evolved/pet3EvolvedAttack.png",
+		"burrow": "res://assets/NewCharacters/pet3/pet3Evolved/pet3EvolvedBurrow.png",
+		"closing_eye": "",
+		"sleep": "",
+		"desktop_scale": 1.0,
 		"frame_center_y": 64.0,
-		"frame_foot_y": 111,
+		"frame_foot_y": 106,
 		"align_frames_to_floor": false,
-		"ground_offset_y": -82.0,
-		"ambient_emotion_interval_min": 190.0,
-		"ambient_emotion_interval_max": 310.0,
-		"emotion_weights": {"suprised": 0.40, "confused": 0.30, "happy": 0.20, "sleepy": 0.10},
-		"petting_emotion_weights": {"happy": 0.36, "suprised": 0.34, "confused": 0.24, "sleepy": 0.06},
-		"upgrade_cost_base": 600,
-		"upgrade_cost_growth": 1.18,
-		"base_fps": 0.80,
-		"power_growth": 1.035,
-		"base_money_rate": 26.0,
-		"icon": "res://assets/NewCharacters/pet11/pet11.png",
-		"idle": "res://assets/NewCharacters/pet11/pet11Idle.png",
-		"walk": ""
+		"attack_columns": 4,
+		"attack_rows": 4,
+		"attack_frame_foot_y": 188,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		"attack_faces_right": false,
+		"battle_attack_range": 205.0,
+		"doze_chance": 0.0
+	},
+	"pet4": {
+		"evolution_name": "深潮巨噬体",
+		"icon": "res://assets/NewCharacters/pet4/pet4Evolved/pet4Evolved.png",
+		"idle": "res://assets/NewCharacters/pet4/pet4Evolved/pet4EvolvedIdle.png",
+		"walk": "res://assets/NewCharacters/pet4/pet4Evolved/pet4EvolvedWalk.png",
+		"attack": "res://assets/NewCharacters/pet4/pet4Evolved/pet4EvolvedAttack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		"desktop_scale": 0.82,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 105,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		"attack_faces_right": false,
+		"battle_attack_range": 235.0,
+		"can_wall_crawl": false,
+		"wall_chance": 0.0,
+		"doze_chance": 0.0
+	},
+	"pet5": {
+		"evolution_name": "月蚀蠕行者",
+		"icon": "res://assets/NewCharacters/pet5/pet5Evolved/pet5.png",
+		"idle": "res://assets/NewCharacters/pet5/pet5Evolved/pet5Idle.png",
+		"walk": "res://assets/NewCharacters/pet5/pet5Evolved/pet5Walk.png",
+		"attack": "res://assets/NewCharacters/pet5/pet5Evolved/pet5Attack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		"desktop_scale": 1.12,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 102,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		"attack_faces_right": true,
+		"battle_attack_range": 245.0,
+		"behavior": "wanderer",
+		"rolls_while_walking": false,
+		"walk_rotation_speed": 0.0,
+		"can_wall_crawl": false,
+		"wall_chance": 0.0,
+		"doze_chance": 0.0
+	},
+	"pet6": {
+		"evolution_name": "深海潜伏领主",
+		"icon": "res://assets/NewCharacters/pet6/pet6Evolved/pet6Evolved.png",
+		"idle": "res://assets/NewCharacters/pet6/pet6Evolved/pet6EvolvedIdle.png",
+		"walk": "res://assets/NewCharacters/pet6/pet6Evolved/pet6EvolvedWalk.png",
+		"attack": "res://assets/NewCharacters/pet6/pet6Evolved/pet6EvolvedAttack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		"desktop_scale": 0.58,
+		"frame_center_y": 128.0,
+		"frame_foot_y": 235,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		# Evolved pet6's idle/walk sheets face left, but its separately-authored
+		# 384 px attack sheet faces right.
+		"attack_faces_right": true,
+		"battle_attack_range": 345.0,
+		"can_wall_crawl": false,
+		"wall_chance": 0.0,
+		"doze_chance": 0.0
+	},
+	"pet7": {
+		"evolution_name": "古币魔盘",
+		"icon": "res://assets/NewCharacters/pet7/pet7Evolved/pet7Evolved.png",
+		"idle": "res://assets/NewCharacters/pet7/pet7Evolved/pet7Evolved_Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet7/pet7Evolved/pet7Evolved_Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet7/pet7Evolved/pet7Evolved_Idle_Walk_Attack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		# Evolved artwork uses a 256 px cell, so it needs a separate scale from the
+		# base coin rather than inheriting the same undersized value.
+		"desktop_scale": 0.54,
+		"frame_center_y": 128.0,
+		"frame_foot_y": 242,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		"attack_faces_right": false,
+		"doze_chance": 0.0
+	},
+	"pet8": {
+		"evolution_name": "棘轮天眼",
+		"icon": "res://assets/NewCharacters/pet8/pet8Evolved/pet8Evolved.png",
+		"idle": "res://assets/NewCharacters/pet8/pet8Evolved/pet8Evolved_Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet8/pet8Evolved/pet8Evolved_Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet8/pet8Evolved/pet8Evolved_Idle_Walk_Attack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		"desktop_scale": 0.98,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 126,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		"attack_faces_right": false,
+		"doze_chance": 0.0
+	},
+	"pet9": {
+		"evolution_name": "环冠方尖碑",
+		"icon": "res://assets/NewCharacters/pet9/pet9Evolved/pet9Evolved.png",
+		"idle": "res://assets/NewCharacters/pet9/pet9Evolved/pet9Evolved_Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet9/pet9Evolved/pet9Evolved_Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet9/pet9Evolved/pet9Evolved_Idle_Walk_Attack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		"desktop_scale": 0.55,
+		"frame_center_y": 128.0,
+		"frame_foot_y": 254,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		"attack_faces_right": false,
+		"doze_chance": 0.0
+	},
+	"pet10": {
+		"evolution_name": "噬界涡核",
+		"icon": "res://assets/NewCharacters/pet10/pet10Evolved/pet10Evolved.png",
+		"idle": "res://assets/NewCharacters/pet10/pet10Evolved/pet10Evolved_Idle_Walk_Attack.png",
+		"walk": "res://assets/NewCharacters/pet10/pet10Evolved/pet10Evolved_Idle_Walk_Attack.png",
+		"attack": "res://assets/NewCharacters/pet10/pet10Evolved/pet10Evolved_Idle_Walk_Attack.png",
+		"closing_eye": "",
+		"sleep": "",
+		"burrow": "",
+		"desktop_scale": 1.02,
+		"frame_center_y": 64.0,
+		"frame_foot_y": 125,
+		"align_frames_to_floor": false,
+		"attack_columns": 4,
+		"attack_rows": 3,
+		"attack_align_to_floor": false,
+		"faces_right": false,
+		"attack_faces_right": false,
+		"doze_chance": 0.0
 	}
 }
 
@@ -533,8 +762,28 @@ const SHEET_COLUMNS := 4
 const SHEET_ROWS := 3
 const CHROMA_KEY_TOLERANCE := 0.075
 
+# Evolved forms may inherit gameplay behaviour, but never animation sources or
+# slicing metadata from the base form.  This keeps a newly-authored evolved
+# sheet from silently reusing base-only frame selections (pet5 is the clearest
+# example: its base idle is a single ball frame while its evolved idle is a
+# complete animation).
+const EVOLUTION_ANIMATION_KEYS := [
+	"idle", "walk", "attack", "closing_eye", "sleep", "burrow",
+	"idle_speed", "walk_speed_fps",
+	"idle_columns", "idle_rows", "idle_skip_empty_frames", "idle_frame_indices",
+	"walk_columns", "walk_rows", "walk_skip_empty_frames", "walk_frame_indices",
+	"attack_columns", "attack_rows", "attack_skip_empty_frames", "attack_frame_indices",
+	"closing_eye_columns", "closing_eye_rows", "closing_eye_skip_empty_frames", "closing_eye_frame_indices",
+	"sleep_columns", "sleep_rows", "sleep_skip_empty_frames", "sleep_frame_indices",
+	"burrow_columns", "burrow_rows", "burrow_skip_empty_frames", "burrow_frame_indices",
+	"frame_center_y", "frame_foot_y", "align_frames_to_floor",
+	"attack_frame_foot_y", "attack_align_to_floor",
+	"faces_right", "attack_faces_right"
+]
+
 static var _frame_cache := {}
 static var _icon_texture_cache := {}
+static var _runtime_definition_cache := {}
 
 
 static func get_definition(pet_id: String) -> Dictionary:
@@ -544,10 +793,39 @@ static func get_definition(pet_id: String) -> Dictionary:
 	return DEFINITIONS[ACTIVE_DESKTOP_PETS[0]]
 
 
-static func get_combat_power(pet_id: String, level := 1) -> float:
+static func has_evolution(pet_id: String) -> bool:
+	return EVOLUTION_DEFINITIONS.has(pet_id)
+
+
+static func can_evolve(pet_id: String) -> bool:
+	return has_evolution(pet_id)
+
+
+static func get_evolution_definition(pet_id: String) -> Dictionary:
+	return EVOLUTION_DEFINITIONS.get(pet_id, {})
+
+
+static func get_runtime_definition(pet_id: String, evolved := false) -> Dictionary:
+	var cache_key := "%s:%s" % [pet_id, "evolved" if evolved else "base"]
+	var cached_value: Variant = _runtime_definition_cache.get(cache_key, null)
+	if cached_value is Dictionary:
+		return cached_value
+	var runtime_definition := get_definition(pet_id).duplicate(true)
+	if evolved and has_evolution(pet_id):
+		for animation_key in EVOLUTION_ANIMATION_KEYS:
+			runtime_definition.erase(animation_key)
+		runtime_definition.merge(get_evolution_definition(pet_id), true)
+		runtime_definition["evolved"] = true
+	runtime_definition.make_read_only()
+	_runtime_definition_cache[cache_key] = runtime_definition
+	return runtime_definition
+
+
+static func get_combat_power(pet_id: String, level := 1, evolved := false) -> float:
 	var base_power := float(BASE_COMBAT_POWER.get(pet_id, 10.0))
 	var safe_level := maxi(1, level)
-	return base_power * (1.0 + log(float(safe_level)) / log(10.0) * 0.32)
+	var result := base_power * (1.0 + log(float(safe_level)) / log(10.0) * 0.32)
+	return result * (EVOLUTION_POWER_MULTIPLIER if evolved and can_evolve(pet_id) else 1.0)
 
 
 static func make_inventory_entry(pet_id: String) -> Dictionary:
@@ -586,8 +864,9 @@ static func choose_weighted_emotion(pet_id: String, unit_roll: float, weights_ke
 	return String(weights.keys().back())
 
 
-static func build_frames(pet_id: String) -> SpriteFrames:
-	var cached_frames := _frame_cache.get(pet_id) as SpriteFrames
+static func build_frames(pet_id: String, evolved := false) -> SpriteFrames:
+	var cache_key := "%s:%s" % [pet_id, "evolved" if evolved else "base"]
+	var cached_frames := _frame_cache.get(cache_key) as SpriteFrames
 	if cached_frames != null:
 		return cached_frames
 
@@ -595,11 +874,35 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 	if frames.has_animation("default"):
 		frames.remove_animation("default")
 
-	var pet_data := get_definition(pet_id)
+	var pet_data := get_runtime_definition(pet_id, evolved)
 	var frame_foot_y := int(pet_data.get("frame_foot_y", 102))
 	var align_frames_to_floor := bool(pet_data.get("align_frames_to_floor", true))
-	_add_sheet_animation(frames, "idle", String(pet_data.get("idle", "")), 4.8, frame_foot_y, align_frames_to_floor)
-	_add_sheet_animation(frames, "walk", String(pet_data.get("walk", "")), 9.0, frame_foot_y, align_frames_to_floor)
+	_add_sheet_animation(
+		frames,
+		"idle",
+		String(pet_data.get("idle", "")),
+		float(pet_data.get("idle_speed", 4.8)),
+		frame_foot_y,
+		align_frames_to_floor,
+		maxi(1, int(pet_data.get("idle_columns", SHEET_COLUMNS))),
+		maxi(1, int(pet_data.get("idle_rows", SHEET_ROWS))),
+		true,
+		bool(pet_data.get("idle_skip_empty_frames", false)),
+		pet_data.get("idle_frame_indices", []) as Array
+	)
+	_add_sheet_animation(
+		frames,
+		"walk",
+		String(pet_data.get("walk", "")),
+		float(pet_data.get("walk_speed_fps", 9.0)),
+		frame_foot_y,
+		align_frames_to_floor,
+		maxi(1, int(pet_data.get("walk_columns", SHEET_COLUMNS))),
+		maxi(1, int(pet_data.get("walk_rows", SHEET_ROWS))),
+		true,
+		bool(pet_data.get("walk_skip_empty_frames", false)),
+		pet_data.get("walk_frame_indices", []) as Array
+	)
 	_add_sheet_animation(
 		frames,
 		"attack",
@@ -610,11 +913,33 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 		maxi(1, int(pet_data.get("attack_columns", SHEET_COLUMNS))),
 		maxi(1, int(pet_data.get("attack_rows", SHEET_ROWS))),
 		false,
-		true
+		true,
+		pet_data.get("attack_frame_indices", []) as Array
 	)
-	_add_sheet_animation(frames, "close_eye", String(pet_data.get("closing_eye", "")), 10.0, frame_foot_y, align_frames_to_floor, 4, 4, false)
-	_add_sheet_animation(frames, "sleep", String(pet_data.get("sleep", "")), 3.5, frame_foot_y, align_frames_to_floor, 4, 2, true, true)
-	_add_sheet_animation(frames, "burrow", String(pet_data.get("burrow", "")), 9.0, frame_foot_y, align_frames_to_floor, 4, 3, false)
+	_add_sheet_animation(
+		frames, "close_eye", String(pet_data.get("closing_eye", "")), 10.0,
+		frame_foot_y, align_frames_to_floor,
+		maxi(1, int(pet_data.get("closing_eye_columns", 4))),
+		maxi(1, int(pet_data.get("closing_eye_rows", 4))), false,
+		bool(pet_data.get("closing_eye_skip_empty_frames", false)),
+		pet_data.get("closing_eye_frame_indices", []) as Array
+	)
+	_add_sheet_animation(
+		frames, "sleep", String(pet_data.get("sleep", "")), 3.5,
+		frame_foot_y, align_frames_to_floor,
+		maxi(1, int(pet_data.get("sleep_columns", 4))),
+		maxi(1, int(pet_data.get("sleep_rows", 2))), true,
+		bool(pet_data.get("sleep_skip_empty_frames", true)),
+		pet_data.get("sleep_frame_indices", []) as Array
+	)
+	_add_sheet_animation(
+		frames, "burrow", String(pet_data.get("burrow", "")), 9.0,
+		frame_foot_y, align_frames_to_floor,
+		maxi(1, int(pet_data.get("burrow_columns", 4))),
+		maxi(1, int(pet_data.get("burrow_rows", 3))), false,
+		bool(pet_data.get("burrow_skip_empty_frames", false)),
+		pet_data.get("burrow_frame_indices", []) as Array
+	)
 	_add_reversed_animation(frames, "close_eye", "open_eye")
 	_add_reversed_animation(frames, "burrow", "emerge")
 
@@ -633,7 +958,7 @@ static func build_frames(pet_id: String) -> SpriteFrames:
 		frames.set_animation_loop("walk", true)
 		frames.set_animation_speed("walk", 1.0)
 
-	_frame_cache[pet_id] = frames
+	_frame_cache[cache_key] = frames
 	return frames
 
 
@@ -685,7 +1010,8 @@ static func _add_sheet_animation(
 	columns := SHEET_COLUMNS,
 	rows := SHEET_ROWS,
 	loop := true,
-	skip_empty_frames := false
+	skip_empty_frames := false,
+	frame_indices: Array = []
 ) -> void:
 	if sheet_path.is_empty():
 		return
@@ -713,17 +1039,31 @@ static func _add_sheet_animation(
 	frames.set_animation_loop(animation_name, loop)
 	frames.set_animation_speed(animation_name, speed)
 
-	for row in rows:
-		for column in columns:
-			var frame_image := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
-			var source_rect := Rect2i(Vector2i(column * frame_size.x, row * frame_size.y), frame_size)
-			frame_image.blit_rect(source_image, source_rect, Vector2i.ZERO)
-			_apply_chroma_key(frame_image, key_color)
-			if skip_empty_frames and _get_visible_bounds(frame_image).size == Vector2i.ZERO:
-				continue
-			if align_to_floor:
-				frame_image = _align_frame_to_floor(frame_image, frame_foot_y)
-			frames.add_frame(animation_name, ImageTexture.create_from_image(frame_image))
+	var ordered_indices: Array[int] = []
+	if frame_indices.is_empty():
+		for frame_index in columns * rows:
+			ordered_indices.append(frame_index)
+	else:
+		for frame_index_value in frame_indices:
+			var frame_index := int(frame_index_value)
+			if frame_index >= 0 and frame_index < columns * rows:
+				ordered_indices.append(frame_index)
+
+	for frame_index in ordered_indices:
+
+
+
+		var row := int(frame_index / columns)
+		var column := frame_index % columns
+		var frame_image := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
+		var source_rect := Rect2i(Vector2i(column * frame_size.x, row * frame_size.y), frame_size)
+		frame_image.blit_rect(source_image, source_rect, Vector2i.ZERO)
+		_apply_chroma_key(frame_image, key_color)
+		if skip_empty_frames and _get_visible_bounds(frame_image).size == Vector2i.ZERO:
+			continue
+		if align_to_floor:
+			frame_image = _align_frame_to_floor(frame_image, frame_foot_y)
+		frames.add_frame(animation_name, ImageTexture.create_from_image(frame_image))
 
 
 static func _add_reversed_animation(frames: SpriteFrames, source_name: String, target_name: String) -> void:

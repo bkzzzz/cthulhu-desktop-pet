@@ -5,6 +5,8 @@ signal recall_requested(actor: Node2D)
 signal forced_target_reached(actor: Node2D)
 signal grabbed_changed(actor: Node2D, grabbed: bool)
 signal notable_action(actor: Node2D, action_id: String)
+signal battle_roll_swept(actor: Node2D, from_x: float, to_x: float)
+signal battle_roll_finished(actor: Node2D)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
@@ -31,7 +33,6 @@ const AIR_ROAM_LEG_PAUSE_MIN := 0.35
 const AIR_ROAM_LEG_PAUSE_MAX := 1.15
 const INPUT_PROXY_PADDING := 10.0
 const INPUT_WINDOW_UPDATE_INTERVAL := 1.0 / 15.0
-const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10"]
 const DOZE_ANIMATION_SPEED_SCALE := 0.28
 const POP_DURATION_MIN := 0.48
 const POP_DURATION_MAX := 0.82
@@ -39,6 +40,21 @@ const SWALLOW_IN_DURATION := 0.72
 const SWALLOW_OUT_DURATION := 0.82
 const SWALLOW_SPIT_DISTANCE_MIN := 120.0
 const SWALLOW_SPIT_DISTANCE_MAX := 240.0
+const PET5_DEFAULT_ROLL_SPEED := 7.5
+const PET5_BATTLE_ROLL_SPEED := 760.0
+
+# Authored desktop_scale values describe each form's intended display size.
+# Base forms grow while young but stop short of the evolved form's scale band.
+# Only evolved pets can continue growing above their Lv.100 authored size, and
+# even extreme debug/save levels stay bounded.
+const LEVEL_SIZE_BASELINE_LEVEL := 100
+const LEVEL_SIZE_MIN_MULTIPLIER := 0.70
+const LEVEL_SIZE_BASE_FORM_MAX_MULTIPLIER := 0.94
+const LEVEL_SIZE_MAX_MULTIPLIER := 1.16
+const LEVEL_SIZE_POST_BASELINE_LOG_RATE := 0.04
+
+static var _stable_hit_image_cache := {}
+static var _stable_hit_polygon_cache := {}
 
 enum Behavior {
 	IDLE,
@@ -75,9 +91,13 @@ enum SwallowPhase {
 var pet_id := ""
 var pet_data: Dictionary = {}
 var display_name := ""
+var is_evolved := false
+var pet_level := LEVEL_SIZE_BASELINE_LEVEL
 
 var _window_size := Vector2i(820, 420)
 var _stage_ground_y := 420.0
+var _stage_min_x := 120.0
+var _stage_max_x := 720.0
 var _min_x := 120.0
 var _max_x := 720.0
 var _target_x := 0.0
@@ -120,6 +140,7 @@ var _pop_distance_max := 220.0
 var _pop_height_min := 40.0
 var _pop_height_max := 80.0
 var _pet_scale := DEFAULT_PET_SCALE
+var _catalog_pet_scale := DEFAULT_PET_SCALE
 var _frame_center_y := 64.0
 var _frame_foot_y := 102.0
 var _ground_offset_y := 0.0
@@ -157,11 +178,23 @@ var _battle_mode := false
 var _battle_motion_tween: Tween
 var _battle_attack_animation := false
 var _battle_attack_direction := -1.0
+var _battle_facing_direction := -1.0
+var _battle_roll_active := false
+var _battle_roll_target_x := 0.0
+var _battle_roll_speed := PET5_BATTLE_ROLL_SPEED
+var _roll_rotation_tween: Tween
 var _last_input_window_position := Vector2i(-100000, -100000)
 var _last_input_window_size := Vector2i.ZERO
 var _last_input_shape_flip := false
 var _last_input_shape_rotation := INF
 var _last_input_shape_scale := Vector2.ZERO
+var _last_interaction_actor_position := Vector2(INF, INF)
+var _last_interaction_sprite_transform := Transform2D()
+var _last_interaction_visual_window_position := Vector2i(-100000, -100000)
+var _last_interaction_window_size := Vector2i.ZERO
+var _last_interaction_stage_ground_y := INF
+var _last_interaction_visible := false
+var _interaction_geometry_revision := 0
 var _swallow_phase := SwallowPhase.NONE
 var _swallow_progress := 0.0
 var _swallow_hold_time := 0.0
@@ -179,6 +212,7 @@ var _press_actor_position := Vector2.ZERO
 var _grab_offset := Vector2.ZERO
 var _frame_hit_images := {}
 var _stable_hit_image: Image
+var _stable_hit_bounds := Rect2i()
 var _stable_hit_polygon := PackedVector2Array()
 var _input_window_update_time := 0.0
 var _language := "zh"
@@ -197,19 +231,31 @@ func setup(
 	max_x: float,
 	start_x: float,
 	ground_contact_y := -1.0,
-	restrict_activity := false
+	restrict_activity := false,
+	evolved := false,
+	new_pet_level := LEVEL_SIZE_BASELINE_LEVEL
 ) -> void:
 	pet_id = new_pet_id
-	pet_data = PetCatalog.get_definition(pet_id)
+	is_evolved = evolved and PetCatalog.has_evolution(pet_id)
+	pet_data = PetCatalog.get_runtime_definition(pet_id, is_evolved)
 	display_name = String(pet_data.get("name", pet_id))
+	pet_level = maxi(1, new_pet_level)
 	_window_size = window_size
 	_stage_ground_y = _resolve_stage_ground_y(float(ground_contact_y))
-	_pet_scale = float(pet_data.get("desktop_scale", DEFAULT_PET_SCALE))
+	_catalog_pet_scale = float(pet_data.get("desktop_scale", DEFAULT_PET_SCALE))
+	_pet_scale = _catalog_pet_scale * get_level_size_multiplier(pet_level, is_evolved)
 	_frame_center_y = float(pet_data.get("frame_center_y", 64.0))
 	_frame_foot_y = float(pet_data.get("frame_foot_y", 102.0))
 	_ground_offset_y = float(pet_data.get("ground_offset_y", 0.0))
-	_rolls_while_walking = bool(pet_data.get("rolls_while_walking", false))
+	# pet5 is a ball. Keep its rolling identity even when a newly imported asset
+	# temporarily omits the optional catalogue tuning keys.
+	_rolls_while_walking = (
+		(pet_id == "pet5" and not is_evolved)
+		or bool(pet_data.get("rolls_while_walking", false))
+	)
 	_walk_rotation_speed = maxf(0.0, float(pet_data.get("walk_rotation_speed", 0.0)))
+	if pet_id == "pet5" and not is_evolved and _walk_rotation_speed <= 0.0:
+		_walk_rotation_speed = PET5_DEFAULT_ROLL_SPEED
 	_faces_right = bool(pet_data.get("faces_right", false))
 	_activity_restricted = restrict_activity
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id()) ^ pet_id.hash()
@@ -251,6 +297,8 @@ func setup(
 
 	_create_sprite()
 	_create_interaction_area()
+	_stage_min_x = min_x
+	_stage_max_x = max_x
 	_set_safe_bounds(min_x, max_x)
 
 	position = Vector2(clampf(start_x, _min_x, _max_x), _get_rest_y())
@@ -262,6 +310,53 @@ func setup(
 	_target_x = position.x
 	_face_direction(-1.0)
 	_start_idle()
+
+
+static func get_level_size_multiplier(level: int, evolved := false) -> float:
+	var safe_level := maxi(1, level)
+	if not evolved:
+		# A base form can only exist through Lv.99 in normal progression. Clamp the
+		# debug/save fallback too, so it can never enter the evolved size band.
+		var last_base_level := LEVEL_SIZE_BASELINE_LEVEL - 1
+		var clamped_base_level := mini(safe_level, last_base_level)
+		var progress := float(clamped_base_level - 1) / float(last_base_level - 1)
+		var eased_progress := progress * progress * (3.0 - (2.0 * progress))
+		return lerpf(
+			LEVEL_SIZE_MIN_MULTIPLIER,
+			LEVEL_SIZE_BASE_FORM_MAX_MULTIPLIER,
+			eased_progress
+		)
+	if safe_level <= LEVEL_SIZE_BASELINE_LEVEL:
+		return 1.0
+	var post_growth := log(float(safe_level) / float(LEVEL_SIZE_BASELINE_LEVEL))
+	return minf(
+		LEVEL_SIZE_MAX_MULTIPLIER,
+		1.0 + post_growth * LEVEL_SIZE_POST_BASELINE_LOG_RATE
+	)
+
+
+func set_pet_level(new_level: int) -> void:
+	var safe_level := maxi(1, new_level)
+	var next_scale := _catalog_pet_scale * get_level_size_multiplier(safe_level, is_evolved)
+	if pet_level == safe_level and is_equal_approx(_pet_scale, next_scale):
+		return
+	pet_level = safe_level
+	_pet_scale = next_scale
+	if _sprite == null:
+		return
+	_sprite.scale = Vector2.ONE * _pet_scale
+	# Keep active ground pets planted on the same authored foot line as they grow.
+	# Airborne, wall-mounted, swallowed and dragged pets retain their current path;
+	# their next state transition will settle them normally.
+	if (
+		_behavior_style != "sleepy_floater"
+		and _behavior in [Behavior.IDLE, Behavior.WALK, Behavior.SLEEP_CLOSING, Behavior.SLEEPING, Behavior.SLEEP_OPENING, Behavior.DOZING]
+	):
+		position.y = _get_rest_y()
+	_set_safe_bounds(_stage_min_x, _stage_max_x)
+	position.x = clampf(position.x, _min_x, _max_x)
+	_target_x = clampf(_target_x, _min_x, _max_x)
+	_update_interaction_area()
 
 
 func set_display_name(new_display_name: String) -> void:
@@ -286,6 +381,8 @@ func set_window_bounds(
 	var previous_stage_ground_y := _stage_ground_y
 	_window_size = window_size
 	_stage_ground_y = _resolve_stage_ground_y(float(ground_contact_y))
+	_stage_min_x = min_x
+	_stage_max_x = max_x
 	var ground_shift := _stage_ground_y - previous_stage_ground_y
 	if not is_zero_approx(ground_shift):
 		position.y += ground_shift
@@ -333,6 +430,7 @@ func set_battle_mode(enabled: bool) -> void:
 		return
 	_battle_mode = enabled
 	_battle_attack_animation = false
+	_cancel_battle_roll(false)
 	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
 		_battle_motion_tween.kill()
 		_battle_motion_tween = null
@@ -344,12 +442,13 @@ func set_battle_mode(enabled: bool) -> void:
 		# this pet. Battle mode must still replace a stale sleep pose with idle.
 		if _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
 			_start_idle()
-			_sprite.speed_scale = 1.0
+			_sprite.speed_scale = 0.12 if pet_id == "pet5" and not is_evolved else 1.0
 		# Battle placement is part of the gameplay: players may still grab a pet
 		# and drop it beside a priority target.
 		_set_interaction_enabled(true)
 		z_index = 210
-		_face_direction(-1.0)
+		_battle_facing_direction = -1.0
+		_face_direction(_battle_facing_direction)
 	else:
 		cancel_pointer_capture()
 		z_index = 0
@@ -360,24 +459,132 @@ func set_battle_mode(enabled: bool) -> void:
 		_start_idle()
 
 
-func battle_move_toward(target_x: float, delta: float, speed := 230.0) -> bool:
+func battle_move_toward(
+	target_x: float,
+	delta: float,
+	speed := 230.0,
+	facing_direction := 0.0
+) -> bool:
 	if not _battle_mode or _sprite == null:
 		return false
 	var safe_target := clampf(target_x, _min_x, _max_x)
+	var previous_x := position.x
+	var travel_direction := safe_target - previous_x
 	var step := maxf(1.0, speed) * maxf(0.0, delta)
 	position.x = move_toward(position.x, safe_target, step)
-	_face_direction(safe_target - position.x if not is_equal_approx(position.x, safe_target) else -1.0)
+	var desired_facing := facing_direction if not is_zero_approx(facing_direction) else travel_direction
+	face_battle_target(desired_facing)
 	if absf(position.x - safe_target) > 2.0:
 		if _sprite.animation != "walk":
 			_sprite.play("walk")
+		if _rolls_while_walking:
+			_sprite.speed_scale = 1.0
+		_apply_travel_rotation(delta, travel_direction)
 	else:
-		_sprite.play("idle")
+		if not _battle_attack_animation and not _battle_roll_active:
+			_sprite.play("idle")
+			if pet_id == "pet5" and not is_evolved:
+				_sprite.speed_scale = 0.12
+		_settle_travel_rotation()
 	if _behavior_style != "sleepy_floater":
 		position.y = _get_rest_y()
 	else:
 		_settle_floater_height(maxf(0.0, delta))
 		_apply_floating_position(0.0)
 	return absf(position.x - safe_target) <= 2.0
+
+
+func face_battle_target(direction: float) -> void:
+	if not _battle_mode or _sprite == null or is_zero_approx(direction):
+		return
+	_battle_facing_direction = -1.0 if direction < 0.0 else 1.0
+	if _battle_attack_animation and _sprite.animation == "attack":
+		_face_authored_direction(
+			_battle_facing_direction,
+			bool(pet_data.get("attack_faces_right", _faces_right))
+		)
+	else:
+		_face_direction(_battle_facing_direction)
+
+
+func is_battle_attack_playing() -> bool:
+	return _battle_attack_animation or _battle_roll_active
+
+
+func is_battle_roll_active() -> bool:
+	return _battle_roll_active
+
+
+func uses_battle_roll_attack() -> bool:
+	return pet_id == "pet5" and not is_evolved
+
+
+func begin_battle_roll_attack(target_x: float, speed := PET5_BATTLE_ROLL_SPEED) -> bool:
+	if (
+		not uses_battle_roll_attack()
+		or not _battle_mode
+		or _sprite == null
+		or _pointer_held
+		or _behavior in [Behavior.GRABBED, Behavior.FALLING, Behavior.SWALLOWED]
+	):
+		return false
+	var safe_target := clampf(target_x, _min_x, _max_x)
+	var direction := safe_target - position.x
+	if absf(direction) < 4.0:
+		return false
+	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
+		_battle_motion_tween.kill()
+		_battle_motion_tween = null
+	if _roll_rotation_tween != null and is_instance_valid(_roll_rotation_tween):
+		_roll_rotation_tween.kill()
+		_roll_rotation_tween = null
+	_battle_attack_animation = false
+	_battle_roll_active = true
+	_battle_roll_target_x = safe_target
+	_battle_roll_speed = maxf(120.0, speed)
+	face_battle_target(direction)
+	_sprite.speed_scale = 1.25
+	_sprite.play("walk")
+	return true
+
+
+func cancel_battle_roll() -> void:
+	_cancel_battle_roll(true)
+
+
+func _cancel_battle_roll(emit_finished := true) -> void:
+	if not _battle_roll_active:
+		return
+	_battle_roll_active = false
+	_battle_roll_target_x = position.x
+	if _sprite != null:
+		_sprite.speed_scale = 0.12 if pet_id == "pet5" and not is_evolved else 1.0
+		_settle_travel_rotation()
+		if _battle_mode:
+			_sprite.play("idle")
+	if emit_finished:
+		battle_roll_finished.emit(self)
+
+
+func _update_battle_roll_attack(delta: float) -> void:
+	if not _battle_roll_active or _sprite == null:
+		return
+	var previous_x := position.x
+	var travel_direction := _battle_roll_target_x - previous_x
+	var step := _battle_roll_speed * maxf(0.0, delta)
+	position.x = move_toward(position.x, _battle_roll_target_x, step)
+	face_battle_target(travel_direction)
+	_apply_travel_rotation(delta, travel_direction, 1.45)
+	if _behavior_style != "sleepy_floater":
+		position.y = _get_rest_y()
+	if not is_equal_approx(previous_x, position.x):
+		battle_roll_swept.emit(self, previous_x, position.x)
+	if absf(position.x - _battle_roll_target_x) <= 1.0:
+		_battle_roll_active = false
+		_sprite.speed_scale = 0.12
+		_sprite.play("idle")
+		_settle_travel_rotation()
+		battle_roll_finished.emit(self)
 
 
 func play_battle_attack() -> void:
@@ -392,10 +599,10 @@ func play_battle_attack_toward(direction: float) -> void:
 	var origin_x := position.x
 	var attack_direction := -1.0 if direction < 0.0 else 1.0
 	_battle_attack_direction = attack_direction
-	_face_direction(attack_direction)
+	_battle_facing_direction = attack_direction
+	_face_direction(_battle_facing_direction)
 	if (
-		pet_id not in RANGED_BATTLE_PET_IDS
-		and _sprite.sprite_frames != null
+		_sprite.sprite_frames != null
 		and _sprite.sprite_frames.has_animation("attack")
 		and _sprite.sprite_frames.get_frame_count("attack") > 0
 	):
@@ -428,10 +635,6 @@ func get_battle_hit_position() -> Vector2:
 
 
 func get_swallow_mouth_position() -> Vector2:
-	# pet11 is a centered vortex. Its node origin is the dark opening itself; the
-	# former generic head offset ended above-left of the visible portal.
-	if pet_id == "pet11":
-		return position + Vector2(0.0, -2.0 * _pet_scale)
 	var visual_rect := _get_sprite_visual_rect()
 	var height_above_origin := maxf(34.0, position.y - visual_rect.position.y)
 	return position + Vector2(-24.0, -height_above_origin * 0.42)
@@ -439,8 +642,7 @@ func get_swallow_mouth_position() -> Vector2:
 
 func has_battle_attack_animation() -> bool:
 	return (
-		pet_id not in RANGED_BATTLE_PET_IDS
-		and _sprite != null
+		_sprite != null
 		and _sprite.sprite_frames != null
 		and _sprite.sprite_frames.has_animation("attack")
 		and _sprite.sprite_frames.get_frame_count("attack") > 0
@@ -453,6 +655,10 @@ func get_battle_attack_duration() -> float:
 	var frame_count := _sprite.sprite_frames.get_frame_count("attack")
 	var animation_speed := _sprite.sprite_frames.get_animation_speed("attack")
 	return float(frame_count) / maxf(0.01, animation_speed)
+
+
+func get_battle_attack_range() -> float:
+	return maxf(40.0, float(pet_data.get("battle_attack_range", 155.0)))
 
 
 func receive_battle_hit(knockback := 14.0) -> void:
@@ -473,6 +679,7 @@ func receive_battle_hit(knockback := 14.0) -> void:
 
 
 func hide_for_battle_defeat() -> void:
+	_cancel_battle_roll(true)
 	_battle_mode = false
 	_set_interaction_enabled(false)
 	if _sprite != null:
@@ -483,6 +690,7 @@ func is_battle_ready() -> bool:
 	return (
 		_battle_mode
 		and not _pointer_held
+		and not _battle_roll_active
 		and _behavior not in [Behavior.GRABBED, Behavior.FALLING, Behavior.SWALLOWED]
 	)
 
@@ -686,19 +894,28 @@ func get_emotion_anchor() -> Vector2:
 func _create_sprite() -> void:
 	_sprite = AnimatedSprite2D.new()
 	_sprite.name = "%sSprite" % pet_id
-	_sprite.sprite_frames = PetCatalog.build_frames(pet_id)
+	_sprite.sprite_frames = PetCatalog.build_frames(pet_id, is_evolved)
 	_sprite.animation = "idle"
 	_sprite.scale = Vector2.ONE * _pet_scale
 	_sprite.centered = true
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.animation_finished.connect(_on_animation_finished)
 	_stable_hit_image = _build_stable_hit_image(_sprite.sprite_frames)
+	_stable_hit_bounds = (
+		_stable_hit_image.get_used_rect()
+		if _stable_hit_image != null and not _stable_hit_image.is_empty()
+		else Rect2i()
+	)
 	_stable_hit_polygon = _build_stable_hit_polygon(_stable_hit_image)
 	add_child(_sprite)
 	_sprite.play("idle")
 
 
 func _build_stable_hit_image(frames: SpriteFrames) -> Image:
+	var cache_key := "%s:%s" % [pet_id, "evolved" if is_evolved else "base"]
+	var cached_image := _stable_hit_image_cache.get(cache_key) as Image
+	if cached_image != null:
+		return cached_image
 	var stable_image: Image
 	for animation_name in ["idle", "walk"]:
 		if not frames.has_animation(animation_name):
@@ -717,6 +934,8 @@ func _build_stable_hit_image(frames: SpriteFrames) -> Image:
 			if frame_image.get_size() != stable_image.get_size():
 				continue
 			stable_image.blend_rect(frame_image, Rect2i(Vector2i.ZERO, frame_image.get_size()), Vector2i.ZERO)
+	if stable_image != null:
+		_stable_hit_image_cache[cache_key] = stable_image
 	return stable_image
 
 
@@ -736,6 +955,10 @@ func _get_frame_hit_image(texture: Texture2D, animation_name: String, frame: int
 func _build_stable_hit_polygon(image: Image) -> PackedVector2Array:
 	if image == null or image.is_empty():
 		return PackedVector2Array()
+	var cache_key := "%s:%s" % [pet_id, "evolved" if is_evolved else "base"]
+	if _stable_hit_polygon_cache.has(cache_key):
+		var cached_polygon: PackedVector2Array = _stable_hit_polygon_cache[cache_key]
+		return cached_polygon
 	var bitmap := BitMap.new()
 	bitmap.create_from_image_alpha(image, 0.04)
 	var outlines := bitmap.opaque_to_polygons(Rect2i(Vector2i.ZERO, image.get_size()), 1.5)
@@ -744,8 +967,11 @@ func _build_stable_hit_polygon(image: Image) -> PackedVector2Array:
 		var outline: PackedVector2Array = outline_value
 		points.append_array(outline)
 	if points.size() < 3:
+		_stable_hit_polygon_cache[cache_key] = points
 		return points
-	return Geometry2D.convex_hull(points)
+	var hull := Geometry2D.convex_hull(points)
+	_stable_hit_polygon_cache[cache_key] = hull
+	return hull
 
 
 func _create_interaction_area() -> void:
@@ -806,6 +1032,9 @@ func _refresh_hover_hint_text() -> void:
 func _update_pet(delta: float) -> void:
 	_float_phase += delta * 2.15
 	if _pointer_held and _behavior != Behavior.GRABBED:
+		return
+	if _battle_roll_active:
+		_update_battle_roll_attack(delta)
 		return
 	if _autonomy_paused and _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
 		if _behavior_style == "sleepy_floater":
@@ -974,11 +1203,8 @@ func _update_walking(delta: float) -> void:
 	position.x += signf(distance) * step
 	_face_direction(distance)
 	if _rolls_while_walking:
-		_sprite.rotation = wrapf(
-			_sprite.rotation + (signf(distance) * _walk_rotation_speed * delta),
-			-PI,
-			PI
-		)
+		_sprite.speed_scale = 1.0
+	_apply_travel_rotation(delta, distance)
 	if _sprite.animation != "walk":
 		_sprite.play("walk")
 	if _behavior_style == "sleepy_floater":
@@ -1064,6 +1290,8 @@ func _begin_walk_to_selected_target() -> void:
 	_behavior = Behavior.WALK
 	_walk_speed = _base_walk_speed
 	_face_direction(_target_x - position.x)
+	if _rolls_while_walking:
+		_sprite.speed_scale = 1.0
 	_sprite.play("walk")
 
 
@@ -1074,8 +1302,8 @@ func _start_idle() -> void:
 	position.x = _idle_anchor_x
 	_idle_time = _rng.randf_range(_idle_time_min, _idle_time_max)
 	_idle_turn_time = _rng.randf_range(12.0, 30.0)
-	_sprite.rotation = 0.0
-	_sprite.speed_scale = 1.0
+	_settle_travel_rotation()
+	_sprite.speed_scale = 0.12 if pet_id == "pet5" and not is_evolved else 1.0
 	_sprite.visible = true
 	_sprite.play("idle")
 	_set_interaction_enabled(true)
@@ -1449,7 +1677,8 @@ func _on_animation_finished() -> void:
 		_battle_attack_animation = false
 		if _battle_mode:
 			_sprite.play("idle")
-			_face_direction(_battle_attack_direction)
+			_battle_facing_direction = _battle_attack_direction
+			_face_direction(_battle_facing_direction)
 		return
 	match _behavior:
 		Behavior.BURROW_DOWN:
@@ -1474,6 +1703,9 @@ func _cancel_special_behavior() -> void:
 	_hide_pending = false
 	_air_roam_legs_remaining = 0
 	_forced_target_pending = false
+	if _roll_rotation_tween != null and is_instance_valid(_roll_rotation_tween):
+		_roll_rotation_tween.kill()
+		_roll_rotation_tween = null
 	_sprite.rotation = 0.0
 	_sprite.speed_scale = 1.0
 	_sprite.visible = true
@@ -1494,6 +1726,35 @@ func _face_authored_direction(direction: float, authored_faces_right: bool) -> v
 		return
 	var moving_right := direction > 0.0
 	_sprite.flip_h = moving_right != authored_faces_right
+
+
+func _apply_travel_rotation(delta: float, direction: float, speed_multiplier := 1.0) -> void:
+	if not _rolls_while_walking or _sprite == null or is_zero_approx(direction):
+		return
+	if _roll_rotation_tween != null and is_instance_valid(_roll_rotation_tween):
+		_roll_rotation_tween.kill()
+		_roll_rotation_tween = null
+	_sprite.rotation = wrapf(
+		_sprite.rotation
+		+ signf(direction) * _walk_rotation_speed * maxf(0.0, delta) * maxf(0.1, speed_multiplier),
+		-PI,
+		PI
+	)
+
+
+func _settle_travel_rotation() -> void:
+	if _sprite == null:
+		return
+	if not _rolls_while_walking or absf(_sprite.rotation) <= 0.001 or not is_inside_tree():
+		_sprite.rotation = 0.0
+		return
+	if _roll_rotation_tween != null and is_instance_valid(_roll_rotation_tween):
+		return
+	_roll_rotation_tween = create_tween()
+	_roll_rotation_tween.set_trans(Tween.TRANS_QUAD)
+	_roll_rotation_tween.set_ease(Tween.EASE_OUT)
+	_roll_rotation_tween.tween_property(_sprite, "rotation", 0.0, 0.14)
+	_roll_rotation_tween.finished.connect(func() -> void: _roll_rotation_tween = null)
 
 
 func _apply_grounded_position(with_float: bool) -> void:
@@ -1528,6 +1789,7 @@ func _update_pointer_interaction(delta: float) -> void:
 
 
 func _begin_grab() -> void:
+	_cancel_battle_roll(true)
 	if _battle_motion_tween != null and is_instance_valid(_battle_motion_tween):
 		_battle_motion_tween.kill()
 		_battle_motion_tween = null
@@ -1587,18 +1849,24 @@ func _finish_pointer_hold(force_cancel := false) -> void:
 
 func _update_falling(delta: float) -> void:
 	var rest_y := _get_rest_y()
-	if position.y >= rest_y:
-		position.y = rest_y
-		if _behavior_style == "sleepy_floater":
-			_float_anchor_y = rest_y
-		_start_idle()
+	# Drag bounds and the authored foot line are fractional after sprite scaling.
+	# Requiring an exact float comparison can leave a pet a subpixel above the
+	# floor forever, visibly standing while its logical state remains FALLING.
+	if position.y >= rest_y - 0.5:
+		_finish_falling_landing(rest_y)
 		return
 	_fall_velocity += FALL_GRAVITY * delta
 	position.y = minf(rest_y, position.y + (_fall_velocity * delta))
-	if position.y >= rest_y:
-		if _behavior_style == "sleepy_floater":
-			_float_anchor_y = rest_y
-		_start_idle()
+	if position.y >= rest_y - 0.5:
+		_finish_falling_landing(rest_y)
+
+
+func _finish_falling_landing(rest_y: float) -> void:
+	position.y = rest_y
+	_fall_velocity = 0.0
+	if _behavior_style == "sleepy_floater":
+		_float_anchor_y = rest_y
+	_start_idle()
 
 
 func _get_pointer_position() -> Vector2:
@@ -1613,7 +1881,7 @@ func _set_safe_bounds(min_x: float, max_x: float) -> void:
 	var left_inset := 48.0
 	var right_inset := 48.0
 	if _stable_hit_image != null and not _stable_hit_image.is_empty():
-		var visible_bounds := _stable_hit_image.get_used_rect()
+		var visible_bounds := _stable_hit_bounds
 		if visible_bounds.size != Vector2i.ZERO:
 			var half_frame_width := float(_stable_hit_image.get_width()) * 0.5
 			var local_left := float(visible_bounds.position.x) - half_frame_width
@@ -1639,7 +1907,7 @@ func _get_drag_max_x() -> float:
 func _get_drag_min_y() -> float:
 	if _stable_hit_image == null or _stable_hit_image.is_empty():
 		return 32.0
-	var bounds := _stable_hit_image.get_used_rect()
+	var bounds := _stable_hit_bounds
 	if bounds.size == Vector2i.ZERO:
 		return 32.0
 	var local_top := float(bounds.position.y) - (float(_stable_hit_image.get_height()) * 0.5)
@@ -1649,7 +1917,7 @@ func _get_drag_min_y() -> float:
 func _get_drag_max_y() -> float:
 	if _stable_hit_image == null or _stable_hit_image.is_empty():
 		return float(_window_size.y) - 12.0
-	var bounds := _stable_hit_image.get_used_rect()
+	var bounds := _stable_hit_bounds
 	if bounds.size == Vector2i.ZERO:
 		return float(_window_size.y) - 12.0
 	var local_bottom := float(bounds.end.y) - (float(_stable_hit_image.get_height()) * 0.5)
@@ -1660,7 +1928,7 @@ func _get_drag_max_y() -> float:
 func _get_wall_x() -> float:
 	if _stable_hit_image == null or _stable_hit_image.is_empty() or _sprite == null:
 		return 48.0 if _wall_edge < 0 else float(_window_size.x) - 48.0
-	var bounds := _stable_hit_image.get_used_rect()
+	var bounds := _stable_hit_bounds
 	if bounds.size == Vector2i.ZERO:
 		return 48.0 if _wall_edge < 0 else float(_window_size.x) - 48.0
 	var local_bottom := float(bounds.end.y) - (float(_stable_hit_image.get_height()) * 0.5)
@@ -1678,6 +1946,33 @@ func _get_wall_approach_x() -> float:
 
 
 func _update_interaction_area() -> void:
+	var visual_window_position := (
+		_visual_window.position if _visual_window != null else Vector2i.ZERO
+	)
+	var should_be_visible := (
+		_interaction_enabled
+		and _sprite != null
+		and _sprite.visible
+		and _behavior != Behavior.UNDERGROUND
+	)
+	if (
+		_sprite != null
+		and position == _last_interaction_actor_position
+		and _sprite.transform == _last_interaction_sprite_transform
+		and visual_window_position == _last_interaction_visual_window_position
+		and _window_size == _last_interaction_window_size
+		and is_equal_approx(_stage_ground_y, _last_interaction_stage_ground_y)
+		and should_be_visible == _last_interaction_visible
+	):
+		return
+	_last_interaction_actor_position = position
+	_last_interaction_sprite_transform = _sprite.transform if _sprite != null else Transform2D()
+	_last_interaction_visual_window_position = visual_window_position
+	_last_interaction_window_size = _window_size
+	_last_interaction_stage_ground_y = _stage_ground_y
+	_last_interaction_visible = should_be_visible
+	_interaction_geometry_revision += 1
+
 	_interaction_rect = _get_sprite_input_rect().intersection(
 		Rect2(Vector2.ZERO, Vector2(float(_window_size.x), clampf(_stage_ground_y, 0.0, float(_window_size.y))))
 	)
@@ -1713,7 +2008,7 @@ func _update_interaction_area() -> void:
 		_last_input_shape_flip = _sprite.flip_h
 		_last_input_shape_rotation = _sprite.rotation
 		_last_input_shape_scale = _sprite.scale
-	_input_window.visible = _interaction_enabled and _sprite != null and _sprite.visible and _behavior != Behavior.UNDERGROUND
+	_input_window.visible = should_be_visible
 
 
 func _get_sprite_input_rect() -> Rect2:
@@ -1723,7 +2018,7 @@ func _get_sprite_input_rect() -> Rect2:
 func _get_sprite_visual_rect() -> Rect2:
 	if _stable_hit_image == null or _stable_hit_image.is_empty() or _sprite == null:
 		return get_draw_rect()
-	var bounds := _stable_hit_image.get_used_rect()
+	var bounds := _stable_hit_bounds
 	if bounds.size == Vector2i.ZERO:
 		return get_draw_rect()
 

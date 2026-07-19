@@ -2,6 +2,7 @@ extends Window
 
 signal pet_deploy_requested(pet_id: String)
 signal pet_rename_requested(pet_id: String, custom_name: String)
+signal pet_evolution_requested(pet_id: String)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
@@ -38,6 +39,9 @@ var _detail_desc_label: Label
 var _detail_deploy_button: Button
 var _detail_hint_label: Label
 var _detail_close_button: Button
+var _detail_evolution_icon: TextureRect
+var _detail_evolution_label: Label
+var _detail_evolution_button: Button
 var _detail_slot_index := -1
 var _page := 0
 var _pets: Array[Dictionary] = []
@@ -77,7 +81,13 @@ func add_pet(pet_id: String, custom_name := "") -> void:
 	if not custom_name.strip_edges().is_empty():
 		entry["name"] = custom_name.strip_edges()
 	_pets.append(entry)
-	_refresh_page()
+	if visible:
+		_refresh_page()
+		_visuals_dirty = false
+	else:
+		# Gacha batches can unlock several pets while this large 48-slot window is
+		# hidden. Keep the data current and redraw once when the book is opened.
+		_visuals_dirty = true
 
 
 func set_pets(next_pets: Array[Dictionary], refresh_visuals := true) -> void:
@@ -99,7 +109,11 @@ func remove_pet(pet_id: String) -> bool:
 		var entry := _pets[index]
 		if String(entry.get("id", "")) == pet_id:
 			_pets.remove_at(index)
-			_refresh_page()
+			if visible:
+				_refresh_page()
+				_visuals_dirty = false
+			else:
+				_visuals_dirty = true
 			return true
 
 	return false
@@ -292,8 +306,8 @@ func _create_detail_panel() -> void:
 	_detail_panel = PanelContainer.new()
 	_detail_panel.name = "PetDetailPanel"
 	_detail_panel.visible = false
-	_detail_panel.position = Vector2(392.0, 218.0)
-	_detail_panel.size = Vector2(376.0, 312.0)
+	_detail_panel.position = Vector2(340.0, 175.0)
+	_detail_panel.size = Vector2(480.0, 472.0)
 	_detail_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_detail_panel.add_theme_stylebox_override("panel", _make_detail_panel_style())
 	_root.add_child(_detail_panel)
@@ -352,10 +366,40 @@ func _create_detail_panel() -> void:
 
 	_detail_desc_label = Label.new()
 	_detail_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_detail_desc_label.custom_minimum_size = Vector2(320, 88)
+	_detail_desc_label.custom_minimum_size = Vector2(420, 82)
 	_detail_desc_label.add_theme_font_size_override("font_size", 16)
 	_detail_desc_label.add_theme_color_override("font_color", Color(0.18, 0.11, 0.13, 1.0))
 	content.add_child(_detail_desc_label)
+
+	var evolution_divider := HSeparator.new()
+	content.add_child(evolution_divider)
+	var evolution_row := HBoxContainer.new()
+	evolution_row.add_theme_constant_override("separation", 14)
+	content.add_child(evolution_row)
+	var evolution_icon_frame := CenterContainer.new()
+	evolution_icon_frame.custom_minimum_size = Vector2(92, 92)
+	evolution_row.add_child(evolution_icon_frame)
+	_detail_evolution_icon = TextureRect.new()
+	_detail_evolution_icon.name = "EvolutionFormIcon"
+	_detail_evolution_icon.custom_minimum_size = Vector2(86, 86)
+	_detail_evolution_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_detail_evolution_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	evolution_icon_frame.add_child(_detail_evolution_icon)
+	var evolution_info := VBoxContainer.new()
+	evolution_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	evolution_info.alignment = BoxContainer.ALIGNMENT_CENTER
+	evolution_info.add_theme_constant_override("separation", 8)
+	evolution_row.add_child(evolution_info)
+	_detail_evolution_label = Label.new()
+	_detail_evolution_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_detail_evolution_label.custom_minimum_size = Vector2(290, 46)
+	_detail_evolution_label.add_theme_font_size_override("font_size", 15)
+	_detail_evolution_label.add_theme_color_override("font_color", Color(0.24, 0.13, 0.14, 1.0))
+	evolution_info.add_child(_detail_evolution_label)
+	_detail_evolution_button = Button.new()
+	_detail_evolution_button.custom_minimum_size = Vector2(180, 34)
+	_detail_evolution_button.pressed.connect(_request_detail_pet_evolution)
+	evolution_info.add_child(_detail_evolution_button)
 
 	var actions := HBoxContainer.new()
 	actions.alignment = BoxContainer.ALIGNMENT_END
@@ -551,7 +595,8 @@ func _show_detail_panel(pet_index: int) -> void:
 	_detail_slot_index = pet_index
 	var entry := _pets[pet_index]
 	var pet_id := String(entry.get("id", ""))
-	var pet_data := PetCatalog.get_definition(pet_id)
+	var evolved := bool(entry.get("evolved", false))
+	var pet_data := PetCatalog.get_runtime_definition(pet_id, evolved)
 	_detail_icon.texture = PetCatalog.make_icon_texture(String(entry.get("texture", pet_data.get("icon", ""))), 6)
 	_detail_name_edit.text = String(entry.get("name", pet_data.get("name", pet_id)))
 	var rarity_stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
@@ -570,6 +615,34 @@ func _show_detail_panel(pet_index: int) -> void:
 		if recovering
 		else ("Return to desktop" if _language == "en" else "放回桌面")
 	)
+	var level := maxi(1, int(entry.get("level", 1)))
+	var has_evolution := PetCatalog.can_evolve(pet_id)
+	var evolution_data := PetCatalog.get_evolution_definition(pet_id)
+	var evolution_icon_path := String(evolution_data.get("icon", PetCatalog.get_definition(pet_id).get("icon", "")))
+	_detail_evolution_icon.texture = PetCatalog.make_icon_texture(evolution_icon_path, 6)
+	_detail_evolution_icon.modulate = Color.WHITE if evolved else Color(0.055, 0.025, 0.05, 0.76)
+	_detail_evolution_button.visible = false
+	if evolved:
+		_detail_evolution_label.text = (
+			"Evolution complete: %s" if _language == "en" else "已完成进化：%s"
+		) % String(evolution_data.get("evolution_name", entry.get("name", pet_id)))
+		_detail_evolution_button.text = "EVOLVED" if _language == "en" else "已进化"
+		_detail_evolution_button.disabled = true
+	elif level < 100:
+		_detail_evolution_label.text = (
+			"A new form is stirring. It awakens at Lv.100 (Lv.%d now)."
+			if _language == "en"
+			else "新的形态正在苏醒。达到 Lv.100 后将进入进化形态（当前 Lv.%d）。"
+		) % level
+		_detail_evolution_button.text = "EVOLUTION AT LV.100" if _language == "en" else "Lv.100 进化"
+		_detail_evolution_button.disabled = true
+	elif has_evolution:
+		_detail_evolution_label.text = "Evolution threshold reached. Evolution is being applied." if _language == "en" else "已达到进化条件，正在完成进化。"
+		_detail_evolution_button.disabled = true
+	else:
+		_detail_evolution_label.text = "This evolution form has not fully manifested yet." if _language == "en" else "这一进化形态尚未完全显现。"
+		_detail_evolution_button.text = "FORM NOT YET REVEALED" if _language == "en" else "进化形态尚未显现"
+		_detail_evolution_button.disabled = true
 	_detail_panel.visible = true
 
 
@@ -620,6 +693,18 @@ func _deploy_detail_pet() -> void:
 
 	pet_deploy_requested.emit(pet_id)
 	_hide_detail_panel()
+
+
+func _request_detail_pet_evolution() -> void:
+	if _detail_slot_index < 0 or _detail_slot_index >= _pets.size():
+		return
+	var entry := _pets[_detail_slot_index]
+	var pet_id := String(entry.get("id", ""))
+	if pet_id.is_empty() or bool(entry.get("evolved", false)):
+		return
+	if int(entry.get("level", 1)) < 100 or not PetCatalog.has_evolution(pet_id):
+		return
+	pet_evolution_requested.emit(pet_id)
 
 
 func _format_duration(seconds: float) -> String:

@@ -9,6 +9,7 @@ static func run() -> Array[String]:
 	_test_explicit_level_migration(failures)
 	_test_starter_unlock_state(failures)
 	_test_pet_gacha_integration(failures)
+	_test_hidden_inventory_updates_are_lazy(failures)
 	_test_single_level_upgrade(failures)
 	_test_upgrade_entry_simplicity(failures)
 	_test_scaled_manual_click(failures)
@@ -51,6 +52,7 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	main.set("_gold_coins", 1000000)
 	var first_cost := Main.GachaProgression.draw_cost(0)
 	main.call("_on_gacha_draw_requested")
+	_drain_gacha_batch(main, failures, "first draw")
 	var unlocked_after_first: Array = main.get("_unlocked_pet_ids")
 	if unlocked_after_first.size() != 2 or not unlocked_after_first.has("pet1"):
 		failures.append("the first successful pet draw must unlock exactly one new non-starter pet")
@@ -70,6 +72,7 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	var faith_before_duplicate := float(main.get("_faith_points"))
 	var duplicate_draw_cost := Main.GachaProgression.draw_cost(1)
 	main.call("_on_gacha_draw_requested")
+	_drain_gacha_batch(main, failures, "duplicate draw")
 	history = main.get("_gacha_history")
 	if history.is_empty() or bool((history[0] as Dictionary).get("is_new", true)):
 		failures.append("draws from a complete collection must be recorded as duplicate exchanges")
@@ -85,21 +88,131 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	var draw_count_before_batch := int(main.get("_gacha_draw_count"))
 	main.set("_gold_coins", 9_000_000_000_000_000_000)
 	main.call("_on_gacha_draw_requested", 10)
+	_drain_gacha_batch(main, failures, "ten draw")
 	if int(main.get("_gacha_draw_count")) != draw_count_before_batch + 10:
 		failures.append("checking draw ten must resolve exactly ten sequential pet draws")
 	var pending_results: Array = window.get("_pending_results")
 	if pending_results.size() != 10:
 		failures.append("a ten-draw batch must queue all ten popup results in draw order")
+	var expected_duplicate_summary := 0
+	for pending_result_value in pending_results:
+		expected_duplicate_summary += int((pending_result_value as Dictionary).get("duplicate_faith", 0))
+	var prepared_summary: Dictionary = window.get("_prepared_batch_summary")
+	if int(prepared_summary.get("duplicate_faith_total", -1)) != expected_duplicate_summary:
+		failures.append("batch processing must precompute the exact skip-all duplicate faith total")
 	var draw_count_before_hundred := int(main.get("_gacha_draw_count"))
 	main.call("_on_gacha_draw_requested", 100)
+	_drain_gacha_batch(main, failures, "hundred draw")
 	if int(main.get("_gacha_draw_count")) != draw_count_before_hundred + 100:
 		failures.append("the 100-draw option must resolve one hundred sequential draws")
 	pending_results = window.get("_pending_results")
 	if pending_results.size() != 100:
 		failures.append("large batches must remain available to skip-all result aggregation")
+
+	var chunked_amount := Main.GACHA_BATCH_MAX_DRAWS_PER_FRAME + 17
+	var draw_count_before_chunked := int(main.get("_gacha_draw_count"))
+	main.call("_on_gacha_draw_requested", chunked_amount)
+	var chunked_token := int(main.get("_gacha_batch_token"))
+	var gold_after_reservation := int(main.get("_gold_coins"))
+	if not bool(main.get("_gacha_batch_active")) or not window.is_draw_request_pending():
+		failures.append("a large gacha request must enter a visible busy state before batch work starts")
+	main.call("_on_gacha_draw_requested", 10)
+	if int(main.get("_gacha_batch_token")) != chunked_token or int(main.get("_gold_coins")) != gold_after_reservation:
+		failures.append("a repeated draw signal must not replace the active batch or reserve gold twice")
+	var replacement_window := Main.GachaWindowScript.new()
+	replacement_window.setup()
+	main.set("_gacha_window", replacement_window)
+	main.call("_on_gacha_draw_requested", 10)
+	if replacement_window.is_draw_request_pending():
+		failures.append("a stale batch must not transfer its busy state or result ownership to a replacement window")
+	main.set("_gacha_window", window)
+	replacement_window.free()
+	main.call("_process_gacha_draw_batch", chunked_token)
+	var first_chunk_draws := int(main.get("_gacha_draw_count")) - draw_count_before_chunked
+	if first_chunk_draws <= 0 or first_chunk_draws > Main.GACHA_BATCH_MAX_DRAWS_PER_FRAME:
+		failures.append("one gacha frame must obey the explicit maximum draw chunk")
+	if not bool(main.get("_gacha_batch_active")) or not window.is_draw_request_pending():
+		failures.append("a multi-frame gacha batch must remain busy between chunks")
+	_drain_gacha_batch(main, failures, "multi-frame draw")
+	if int(main.get("_gacha_draw_count")) != draw_count_before_chunked + chunked_amount:
+		failures.append("chunking must preserve the exact requested number and result order")
+	if window.is_draw_request_pending():
+		failures.append("a completed gacha batch must always release its busy state")
+	var count_after_chunked := int(main.get("_gacha_draw_count"))
+	main.call("_process_gacha_draw_batch", chunked_token)
+	if int(main.get("_gacha_draw_count")) != count_after_chunked:
+		failures.append("a stale deferred chunk must not mutate a completed batch")
+
+	# Even a defensive empty-result completion refunds its reservation and clears
+	# the wait state rather than leaving the gacha button permanently disabled.
+	var gold_before_empty := int(main.get("_gold_coins"))
+	main.call("_on_gacha_draw_requested", 10)
+	var empty_token := int(main.get("_gacha_batch_token"))
+	var empty_state: Dictionary = main.get("_gacha_batch_state")
+	empty_state["remaining"] = 0
+	empty_state["results"] = []
+	empty_state["spent_cost"] = 0
+	main.set("_gacha_batch_state", empty_state)
+	main.call("_process_gacha_draw_batch", empty_token)
+	if bool(main.get("_gacha_batch_active")) or window.is_draw_request_pending():
+		failures.append("an empty gacha result must release both model and UI busy state")
+	if int(main.get("_gold_coins")) != gold_before_empty:
+		failures.append("an empty gacha result must refund all reserved gold")
+
+	main.set("_gold_coins", 0)
+	window.set_draw_request_pending(true)
+	main.call("_on_gacha_draw_requested", 100)
+	if bool(main.get("_gacha_batch_active")) or window.is_draw_request_pending():
+		failures.append("an unaffordable gacha request must not leave the window waiting")
 	main.set("_gacha_window", null)
 	window.free()
 	main.free()
+
+
+static func _drain_gacha_batch(main: Node, failures: Array[String], label: String) -> void:
+	var chunk_count := 0
+	while bool(main.get("_gacha_batch_active")) and chunk_count < 20_000:
+		main.call("_process_gacha_draw_batch", int(main.get("_gacha_batch_token")))
+		chunk_count += 1
+	if bool(main.get("_gacha_batch_active")):
+		failures.append("%s gacha batch must finish within a bounded number of chunks" % label)
+
+
+static func _test_hidden_inventory_updates_are_lazy(failures: Array[String]) -> void:
+	var inventory := Main.InventoryWindowScript.new()
+	inventory.setup([Main.PetCatalog.make_inventory_entry("pet1")])
+	inventory.visible = false
+	var icons: Array = inventory.get("_slot_icons")
+	var first_texture_before := (icons[0] as TextureRect).texture
+	if (icons[1] as TextureRect).visible:
+		failures.append("inventory lazy-refresh test requires an initially empty second slot")
+
+	inventory.add_pet("pet2")
+	if not bool(inventory.get("_visuals_dirty")):
+		failures.append("adding a pet to a hidden inventory must mark its visuals dirty")
+	if (icons[1] as TextureRect).visible:
+		failures.append("adding a hidden pet must not redraw all 48 inventory slots immediately")
+	inventory.remove_pet("pet1")
+	if not bool(inventory.get("_visuals_dirty")):
+		failures.append("removing a pet from a hidden inventory must preserve the dirty marker")
+	if (icons[0] as TextureRect).texture != first_texture_before:
+		failures.append("hidden inventory removal must defer icon replacement until the book opens")
+
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree != null:
+		tree.root.add_child(inventory)
+		inventory.open_window()
+		var expected_pet2_icon := Main.PetCatalog.make_icon_texture(
+			String(Main.PetCatalog.get_definition("pet2").get("icon", ""))
+		)
+		if bool(inventory.get("_visuals_dirty")):
+			failures.append("opening inventory must consume its one deferred visual refresh")
+		if not (icons[0] as TextureRect).visible or (icons[0] as TextureRect).texture != expected_pet2_icon:
+			failures.append("opening a dirty inventory must render the latest pet data exactly once")
+		tree.root.remove_child(inventory)
+		inventory.free()
+	else:
+		inventory.free()
 
 
 static func _test_legacy_state_migration(failures: Array[String]) -> void:
@@ -131,8 +244,8 @@ static func _test_explicit_level_migration(failures: Array[String]) -> void:
 	var state: Dictionary = sanitized.get("pet2", {})
 	if int(state.get("upgrade_level", 0)) != 290:
 		failures.append("an explicit legacy upgrade level must take precedence over population")
-	if state.size() != 1:
-		failures.append("migrated unnamed pets must retain only their upgrade level")
+	if state.size() != 2 or not bool(state.get("evolved", false)):
+		failures.append("migrated level-100+ pets must retain their level and derived evolved form")
 	main.free()
 
 

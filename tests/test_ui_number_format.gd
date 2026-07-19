@@ -96,16 +96,21 @@ static func run() -> Array[String]:
 	var era_label := formatter.get("_era_label") as Label
 	if era_label == null or drawer_panel == null:
 		failures.append("the drawer must create its era label")
-	elif era_label.get_parent() != drawer_root:
-		failures.append("the era label must be a root overlay so PanelContainer cannot recenter it")
 	else:
-		var expected_era_x := drawer_panel.position.x + SideDrawer.DRAWER_CONTENT_MARGIN_X
-		if (
-			not is_equal_approx(era_label.position.x, expected_era_x)
-			or era_label.position.y < 16.0
-			or era_label.position.y >= SideDrawer.DRAWER_CONTENT_TOP_MARGIN
-		):
-			failures.append("the era label must sit inside, but still near, the drawer's top-left corner")
+		var faith_stage := drawer_root.find_child("FaithAdderStage", true, false) as Control
+		var upgrade_scroller := drawer_root.find_child("UpgradeScroller", true, false) as ScrollContainer
+		var era_parent := era_label.get_parent()
+		if faith_stage == null or upgrade_scroller == null or era_parent != faith_stage.get_parent() or era_parent != upgrade_scroller.get_parent():
+			failures.append("the era line must share the main flow between faith and pet upgrades")
+		else:
+			var flow_children := era_parent.get_children()
+			var faith_index := flow_children.find(faith_stage)
+			var era_index := flow_children.find(era_label)
+			var upgrades_index := flow_children.find(upgrade_scroller)
+			if era_index <= faith_index or era_index >= upgrades_index:
+				failures.append("the era line must sit directly above the pet upgrade block instead of at the drawer top")
+		if era_label.horizontal_alignment != HORIZONTAL_ALIGNMENT_CENTER or era_label.custom_minimum_size.y < SideDrawer.ERA_LABEL_HEIGHT:
+			failures.append("the era line must remain a centered, readable upgrade-section heading")
 	if drawer_root.find_child("FollowerSummary", true, false) != null:
 		failures.append("the faith header must not retain the follower summary line")
 	var faith_value := formatter.get("_faith_value_label") as Label
@@ -157,6 +162,24 @@ static func run() -> Array[String]:
 		formatter.call("_commit_upgrade_detail_name")
 		if rename_requests != ["pet2:新名字"]:
 			failures.append("committing the detail name must emit one trimmed rename request")
+
+	var locked_evolution_text: String = formatter.call("_get_upgrade_evolution_text", {
+		"id": "pet1",
+		"name": "腐生眷族",
+		"level": 99,
+		"evolved": false,
+	}, "pet1")
+	if "自动" in locked_evolution_text or "Lv.100 进化" not in locked_evolution_text:
+		failures.append("the menu pet detail must describe level-100 evolution without automatic wording")
+	var evolved_text: String = formatter.call("_get_upgrade_evolution_text", {
+		"id": "pet1",
+		"name": "腐生眷族",
+		"level": 100,
+		"evolved": true,
+		"evolution_name": "渊生眷族",
+	}, "pet1")
+	if evolved_text != "进化完成\n渊生眷族":
+		failures.append("the menu pet detail must say only evolution complete after evolving")
 
 	formatter.call("_create_toggle_button")
 	var menu_window := formatter.get("_menu_window") as Window

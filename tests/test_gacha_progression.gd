@@ -64,7 +64,7 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 static func _check_pet_pool(failures: Array[String]) -> void:
 	var expected_ids := [
 		"pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
-		"pet8", "pet9", "pet10", "pet11"
+		"pet8", "pet9", "pet10"
 	]
 	var actual_ids: Array[String] = []
 	var total_weight := 0.0
@@ -90,8 +90,7 @@ static func _check_pet_pool(failures: Array[String]) -> void:
 	_check_roll_pet(failures, "pet8 boundary", 0.83, "pet8")
 	_check_roll_pet(failures, "pet9 boundary", 0.90, "pet9")
 	_check_roll_pet(failures, "pet10 boundary", 0.94, "pet10")
-	_check_roll_pet(failures, "pet11 boundary", 0.975, "pet11")
-	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet11")
+	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet10")
 
 
 static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
@@ -111,7 +110,7 @@ static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
 static func _check_new_pet_pity(failures: Array[String]) -> void:
 	var unlocked := [
 		"pet1", "pet2", "pet3", "pet4", "pet6", "pet7",
-		"pet8", "pet9", "pet10", "pet11"
+		"pet8", "pet9", "pet10"
 	]
 	var pity_count := 0
 	for draw_index in GachaProgression.NEW_PET_PITY_DRAWS - 1:
@@ -172,13 +171,21 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		if egg.z_index <= 0 or (machine != null and egg.z_index >= machine.z_index):
 			failures.append("eggs must render above the UI background and below the machine face")
 			break
-	var amount_selector: OptionButton = window.get("_draw_amount_selector")
-	if amount_selector == null or amount_selector.item_count != 5:
+	var amount_buttons: Dictionary = window.get("_draw_amount_buttons")
+	if amount_buttons.size() != 5:
 		failures.append("gacha must offer 1, 10, 100, 1000 and custom draw counts")
 	else:
-		amount_selector.select(3)
+		window.call("_on_draw_amount_preset_pressed", 1000)
 		if int(window.call("_selected_draw_amount")) != 1000:
 			failures.append("the 1000-draw option must request all one thousand rolls")
+		window.call("_on_draw_amount_preset_pressed", -1)
+		var custom_input: LineEdit = window.get("_custom_draw_input")
+		custom_input.text = "23abc7"
+		window.call("_on_custom_draw_text_changed", custom_input.text)
+		if not custom_input.editable or custom_input.focus_mode == Control.FOCUS_NONE:
+			failures.append("the custom draw count must be a focusable editable text field")
+		if custom_input.text != "237" or int(window.call("_selected_draw_amount")) != 237:
+			failures.append("the custom draw option must accept directly typed numeric input")
 	var min_home := Vector2(INF, INF)
 	var max_home := Vector2(-INF, -INF)
 	for home_value in GachaWindow.EGG_HOME_POSITIONS:

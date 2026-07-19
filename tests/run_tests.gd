@@ -13,7 +13,11 @@ const TEST_SUITES := [
 	preload("res://tests/test_ui_number_format.gd"),
 	preload("res://tests/test_news_feed.gd"),
 	preload("res://tests/test_coin_and_settings.gd"),
-	preload("res://tests/test_desktop_events.gd")
+	preload("res://tests/test_desktop_events.gd"),
+	preload("res://tests/test_pet_evolution.gd"),
+	preload("res://tests/test_melee_combat.gd"),
+	preload("res://tests/test_pet_level_size.gd"),
+	preload("res://tests/test_performance_regressions.gd")
 ]
 
 
