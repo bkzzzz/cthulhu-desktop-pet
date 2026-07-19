@@ -356,6 +356,19 @@ func _create_inventory_window() -> void:
 	_inventory_window.connect("pet_rename_requested", Callable(_host, "_on_inventory_pet_rename_requested"))
 	_inventory_window.connect("pet_evolution_requested", Callable(_host, "_on_inventory_pet_evolution_requested"))
 	_inventory_window.setup(_host._get_inventory_pet_entries())
+	call_deferred("_warm_inventory_pet_assets")
+
+
+func _warm_inventory_pet_assets() -> void:
+	for entry_value in _host._get_inventory_pet_entries():
+		var entry: Dictionary = entry_value
+		DesktopPetActor.warm_up_assets(
+			String(entry.get("id", "")),
+			bool(entry.get("evolved", false)),
+			int(entry.get("level", 1))
+		)
+		if is_inside_tree():
+			await get_tree().process_frame
 
 func _create_evolution_window() -> void:
 	_evolution_window = EvolutionWindowScript.new()

@@ -544,6 +544,26 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	if float(melee_pet.get_battle_attack_duration()) < 12.0 / 12.0:
 		failures.append("combat cooldowns must leave enough time for all authored attack frames to play")
 	melee_pet.free()
+	var pet4 := Main.DesktopPetActor.new()
+	pet4.setup("pet4", Vector2i(900, 600), 0.0, 900.0, 640.0, 584.0, false)
+	pet4.set_battle_mode(true)
+	var pet4_root_y := pet4.position.y
+	var pet4_ground_y := float(pet4.call("_get_ground_contact_y"))
+	pet4.play_battle_attack_toward(-1.0)
+	var pet4_sprite := pet4.get_node_or_null("pet4Sprite") as AnimatedSprite2D
+	if pet4_sprite == null:
+		failures.append("pet4 must build its authored attack sprite")
+	else:
+		for frame_index in pet4_sprite.sprite_frames.get_frame_count("attack"):
+			pet4_sprite.frame = frame_index
+			pet4.call("_anchor_attack_frame_to_visual_bottom")
+			var visible_bottom := float(pet4.call("_get_current_frame_visual_bottom_y"))
+			if absf(visible_bottom - pet4_ground_y) > 1.0:
+				failures.append("every pet4 attack frame must remain locked to the ground")
+				break
+	if not is_equal_approx(pet4.position.y, pet4_root_y):
+		failures.append("starting pet4's attack must not move its actor root upward")
+	pet4.free()
 	var pet6 := Main.DesktopPetActor.new()
 	pet6.setup("pet6", Vector2i(900, 600), 0.0, 900.0, 640.0, 584.0, false)
 	pet6.set_battle_mode(true)

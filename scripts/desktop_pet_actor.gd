@@ -58,6 +58,28 @@ const LEVEL_SIZE_POST_BASELINE_LOG_RATE := 0.04
 static var _stable_hit_image_cache := {}
 static var _stable_hit_polygon_cache := {}
 static var _battle_frame_bottom_cache := {}
+static var _warmed_pet_forms := {}
+
+
+static func warm_up_assets(pet_id_value: String, evolved := false, level := LEVEL_SIZE_BASELINE_LEVEL) -> void:
+	var cache_key := "%s:%s" % [pet_id_value, "evolved" if evolved else "base"]
+	if _warmed_pet_forms.has(cache_key):
+		return
+	var script_resource := load("res://scripts/desktop_pet_actor.gd") as GDScript
+	var probe = script_resource.new()
+	probe.setup(
+		pet_id_value,
+		Vector2i(1000, 720),
+		0.0,
+		1000.0,
+		500.0,
+		704.0,
+		false,
+		evolved,
+		level
+	)
+	probe.free()
+	_warmed_pet_forms[cache_key] = true
 
 enum Behavior {
 	IDLE,
@@ -607,7 +629,15 @@ func play_battle_attack_toward(direction: float) -> void:
 		and _sprite.sprite_frames.has_animation("attack")
 		and _sprite.sprite_frames.get_frame_count("attack") > 0
 	):
-		_battle_attack_visual_bottom_offset_y = _get_current_frame_visual_bottom_y() - position.y
+		var lock_attack_to_ground := bool(pet_data.get(
+			"attack_align_to_floor",
+			pet_data.get("align_frames_to_floor", true)
+		))
+		_battle_attack_visual_bottom_offset_y = (
+			_get_ground_contact_y() - position.y
+			if lock_attack_to_ground and _behavior_style != "sleepy_floater"
+			else _get_current_frame_visual_bottom_y() - position.y
+		)
 		_battle_attack_animation = true
 		_sprite.speed_scale = 1.0
 		_sprite.play("attack")

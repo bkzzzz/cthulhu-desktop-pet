@@ -300,7 +300,8 @@ const DEFINITIONS := {
 		"attack_columns": 4,
 		"attack_rows": 3,
 		"attack_faces_right": true,
-		"attack_frame_foot_y": 172
+		"attack_frame_foot_y": 172,
+		"attack_align_to_floor": true
 	},
 	"pet5": {
 		"id": "pet5",
@@ -1112,11 +1113,12 @@ static func _add_sheet_animation(
 		return
 
 	source_image.convert(Image.FORMAT_RGBA8)
+	var key_color := source_image.get_pixel(0, 0)
+	_apply_chroma_key(source_image, key_color)
 	var frame_size := Vector2i(
 		int(source_image.get_width() / float(columns)),
 		int(source_image.get_height() / float(rows))
 	)
-	var key_color := source_image.get_pixel(0, 0)
 
 	if not frames.has_animation(animation_name):
 		frames.add_animation(animation_name)
@@ -1143,7 +1145,6 @@ static func _add_sheet_animation(
 		var frame_image := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
 		var source_rect := Rect2i(Vector2i(column * frame_size.x, row * frame_size.y), frame_size)
 		frame_image.blit_rect(source_image, source_rect, Vector2i.ZERO)
-		_apply_chroma_key(frame_image, key_color)
 		if skip_empty_frames and _get_visible_bounds(frame_image).size == Vector2i.ZERO:
 			continue
 		if align_to_floor:
@@ -1166,12 +1167,21 @@ static func _add_reversed_animation(frames: SpriteFrames, source_name: String, t
 
 
 static func _apply_chroma_key(image: Image, key_color: Color) -> void:
-	for y in image.get_height():
-		for x in image.get_width():
-			var color := image.get_pixel(x, y)
-			if _color_distance(color, key_color) <= CHROMA_KEY_TOLERANCE:
-				color.a = 0.0
-				image.set_pixel(x, y, color)
+	if image == null or image.is_empty():
+		return
+	image.convert(Image.FORMAT_RGBA8)
+	var pixels := image.get_data()
+	var key_r := roundi(key_color.r * 255.0)
+	var key_g := roundi(key_color.g * 255.0)
+	var key_b := roundi(key_color.b * 255.0)
+	var tolerance_squared := CHROMA_KEY_TOLERANCE * CHROMA_KEY_TOLERANCE * 255.0 * 255.0
+	for byte_index in range(0, pixels.size(), 4):
+		var dr := int(pixels[byte_index]) - key_r
+		var dg := int(pixels[byte_index + 1]) - key_g
+		var db := int(pixels[byte_index + 2]) - key_b
+		if float(dr * dr + dg * dg + db * db) <= tolerance_squared:
+			pixels[byte_index + 3] = 0
+	image.set_data(image.get_width(), image.get_height(), false, Image.FORMAT_RGBA8, pixels)
 
 
 static func _align_frame_to_floor(image: Image, frame_foot_y: int) -> Image:

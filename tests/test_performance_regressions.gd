@@ -12,6 +12,7 @@ static func run() -> Array[String]:
 	_test_pet_interaction_geometry_cache(failures)
 	_test_shared_pet_asset_caches(failures)
 	_test_battle_engagement_caches(failures)
+	_test_storage_release_assets_are_prewarmed(failures)
 	_test_hidden_drawer_defers_visual_work(failures)
 	_test_saves_are_debounced(failures)
 	return failures
@@ -68,6 +69,22 @@ static func _test_battle_engagement_caches(failures: Array[String]) -> void:
 	if cache.size() != cached_before_attack:
 		failures.append("first engagement must use precomputed pet attack-frame metrics")
 	actor.free()
+
+
+static func _test_storage_release_assets_are_prewarmed(failures: Array[String]) -> void:
+	DesktopPetActor.warm_up_assets("pet4", false, 50)
+	var frame_cache_size := (PetCatalog._frame_cache as Dictionary).size()
+	var hit_cache_size := (DesktopPetActor._stable_hit_image_cache as Dictionary).size()
+	var bottom_cache_size := (DesktopPetActor._battle_frame_bottom_cache as Dictionary).size()
+	var released_actor := DesktopPetActor.new()
+	released_actor.setup("pet4", Vector2i(1000, 720), 0.0, 1000.0, 500.0, 704.0, false, false, 50)
+	if (PetCatalog._frame_cache as Dictionary).size() != frame_cache_size:
+		failures.append("releasing a warmed stored pet must not rebuild animation textures")
+	if (DesktopPetActor._stable_hit_image_cache as Dictionary).size() != hit_cache_size:
+		failures.append("releasing a warmed stored pet must reuse its hit geometry image")
+	if (DesktopPetActor._battle_frame_bottom_cache as Dictionary).size() != bottom_cache_size:
+		failures.append("releasing a warmed stored pet must reuse attack-frame metrics")
+	released_actor.free()
 
 
 static func _test_hidden_drawer_defers_visual_work(failures: Array[String]) -> void:
