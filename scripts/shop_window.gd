@@ -345,7 +345,8 @@ func _create_info_panel() -> void:
 	_info_desc_label = Label.new()
 	_info_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info_desc_label.custom_minimum_size = Vector2(260.0, 70.0)
-	_info_desc_label.add_theme_font_size_override("font_size", 14)
+	_info_desc_label.add_theme_font_size_override("font_size", 16)
+	_info_desc_label.add_theme_constant_override("line_spacing", 3)
 	_info_desc_label.add_theme_color_override("font_color", Color(0.72, 0.82, 0.66, 1.0))
 	content.add_child(_info_desc_label)
 

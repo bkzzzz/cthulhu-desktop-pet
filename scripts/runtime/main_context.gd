@@ -31,7 +31,10 @@ const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 
 # Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
-const PET_TASKBAR_OVERLAP_PIXELS := 16
+# The desktop window already ends exactly at the Windows usable-work-area edge.
+# Its local bottom is therefore the taskbar contact line; subtracting an inset
+# makes every grounded actor visibly float above the taskbar.
+const PET_TASKBAR_OVERLAP_PIXELS := 0
 const PET_STAGE_MARGIN_X := 0.0
 const PET_STAGE_RIGHT_MARGIN := 0.0
 const PET_STAGE_START_SPACING := 132.0
@@ -123,8 +126,8 @@ const BATTLE_DECLINED_DELAY_MAX_SECONDS := 135.0
 const BATTLE_DURATION_SECONDS := 55.0
 const BATTLE_DIFFICULTY_VARIANCE_MIN := 0.90
 const BATTLE_DIFFICULTY_VARIANCE_MAX := 1.16
-const BATTLE_DRAG_HINT_EN := "Melee pets charge automatically; drag them forward to shield the ranged line"
-const BATTLE_DRAG_HINT_ZH := "近战宠物会自动冲锋；拖动宠物到前线可以保护后排远程宠物"
+const BATTLE_DRAG_HINT_EN := "Pets hold their current positions when battle begins; drag them anytime to adjust the line"
+const BATTLE_DRAG_HINT_ZH := "战斗开始时宠物会留在原位；你可以随时拖动宠物调整战线"
 const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
 const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
 const BATTLE_EFFECT_LIMIT := 28

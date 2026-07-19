@@ -1306,6 +1306,16 @@ func _apply_language_theme() -> void:
 		_drawer_root.theme = language_theme
 	if _upgrade_detail_window != null:
 		_upgrade_detail_window.theme = language_theme
+	var display_font := LanguageSettings.get_display_font(_language)
+	var numeric_display_font := LanguageSettings.get_numeric_display_font()
+	# Keep the pixel face as an accent only. Names, descriptions, costs, tooltips,
+	# buttons, and editable text continue to inherit the readable body font.
+	for display_label in [_menu_hint, _era_label]:
+		if display_label != null:
+			display_label.add_theme_font_override("font", display_font)
+	for numeric_label in [_faith_value_label, _faith_growth_value_label, _coin_value_label]:
+		if numeric_label != null:
+			numeric_label.add_theme_font_override("font", numeric_display_font)
 
 
 func _make_line_edit_style(focused: bool) -> StyleBoxFlat:

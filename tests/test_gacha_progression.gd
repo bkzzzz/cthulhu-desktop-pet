@@ -9,6 +9,7 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_check_draw_costs(failures)
 	_check_pet_pool(failures)
+	_check_growth_gates(failures)
 	_check_new_and_duplicate_results(failures)
 	_check_new_pet_pity(failures)
 	_check_static_machine_and_eggs(failures)
@@ -80,17 +81,80 @@ static func _check_pet_pool(failures: Array[String]) -> void:
 		if entry.has("rarity") or entry.has("color") or entry.has("duplicate_refund_ratio"):
 			failures.append("the gacha pool must use catalog stars instead of a duplicate rarity model")
 			break
+	var previous_weight := INF
+	for entry_value in GachaProgression.PET_POOL:
+		var entry := entry_value as Dictionary
+		var weight := float(entry.get("weight", 0.0))
+		if weight > previous_weight:
+			failures.append("higher-stage pets must never become more likely than the preceding pet")
+			break
+		previous_weight = weight
 
 	_check_roll_pet(failures, "first two-star boundary", 0.0, "pet2")
-	_check_roll_pet(failures, "second two-star boundary", 0.24, "pet3")
-	_check_roll_pet(failures, "first three-star boundary", 0.48, "pet4")
-	_check_roll_pet(failures, "first four-star boundary", 0.63, "pet5")
-	_check_roll_pet(failures, "first five-star boundary", 0.72, "pet6")
-	_check_roll_pet(failures, "pet7 boundary", 0.78, "pet7")
-	_check_roll_pet(failures, "pet8 boundary", 0.83, "pet8")
-	_check_roll_pet(failures, "pet9 boundary", 0.90, "pet9")
-	_check_roll_pet(failures, "pet10 boundary", 0.94, "pet10")
+	_check_roll_pet(failures, "second two-star boundary", 0.38, "pet3")
+	_check_roll_pet(failures, "first three-star boundary", 0.65, "pet4")
+	_check_roll_pet(failures, "first four-star boundary", 0.80, "pet5")
+	_check_roll_pet(failures, "first five-star boundary", 0.88, "pet6")
+	_check_roll_pet(failures, "pet7 boundary", 0.93, "pet7")
+	_check_roll_pet(failures, "pet8 boundary", 0.96, "pet8")
+	_check_roll_pet(failures, "pet9 boundary", 0.98, "pet9")
+	_check_roll_pet(failures, "pet10 boundary", 0.9925, "pet10")
 	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet10")
+
+
+static func _check_growth_gates(failures: Array[String]) -> void:
+	var previous_threshold := -1.0
+	for entry_value in GachaProgression.PET_POOL:
+		var entry := entry_value as Dictionary
+		var pet_id := String(entry.get("pet_id", ""))
+		var threshold := float(entry.get("min_faith_rate", -1.0))
+		if threshold < previous_threshold:
+			failures.append("gacha production thresholds must rise with pet combat tier")
+			return
+		previous_threshold = threshold
+		var eligible_ids: Array[String] = []
+		for eligible_value in GachaProgression.make_eligible_pool(threshold):
+			eligible_ids.append(String((eligible_value as Dictionary).get("pet_id", "")))
+		if not eligible_ids.has(pet_id):
+			failures.append("%s must enter the pool exactly at its production threshold" % pet_id)
+			return
+		if threshold > 0.0:
+			for locked_value in GachaProgression.make_eligible_pool(threshold - 0.001):
+				if String((locked_value as Dictionary).get("pet_id", "")) == pet_id:
+					failures.append("%s must remain unavailable below its production threshold" % pet_id)
+					return
+
+	var armed_pity := GachaProgression.NEW_PET_PITY_DRAWS - 1
+	var low_growth_result := GachaProgression.roll_pet(
+		0.999,
+		["pet1", "pet2"],
+		armed_pity,
+		0.0
+	)
+	if bool(low_growth_result.get("is_new", true)) or String(low_growth_result.get("pet_id", "")) != "pet2":
+		failures.append("pity must not bypass the production gate for a higher-stage pet")
+	var stale_locked_pool := GachaProgression.make_locked_pool(
+		GachaProgression.make_unlocked_lookup(["pet1", "pet2"]),
+		1_000_000.0
+	)
+	var stale_pool_result := GachaProgression.roll_pet_with_context(
+		0.999,
+		GachaProgression.make_unlocked_lookup(["pet1", "pet2"]),
+		stale_locked_pool,
+		armed_pity,
+		0.0
+	)
+	if bool(stale_pool_result.get("is_new", true)) or String(stale_pool_result.get("pet_id", "")) != "pet2":
+		failures.append("a stale cached pity pool must still be filtered by the current production gate")
+	var pet3_threshold := float(GachaProgression.get_pool_entry("pet3").get("min_faith_rate", INF))
+	var newly_eligible_result := GachaProgression.roll_pet(
+		0.0,
+		["pet1", "pet2"],
+		armed_pity,
+		pet3_threshold
+	)
+	if String(newly_eligible_result.get("pet_id", "")) != "pet3" or not bool(newly_eligible_result.get("is_new", false)):
+		failures.append("armed pity must wait and then unlock a pet after its production stage opens")
 
 
 static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
@@ -114,7 +178,7 @@ static func _check_new_pet_pity(failures: Array[String]) -> void:
 	]
 	var pity_count := 0
 	for draw_index in GachaProgression.NEW_PET_PITY_DRAWS - 1:
-		var duplicate := GachaProgression.roll_pet(0.0, unlocked, pity_count)
+		var duplicate := GachaProgression.roll_pet(0.0, unlocked, pity_count, 12.0)
 		if bool(duplicate.get("is_new", true)):
 			failures.append("pre-pity draws must still be allowed to repeat an owned pet")
 			return
@@ -125,7 +189,7 @@ static func _check_new_pet_pity(failures: Array[String]) -> void:
 		pity_count,
 		GachaProgression.NEW_PET_PITY_DRAWS - 1
 	)
-	var guaranteed := GachaProgression.roll_pet(0.0, unlocked, pity_count)
+	var guaranteed := GachaProgression.roll_pet(0.0, unlocked, pity_count, 12.0)
 	_check_equal(failures, "pity chooses the only locked pet", guaranteed.get("pet_id", ""), "pet5")
 	if not bool(guaranteed.get("is_new", false)):
 		failures.append("the fifth draw after repeated duplicates must unlock a new pet")
@@ -270,7 +334,7 @@ static func _check_roll_pet(
 	unit_roll: float,
 	expected_pet_id: String
 ) -> void:
-	var result := GachaProgression.roll_pet(unit_roll, ["pet1"], 0)
+	var result := GachaProgression.roll_pet(unit_roll, ["pet1"], 0, 1_000_000.0)
 	_check_equal(failures, label, String(result.get("pet_id", "")), expected_pet_id)
 
 

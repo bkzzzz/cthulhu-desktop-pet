@@ -375,7 +375,13 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 		return
 
 	var owned_lookup = GachaProgression.make_unlocked_lookup(_unlocked_pet_ids)
-	var locked_pool = GachaProgression.make_locked_pool(owned_lookup)
+	# Gacha stages use permanent production only. A short offering buff cannot
+	# temporarily open a late-game pet and skip the intended growth curve.
+	var faith_growth_rate := maxf(0.0, _get_baseline_faith_growth_rate())
+	var locked_pool = GachaProgression.make_locked_pool(
+		owned_lookup,
+		faith_growth_rate
+	)
 	var valid_pet_ids = {}
 	var pet_names = {}
 	for pool_entry_value in GachaProgression.PET_POOL:
@@ -395,9 +401,11 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 		"results": [],
 		"owned_lookup": owned_lookup,
 		"locked_pool": locked_pool,
+		"faith_growth_rate": faith_growth_rate,
 		"valid_pet_ids": valid_pet_ids,
 		"pet_names": pet_names,
 		"new_names": [],
+		"new_pet_ids": [],
 		"seen_new_ids": {},
 		"first_new_pet_id": "",
 		"duplicate_faith_total": 0,
@@ -429,9 +437,14 @@ func _process_gacha_draw_batch(batch_token: int = -1) -> void:
 	var results: Array = _gacha_batch_state.get("results", [])
 	var owned_lookup: Dictionary = _gacha_batch_state.get("owned_lookup", {})
 	var locked_pool: Array = _gacha_batch_state.get("locked_pool", [])
+	var faith_growth_rate = maxf(
+		0.0,
+		float(_gacha_batch_state.get("faith_growth_rate", 0.0))
+	)
 	var valid_pet_ids: Dictionary = _gacha_batch_state.get("valid_pet_ids", {})
 	var pet_names: Dictionary = _gacha_batch_state.get("pet_names", {})
 	var new_names: Array = _gacha_batch_state.get("new_names", [])
+	var new_pet_ids: Array = _gacha_batch_state.get("new_pet_ids", [])
 	var seen_new_ids: Dictionary = _gacha_batch_state.get("seen_new_ids", {})
 	var duplicate_faith_total = maxi(
 		0,
@@ -444,7 +457,8 @@ func _process_gacha_draw_batch(batch_token: int = -1) -> void:
 			_rng.randf(),
 			owned_lookup,
 			locked_pool,
-			_gacha_pity_count
+			_gacha_pity_count,
+			faith_growth_rate
 		)
 		if result.is_empty():
 			remaining = 0
@@ -477,6 +491,7 @@ func _process_gacha_draw_batch(batch_token: int = -1) -> void:
 			if not seen_new_ids.has(pet_id):
 				seen_new_ids[pet_id] = true
 				new_names.append(String(result.get("name", pet_id)))
+				new_pet_ids.append(pet_id)
 				if String(_gacha_batch_state.get("first_new_pet_id", "")).is_empty():
 					_gacha_batch_state["first_new_pet_id"] = pet_id
 			_gacha_batch_state["inventory_changed"] = true
@@ -548,6 +563,18 @@ func _finish_gacha_draw_batch(batch_token: int) -> void:
 		_unlocked_pet_ids,
 		PetCatalog.ACTIVE_DESKTOP_PETS
 	)
+	# Newly summoned pets arrive on the desktop immediately. Storage is reserved
+	# for pets the player explicitly recalls later.
+	for new_pet_id_value in completed_state.get("new_pet_ids", []):
+		var new_pet_id := String(new_pet_id_value)
+		if new_pet_id.is_empty() or not _is_pet_unlocked(new_pet_id) or _deployed_pet_ids.has(new_pet_id):
+			continue
+		_deployed_pet_ids.append(new_pet_id)
+		var new_actor = _host._spawn_desktop_pet(new_pet_id)
+		if new_actor == null:
+			_deployed_pet_ids.erase(new_pet_id)
+		else:
+			_selected_pet_id = new_pet_id
 	var batch_summary = {
 		"new_names": (completed_state.get("new_names", []) as Array).duplicate(),
 		"first_new_pet_id": String(completed_state.get("first_new_pet_id", "")),

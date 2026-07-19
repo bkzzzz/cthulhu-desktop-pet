@@ -13,39 +13,48 @@ const DUPLICATE_REWARD_RATIOS := [0.0, 0.50, 0.65, 0.80, 1.00, 1.25]
 const PET_POOL := [
 	{
 		"pet_id": "pet2",
-		"weight": 24.0
+		"weight": 38.0,
+		"min_faith_rate": 0.0
 	},
 	{
 		"pet_id": "pet3",
-		"weight": 24.0
+		"weight": 27.0,
+		"min_faith_rate": 0.75
 	},
 	{
 		"pet_id": "pet4",
-		"weight": 15.0
+		"weight": 15.0,
+		"min_faith_rate": 3.0
 	},
 	{
 		"pet_id": "pet5",
-		"weight": 9.0
+		"weight": 8.0,
+		"min_faith_rate": 12.0
 	},
 	{
 		"pet_id": "pet6",
-		"weight": 6.0
+		"weight": 5.0,
+		"min_faith_rate": 45.0
 	},
 	{
 		"pet_id": "pet7",
-		"weight": 5.0
+		"weight": 3.0,
+		"min_faith_rate": 65.0
 	},
 	{
 		"pet_id": "pet8",
-		"weight": 7.0
+		"weight": 2.0,
+		"min_faith_rate": 95.0
 	},
 	{
 		"pet_id": "pet9",
-		"weight": 4.0
+		"weight": 1.25,
+		"min_faith_rate": 145.0
 	},
 	{
 		"pet_id": "pet10",
-		"weight": 6.0
+		"weight": 0.75,
+		"min_faith_rate": 225.0
 	}
 ]
 
@@ -74,10 +83,21 @@ static func draw_cost_total(draw_count: int, draw_amount: int) -> float:
 	return total
 
 
-static func roll_pet(unit_roll: float, unlocked_pet_ids: Array, pity_count := 0) -> Dictionary:
+static func roll_pet(
+	unit_roll: float,
+	unlocked_pet_ids: Array,
+	pity_count := 0,
+	faith_growth_rate := 0.0
+) -> Dictionary:
 	var unlocked := make_unlocked_lookup(unlocked_pet_ids)
-	var locked_pool := make_locked_pool(unlocked)
-	return roll_pet_with_context(unit_roll, unlocked, locked_pool, pity_count)
+	var locked_pool := make_locked_pool(unlocked, faith_growth_rate)
+	return roll_pet_with_context(
+		unit_roll,
+		unlocked,
+		locked_pool,
+		pity_count,
+		faith_growth_rate
+	)
 
 
 static func make_unlocked_lookup(unlocked_pet_ids: Array) -> Dictionary:
@@ -87,28 +107,50 @@ static func make_unlocked_lookup(unlocked_pet_ids: Array) -> Dictionary:
 	return unlocked
 
 
-static func make_locked_pool(unlocked_lookup: Dictionary) -> Array:
-	var locked_pool: Array = []
+static func make_eligible_pool(faith_growth_rate: float) -> Array:
+	var safe_rate := maxf(0.0, faith_growth_rate) if is_finite(faith_growth_rate) else 0.0
+	var eligible_pool: Array = []
 	for entry_value in PET_POOL:
+		var entry: Dictionary = entry_value
+		if safe_rate + 0.000001 >= float(entry.get("min_faith_rate", 0.0)):
+			eligible_pool.append(entry)
+	return eligible_pool
+
+
+static func make_locked_pool(unlocked_lookup: Dictionary, faith_growth_rate := 0.0) -> Array:
+	var locked_pool: Array = []
+	for entry_value in make_eligible_pool(faith_growth_rate):
 		var entry: Dictionary = entry_value
 		if not unlocked_lookup.has(String(entry.get("pet_id", ""))):
 			locked_pool.append(entry)
 	return locked_pool
 
 
-# Batch callers retain these two tiny lookup structures between rolls. This
-# avoids rebuilding the owned set and locked-pet pool thousands of times while
-# preserving the exact single-draw probabilities and pity behavior.
+# Batch callers retain the owned set and eligible locked-pet pool between rolls.
+# Eligibility is still checked here so no direct caller, stale batch data, or
+# pity roll can bypass the permanent-production gate.
 static func roll_pet_with_context(
 	unit_roll: float,
 	unlocked_lookup: Dictionary,
 	locked_pool: Array,
-	pity_count := 0
+	pity_count := 0,
+	faith_growth_rate := 0.0
 ) -> Dictionary:
 
-	var pool: Array = PET_POOL
-	if not locked_pool.is_empty() and maxi(0, pity_count) >= NEW_PET_PITY_DRAWS - 1:
-		pool = locked_pool
+	var pool := make_eligible_pool(faith_growth_rate)
+	var eligible_ids := {}
+	for eligible_value in pool:
+		eligible_ids[String((eligible_value as Dictionary).get("pet_id", ""))] = true
+	var eligible_locked_pool: Array = []
+	for locked_value in locked_pool:
+		var locked_entry := locked_value as Dictionary
+		if eligible_ids.has(String(locked_entry.get("pet_id", ""))):
+			eligible_locked_pool.append(locked_entry)
+	if (
+		not eligible_locked_pool.is_empty()
+		and maxi(0, pity_count) >= NEW_PET_PITY_DRAWS - 1
+	):
+		pool = eligible_locked_pool
 	var result := _roll_from_pool(pool, unit_roll)
 	if result.is_empty():
 		return {}

@@ -40,7 +40,8 @@ func _get_base_battle_difficulty_scale() -> float:
 		_get_battle_balance_schedule(),
 		_get_battle_average_pet_level(),
 		_host._is_endless_mode(),
-		_debug_enemy_power_scale
+		_debug_enemy_power_scale,
+		_get_peak_pet_combat_power()
 	)
 
 func _get_pet_roster_combat_power() -> float:
@@ -55,6 +56,26 @@ func _get_pet_roster_combat_power() -> float:
 	if total <= 0.0:
 		total = PetCatalog.get_combat_power("pet1", 1)
 	return total
+
+func _get_peak_pet_combat_power() -> float:
+	var peak := 0.0
+	for pet in _pets:
+		if not is_instance_valid(pet):
+			continue
+		var pet_id = _host._get_actor_pet_id(pet)
+		var state = _host._get_pet_state(pet_id)
+		var level = PetProgression.progression_level(state)
+		peak = maxf(
+			peak,
+			PetCatalog.get_combat_power(
+				pet_id,
+				level,
+				bool(state.get("evolved", false))
+			)
+		)
+	if peak <= 0.0:
+		peak = PetCatalog.get_combat_power("pet1", 1)
+	return peak
 
 func _get_enemy_schedule_combat_power() -> float:
 	return BattleBalance.strongest_wave_power(_get_battle_balance_schedule())
@@ -240,8 +261,7 @@ func _start_battle() -> void:
 	for pet in _pets:
 		if is_instance_valid(pet):
 			battle_pets.append(pet)
-	for pet_index in battle_pets.size():
-		var pet = battle_pets[pet_index]
+	for pet in battle_pets:
 		var pet_id = _host._get_actor_pet_id(pet)
 		var level = PetProgression.progression_level(_host._get_pet_state(pet_id))
 		var rarity = clampi(int(PetCatalog.get_definition(pet_id).get("rarity_stars", 1)), 1, 5)
@@ -255,28 +275,11 @@ func _start_battle() -> void:
 			* role_health_scale
 		)
 		var actor_key = str(pet.get_instance_id())
-		var formation_weight = (
-			0.5
-			if battle_pets.size() <= 1
-			else float(pet_index) / float(battle_pets.size() - 1)
-		)
 		_battle_pet_health[actor_key] = max_health
 		_battle_pet_max_health[actor_key] = max_health
 		_battle_pet_attack_at[actor_key] = _battle_started_at + _rng.randf_range(0.6, 1.2)
-		_battle_pet_formed[actor_key] = false
-		_battle_pet_target_x[actor_key] = (
-			lerpf(
-				float(_pet_window_size.x) * 0.80,
-				float(_pet_window_size.x) * 0.90,
-				formation_weight
-			)
-			if is_ranged_pet
-			else lerpf(
-				float(_pet_window_size.x) * 0.64,
-				float(_pet_window_size.x) * 0.74,
-				formation_weight
-			)
-		)
+		_battle_pet_formed[actor_key] = true
+		_battle_pet_target_x[actor_key] = pet.position.x
 		if pet.has_method("set_battle_mode"):
 			pet.call("set_battle_mode", true)
 
@@ -292,8 +295,8 @@ func _start_battle() -> void:
 	)
 	_host._publish_news({
 		"category": "公告",
-		"headline": "战斗事件：近战宠物会主动冲锋，远程宠物留守后排；可拖动近战宠物调整挡线位置。",
-		"headline_en": "BATTLE: Melee pets are charging while ranged pets hold the rear line."
+		"headline": "战斗事件：宠物会从当前桌面位置投入战斗，可随时拖动它们调整战线。",
+		"headline_en": "BATTLE: Pets are engaging from their current desktop positions."
 	}, true, false)
 	_update_battle(0.0)
 
@@ -704,6 +707,11 @@ func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 			continue
 		if enemy.has_method("is_defeated") and bool(enemy.call("is_defeated")):
 			continue
+		if (
+			enemy.has_method("has_entered_battlefield")
+			and not bool(enemy.call("has_entered_battlefield"))
+		):
+			continue
 		var distance = absf(pet.position.x - enemy.position.x)
 		if distance < nearest_distance:
 			nearest_distance = distance
@@ -725,6 +733,10 @@ func _get_battle_target_for_pet(pet: Node2D) -> Node2D:
 			current_target != null
 			and not current_target.is_queued_for_deletion()
 			and _battle_enemies.has(current_target)
+			and (
+				not current_target.has_method("has_entered_battlefield")
+				or bool(current_target.call("has_entered_battlefield"))
+			)
 			and (
 				not current_target.has_method("is_defeated")
 				or not bool(current_target.call("is_defeated"))

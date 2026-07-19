@@ -222,7 +222,8 @@ func _open_prompt() -> void:
 		else ("敌人将从桌面左侧进攻" if event_type == "battle" else "接受后进入限时朝圣小游戏")
 	)
 	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	description.add_theme_font_size_override("font_size", 14)
+	description.add_theme_font_size_override("font_size", 16)
+	description.add_theme_constant_override("line_spacing", 3)
 	description.add_theme_color_override("font_color", Color(0.82, 0.82, 0.78, 1.0))
 	content.add_child(description)
 	if event_type == "battle" and not _difficulty_text.is_empty():

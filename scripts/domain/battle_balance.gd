@@ -14,6 +14,8 @@ const ENDLESS_LEVELS_PER_REINFORCEMENT := 45.0
 const CAMPAIGN_MAX_ENEMIES_PER_WAVE := 6
 const ENDLESS_MAX_ENEMIES_PER_WAVE := 10
 const MAX_REWARD_VALUE := 9_000_000_000_000_000_000.0
+const HIGH_POWER_CARRY_THRESHOLD := 32.0
+const HIGH_POWER_CARRY_PRESSURE := 0.65
 
 
 static func build_wave_schedule(
@@ -60,17 +62,26 @@ static func recommended_difficulty_scale(
 	schedule: Array[Dictionary],
 	average_pet_level: float,
 	endless_mode: bool,
-	debug_multiplier: float
+	debug_multiplier: float,
+	peak_pet_power := 0.0
 ) -> float:
 	if debug_multiplier <= 0.0:
 		return 0.0
 	var wave_power := strongest_wave_power(schedule)
-	var roster_ratio := maxf(0.03, pet_roster_power) / maxf(1.0, wave_power)
-	var campaign_pressure := 1.10 + clampf(average_pet_level / 100.0, 0.0, 1.0) * 0.60
+	# Burst attacks and lane control make one advanced pet worth more than the
+	# same power spread over several ordinary pets. Charge that excess into the
+	# adaptive budget so a lucky high-tier unlock cannot trivialise encounters.
+	var carry_pressure := maxf(
+		0.0,
+		maxf(0.0, peak_pet_power) - HIGH_POWER_CARRY_THRESHOLD
+	) * HIGH_POWER_CARRY_PRESSURE
+	var effective_roster_power := maxf(0.03, pet_roster_power + carry_pressure)
+	var roster_ratio := effective_roster_power / maxf(1.0, wave_power)
+	var campaign_pressure := 1.18 + clampf(average_pet_level / 100.0, 0.0, 1.0) * 0.72
 	var endless_pressure := 0.0
 	if endless_mode and average_pet_level > 100.0:
 		endless_pressure = log(1.0 + (average_pet_level - 100.0) / 40.0) / log(2.0) * 0.22
-	var adaptive_scale := pow(roster_ratio, 0.78) * (campaign_pressure + endless_pressure)
+	var adaptive_scale := pow(roster_ratio, 0.86) * (campaign_pressure + endless_pressure)
 	return clampf(
 		maxf(0.0, debug_multiplier) * adaptive_scale,
 		0.20,

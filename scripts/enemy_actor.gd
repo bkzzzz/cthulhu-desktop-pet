@@ -32,10 +32,11 @@ const DEFINITIONS := {
 		"run_columns": 4, "run_rows": 3, "attack_columns": 4, "attack_rows": 4
 	},
 	"soldier1": {
-		"move": "res://assets/enemyCharacter/soldiers/soldier1Idle.png",
+		"move": "res://assets/enemyCharacter/soldiers/soldier1Run.png",
 		"attack": "res://assets/enemyCharacter/soldiers/soldier1Attack.png",
 		"hp": 3.8, "damage": 0.23, "speed": 136.0, "reward": 11, "ranged": false,
-		"run_columns": 4, "run_rows": 3, "attack_columns": 4, "attack_rows": 4
+		"run_columns": 4, "run_rows": 3, "attack_columns": 4, "attack_rows": 4,
+		"run_animation_speed": 10.5, "run_bob": 0.35, "run_tilt": 0.003
 	},
 	"soldier2": {
 		"move": "res://assets/enemyCharacter/soldiers/soldier2Run.png",
@@ -126,7 +127,7 @@ const COMBAT_POWER := {
 
 const MELEE_STOP_DISTANCE := 68.0
 const MELEE_HIT_RANGE := 92.0
-const FOOT_TASKBAR_OVERLAP := 6.0
+const FOOT_TASKBAR_OVERLAP := 0.0
 const CHROMA_TOLERANCE := 0.24
 const SWALLOW_ROTATIONS := 0.85
 
@@ -295,7 +296,7 @@ func set_target(target: Node2D) -> void:
 
 
 func take_damage(amount: float, knockback := 12.0, launch_velocity := Vector2.ZERO) -> void:
-	if _dead:
+	if _dead or not has_entered_battlefield():
 		return
 	health -= maxf(0.0, amount)
 	var battlefield_width := _get_battlefield_width()
@@ -316,7 +317,14 @@ func get_health() -> float:
 
 
 func can_be_swallowed() -> bool:
-	return not _dead and not _being_swallowed and not _swallow_resistant and _sprite != null and _sprite.visible
+	return (
+		has_entered_battlefield()
+		and not _dead
+		and not _being_swallowed
+		and not _swallow_resistant
+		and _sprite != null
+		and _sprite.visible
+	)
 
 
 func start_swallowed_by(swallower: Node2D) -> bool:
@@ -370,7 +378,9 @@ func is_defeated() -> bool:
 
 
 func has_entered_battlefield() -> bool:
-	return _entered
+	# Test-spawned and restored enemies may begin exactly at their entry post.
+	# Real waves start offscreen to the left and remain protected until reaching it.
+	return _entered or position.x >= _entry_x - 0.5
 
 
 func get_battle_state() -> String:

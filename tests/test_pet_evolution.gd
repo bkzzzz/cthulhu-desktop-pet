@@ -11,10 +11,36 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_evolution_assets_and_frames(failures)
 	_test_evolved_actor_animation_and_direction(failures)
+	_test_attack_frames_keep_visual_floor(failures)
 	_test_form_specific_authored_facing(failures)
 	_test_evolution_detail_and_confirmation_windows(failures)
 	_test_evolution_state_and_power(failures)
 	return failures
+
+
+static func _test_attack_frames_keep_visual_floor(failures: Array[String]) -> void:
+	for evolved in [false, true]:
+		for pet_id in PetCatalog.ACTIVE_DESKTOP_PETS:
+			var actor := DesktopPetActor.new()
+			actor.setup(pet_id, Vector2i(1200, 720), 0.0, 1200.0, 700.0, 720.0, false, evolved, 100 if evolved else 50)
+			actor.set_battle_mode(true)
+			var sprite := actor.get_node_or_null("%sSprite" % pet_id) as AnimatedSprite2D
+			if sprite == null:
+				actor.free()
+				continue
+			var root_y := actor.position.y
+			var visual_bottom := float(actor.call("_get_current_frame_visual_bottom_y"))
+			actor.play_battle_attack_toward(-1.0)
+			if not is_equal_approx(actor.position.y, root_y):
+				failures.append("%s attack must not teleport the actor root vertically" % pet_id)
+			for frame_index in sprite.sprite_frames.get_frame_count("attack"):
+				sprite.frame = frame_index
+				actor.call("_on_sprite_frame_changed")
+				var attack_bottom := float(actor.call("_get_current_frame_visual_bottom_y"))
+				if absf(attack_bottom - visual_bottom) > 0.1:
+					failures.append("%s %s attack frame %d must keep the pre-attack visual floor" % [pet_id, "evolved" if evolved else "base", frame_index])
+					break
+			actor.free()
 
 
 static func _test_evolution_assets_and_frames(failures: Array[String]) -> void:

@@ -451,7 +451,7 @@ const DEFINITIONS := {
 		"walk_rotation_speed": 5.2,
 		"frame_center_y": 64.0,
 		"frame_foot_y": 126,
-		"ground_offset_y": 6.0,
+		"ground_offset_y": 0.0,
 		"ambient_emotion_interval_min": 190.0,
 		"ambient_emotion_interval_max": 300.0,
 		"emotion_weights": {"confused": 0.40, "suprised": 0.30, "happy": 0.20, "sleepy": 0.10},

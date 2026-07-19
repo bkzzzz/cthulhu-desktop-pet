@@ -128,7 +128,7 @@ static func run() -> Array[String]:
 			failures.append("%s must remain a ground-only pet" % ground_pet_id)
 		if bool(PetCatalog.get_definition(ground_pet_id).get("can_wall_crawl", false)):
 			failures.append("%s must explicitly forbid wall crawling" % ground_pet_id)
-	for ground_pet_id in ["pet1", "pet3", "pet4", "pet5", "pet6"]:
+	for ground_pet_id in ["pet1", "pet3", "pet4", "pet5", "pet6", "pet7"]:
 		var offset := float(PetCatalog.get_definition(ground_pet_id).get("ground_offset_y", -99.0))
 		if not is_zero_approx(offset):
 			failures.append("%s must use the shared pixel-exact taskbar foot line" % ground_pet_id)
@@ -172,8 +172,8 @@ static func run() -> Array[String]:
 		failures.append("evolved pet7's coin must not retain its old undersized scale")
 	if not bool(pet7_definition.get("rolls_while_walking", false)):
 		failures.append("pet7 must roll its idle art while walking")
-	if float(pet7_definition.get("ground_offset_y", 0.0)) <= 0.0:
-		failures.append("pet7 must sit slightly lower on the taskbar contact line")
+	if not is_zero_approx(float(pet7_definition.get("ground_offset_y", -99.0))):
+		failures.append("pet7 must use the shared taskbar contact line without clipping below it")
 	var pet7_frames := PetCatalog.build_frames("pet7")
 	_check_frame_count(failures, pet7_frames, "idle", 12)
 	_check_frame_count(failures, pet7_frames, "walk", 12)

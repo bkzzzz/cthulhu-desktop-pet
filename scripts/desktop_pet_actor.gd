@@ -180,6 +180,7 @@ var _battle_motion_tween: Tween
 var _battle_attack_animation := false
 var _battle_attack_direction := -1.0
 var _battle_facing_direction := -1.0
+var _battle_attack_visual_bottom_offset_y := INF
 var _battle_roll_active := false
 var _battle_roll_target_x := 0.0
 var _battle_roll_speed := PET5_BATTLE_ROLL_SPEED
@@ -609,9 +610,11 @@ func play_battle_attack_toward(direction: float) -> void:
 		and _sprite.sprite_frames.has_animation("attack")
 		and _sprite.sprite_frames.get_frame_count("attack") > 0
 	):
+		_battle_attack_visual_bottom_offset_y = _get_current_frame_visual_bottom_y() - position.y
 		_battle_attack_animation = true
 		_sprite.speed_scale = 1.0
 		_sprite.play("attack")
+		_anchor_attack_frame_to_visual_bottom()
 		_face_authored_direction(
 			attack_direction,
 			bool(pet_data.get("attack_faces_right", _faces_right))
@@ -903,6 +906,7 @@ func _create_sprite() -> void:
 	_sprite.centered = true
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_sprite.animation_finished.connect(_on_animation_finished)
+	_sprite.frame_changed.connect(_on_sprite_frame_changed)
 	_stable_hit_image = _build_stable_hit_image(_sprite.sprite_frames)
 	_stable_hit_bounds = (
 		_stable_hit_image.get_used_rect()
@@ -1694,11 +1698,13 @@ func _finish_wall_landing() -> void:
 func _on_animation_finished() -> void:
 	if _battle_attack_animation and _sprite != null and _sprite.animation == "attack":
 		_battle_attack_animation = false
+		_battle_attack_visual_bottom_offset_y = INF
+		_sprite.position.y = 0.0
 		if _battle_mode:
 			_sprite.play("idle")
 			_battle_facing_direction = _battle_attack_direction
 			_face_direction(_battle_facing_direction)
-		return
+			return
 	match _behavior:
 		Behavior.BURROW_DOWN:
 			_behavior = Behavior.UNDERGROUND
@@ -1714,6 +1720,45 @@ func _on_animation_finished() -> void:
 		Behavior.SLEEP_OPENING:
 			_float_anchor_y = _sleep_anchor_position.y
 			_start_idle()
+
+
+func _on_sprite_frame_changed() -> void:
+	if _battle_attack_animation:
+		_anchor_attack_frame_to_visual_bottom()
+
+
+func _anchor_attack_frame_to_visual_bottom() -> void:
+	if _sprite == null or not is_finite(_battle_attack_visual_bottom_offset_y):
+		return
+	var local_bottom := _get_current_frame_local_bottom()
+	_sprite.position.y = (
+		_battle_attack_visual_bottom_offset_y
+		- local_bottom * absf(_sprite.scale.y)
+	)
+
+
+func _get_current_frame_visual_bottom_y() -> float:
+	if _sprite == null:
+		return position.y
+	return position.y + _sprite.position.y + _get_current_frame_local_bottom() * absf(_sprite.scale.y)
+
+
+func _get_current_frame_local_bottom() -> float:
+	if _sprite == null or _sprite.sprite_frames == null:
+		return 0.0
+	var frame_texture := _sprite.sprite_frames.get_frame_texture(_sprite.animation, _sprite.frame)
+	if frame_texture == null:
+		return 0.0
+	var frame_image := frame_texture.get_image()
+	if frame_image == null or frame_image.is_empty():
+		return float(frame_texture.get_height()) * 0.5
+	var bounds := frame_image.get_used_rect()
+	if bounds.size == Vector2i.ZERO:
+		return float(frame_image.get_height()) * 0.5
+	return (
+		float(bounds.position.y + bounds.size.y)
+		- float(frame_image.get_height()) * 0.5
+	)
 
 
 func _cancel_special_behavior() -> void:

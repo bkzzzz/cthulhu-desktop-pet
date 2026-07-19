@@ -72,6 +72,7 @@ func set_language(language_code: String) -> void:
 	title = "Cult News Archive" if _language == "en" else "教团新闻档案"
 	if _title_label != null:
 		_title_label.text = "CULT NEWS ARCHIVE" if _language == "en" else "教团新闻档案"
+		_title_label.add_theme_font_override("font", LanguageSettings.get_display_font(_language))
 	if _close_button != null:
 		_close_button.text = "Close" if _language == "en" else "关闭"
 	if _description_label != null:
@@ -159,7 +160,8 @@ func _create_content() -> void:
 	_description_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_description_label.custom_minimum_size = Vector2(0.0, 42.0)
-	_description_label.add_theme_font_size_override("font_size", 16)
+	_description_label.add_theme_font_size_override("font_size", 18)
+	_description_label.add_theme_constant_override("line_spacing", 3)
 	_description_label.add_theme_color_override("font_color", Color(0.67, 0.72, 0.59, 1.0))
 	content.add_child(_description_label)
 

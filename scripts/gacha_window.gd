@@ -402,7 +402,8 @@ func _create_result_overlay() -> void:
 	_result_detail.scroll_active = false
 	_result_detail.custom_minimum_size = Vector2(342.0, 82.0)
 	_result_detail.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_result_detail.add_theme_font_size_override("normal_font_size", 16)
+	_result_detail.add_theme_font_size_override("normal_font_size", 18)
+	_result_detail.add_theme_constant_override("line_separation", 3)
 	_result_detail.add_theme_color_override("default_color", Color(0.74, 0.8, 0.72))
 	_result_detail.text = "[center]等待扭蛋结果[/center]"
 	result_content.add_child(_result_detail)

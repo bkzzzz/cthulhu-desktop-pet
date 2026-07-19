@@ -202,8 +202,8 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 	settings.setup("right", "not-a-language")
 	if settings.get_activity_range() != "right" or settings.get_language() != "en":
 		failures.append("settings must restore the range and default malformed or missing language values to English")
-	if settings.theme == null or settings.theme.default_font is SystemFont:
-		failures.append("English settings must use the authored English UI font")
+	if settings.theme == null or not settings.theme.default_font is SystemFont:
+		failures.append("English settings body copy must use a readable system UI font")
 	var settings_root := settings.get("_root") as Control
 	var settings_panel := settings_root.get_node_or_null("SettingsPanel") as PanelContainer
 	var close_button := settings.get("_close_button") as Button
@@ -245,8 +245,8 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		if reset_button.text != "重置全部进度" or reset_confirmation.cancel_button_text != "取消":
 			failures.append("the reset confirmation workflow must localize its Chinese destructive-action copy")
 		settings.set_language("en")
-		if settings.theme == null or settings.theme.default_font is SystemFont:
-			failures.append("switching settings back to English must restore the authored font")
+		if settings.theme == null or not settings.theme.default_font is SystemFont:
+			failures.append("switching settings back to English must restore the readable body font")
 	settings.refresh_runtime(61.0, 3723.0)
 	var session_label := settings.get("_session_value_label") as Label
 	var total_label := settings.get("_total_value_label") as Label

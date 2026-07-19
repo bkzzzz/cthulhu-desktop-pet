@@ -9,6 +9,7 @@ static func run() -> Array[String]:
 	_test_battle_facing_is_target_stable(failures)
 	_test_melee_chases_while_ranged_holds(failures)
 	_test_freed_target_lock_recovers(failures)
+	_test_enemy_entry_cannot_be_camped(failures)
 	_test_pet5_form_specific_rolling(failures)
 	_test_pet5_roll_crushes_each_enemy_once(failures)
 	return failures
@@ -115,6 +116,30 @@ static func _test_freed_target_lock_recovers(failures: Array[String]) -> void:
 	var replacement := main.call("_get_battle_target_for_pet", pet) as Node2D
 	if replacement != next_enemy:
 		failures.append("a freed enemy target lock must be discarded and retargeted without aborting battle updates")
+	main.free()
+
+
+static func _test_enemy_entry_cannot_be_camped(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_battle_active", true)
+	var pet := Main.DesktopPetActor.new()
+	pet.setup("pet10", Vector2i(1000, 720), 0.0, 1000.0, 140.0, 704.0, false)
+	main.add_child(pet)
+	var enemy := EnemyActor.new()
+	enemy.setup("villager1", Vector2(-80.0, 704.0), 704.0, 1.0, 180.0)
+	main.add_child(enemy)
+	(main.get("_battle_enemies") as Array).append(enemy)
+	var health_before := enemy.get_health()
+	enemy.take_damage(999.0)
+	if enemy.get_health() != health_before:
+		failures.append("an offscreen enemy must be protected until it reaches its battlefield entry post")
+	if main.call("_get_battle_target_for_pet", pet) != null:
+		failures.append("pets must not lock enemies while they are still entering from offscreen")
+	enemy.call("_process", 3.0)
+	if not bool(enemy.call("has_entered_battlefield")):
+		failures.append("an enemy must become targetable after reaching its entry post")
+	elif main.call("_get_battle_target_for_pet", pet) != enemy:
+		failures.append("pets must immediately acquire an enemy after its protected entry ends")
 	main.free()
 
 

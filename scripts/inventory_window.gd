@@ -365,14 +365,15 @@ func _create_detail_panel() -> void:
 
 	_detail_hint_label = Label.new()
 	_detail_hint_label.text = "可在这里改名，然后放回桌面"
-	_detail_hint_label.add_theme_font_size_override("font_size", 13)
+	_detail_hint_label.add_theme_font_size_override("font_size", 15)
 	_detail_hint_label.add_theme_color_override("font_color", Color(0.34, 0.25, 0.23, 0.88))
 	top_text.add_child(_detail_hint_label)
 
 	_detail_desc_label = Label.new()
 	_detail_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_detail_desc_label.custom_minimum_size = Vector2(420, 82)
-	_detail_desc_label.add_theme_font_size_override("font_size", 16)
+	_detail_desc_label.add_theme_font_size_override("font_size", 18)
+	_detail_desc_label.add_theme_constant_override("line_spacing", 3)
 	_detail_desc_label.add_theme_color_override("font_color", Color(0.18, 0.11, 0.13, 1.0))
 	content.add_child(_detail_desc_label)
 

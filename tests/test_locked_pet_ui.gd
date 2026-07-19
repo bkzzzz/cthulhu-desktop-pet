@@ -101,6 +101,27 @@ static func _assert_language_fonts(failures: Array[String], drawer: Node) -> voi
 	var chinese_theme := drawer.call("_get_ui_theme") as Theme
 	if english_font == null or chinese_font == null or english_font.get_instance_id() == chinese_font.get_instance_id():
 		failures.append("English and Chinese drawer modes must use distinct font objects")
+	if english_font is not SystemFont:
+		failures.append("English drawer body copy must use a system UI font with normal word spacing")
+	var english_display_font := SideDrawer.LanguageSettings.get_display_font("en")
+	if english_display_font == null or english_display_font.get_instance_id() == english_font.get_instance_id():
+		failures.append("the pixel display face must be separate from the English body font")
+	var chinese_display_font := SideDrawer.LanguageSettings.get_display_font("zh")
+	var numeric_display_font := SideDrawer.LanguageSettings.get_numeric_display_font()
+	if chinese_display_font == null or chinese_display_font.get_instance_id() == chinese_font.get_instance_id():
+		failures.append("Chinese headings must use a stronger display weight than Chinese body copy")
+	if numeric_display_font == null or numeric_display_font.get_instance_id() != english_display_font.get_instance_id():
+		failures.append("large counters must keep the authored pixel-number face in both languages")
+	var faith_value := drawer.get("_faith_value_label") as Label
+	var faith_growth := drawer.get("_faith_growth_value_label") as Label
+	var gold_value := drawer.get("_coin_value_label") as Label
+	var era_value := drawer.get("_era_label") as Label
+	for numeric_label in [faith_value, faith_growth, gold_value]:
+		if numeric_label == null or numeric_label.get_theme_font("font").get_instance_id() != numeric_display_font.get_instance_id():
+			failures.append("Chinese mode must apply the pixel-number face to every large economy counter")
+			break
+	if era_value == null or era_value.get_theme_font("font").get_instance_id() != chinese_display_font.get_instance_id():
+		failures.append("Chinese era text must use the dedicated bold CJK display font")
 	if chinese_font is not SystemFont:
 		failures.append("Chinese drawer mode must use a SystemFont with CJK fallbacks")
 	else:

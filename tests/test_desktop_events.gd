@@ -3,6 +3,7 @@ extends RefCounted
 const Main = preload("res://scripts/main.gd")
 const EraProgression = preload("res://scripts/domain/era_progression.gd")
 const EnemyActor = preload("res://scripts/enemy_actor.gd")
+const BattleBalance = preload("res://scripts/domain/battle_balance.gd")
 const BattleEffectActor = preload("res://scripts/battle_effect_actor.gd")
 const EnemyProjectileActor = preload("res://scripts/enemy_projectile_actor.gd")
 const EventInvitation = preload("res://scripts/event_invitation.gd")
@@ -97,6 +98,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 
 
 static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
+	if String(EnemyActor.DEFINITIONS["soldier1"].get("move", "")) != "res://assets/enemyCharacter/soldiers/soldier1Run.png":
+		failures.append("soldier1 must use the newly imported run sheet instead of its idle sheet")
 	var ranged_ids := ["soldier2", "victorian1", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]
 	for enemy_id in ["villager1", "villager2", "soldier1", "soldier2", "victorian1", "victorian2", "victorian_boss", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]:
 		var enemy := EnemyActor.new()
@@ -292,6 +295,25 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 		failures.append("campaign pressure must cap mid-level waves at four and high-level waves at six enemies")
 	if strong_difficulty <= weak_difficulty:
 		failures.append("stronger pets must produce stronger enemy stats for the same wave composition")
+	var carry_schedule: Array[Dictionary] = [{"types": ["villager1", "villager2"]}]
+	var spread_roster_difficulty := BattleBalance.recommended_difficulty_scale(
+		70.0,
+		carry_schedule,
+		1.0,
+		false,
+		1.0,
+		32.0
+	)
+	var advanced_carry_difficulty := BattleBalance.recommended_difficulty_scale(
+		70.0,
+		carry_schedule,
+		1.0,
+		false,
+		1.0,
+		70.0
+	)
+	if advanced_carry_difficulty <= spread_roster_difficulty:
+		failures.append("one advanced carry pet must create extra enemy pressure beyond equal spread-out roster power")
 	if int(high_budget.get("gold", 0)) <= int(low_budget.get("gold", 0)):
 		failures.append("battle gold rewards must rise with potential coin income")
 	if int(high_budget.get("faith", 0)) <= int(low_budget.get("faith", 0)):
@@ -622,6 +644,7 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	# Cross every authored era while the untouched letter remains on the desktop.
 	# Accepting it must still use exactly the encounter that the letter advertised.
 	main.set("_total_runtime_seconds", EraProgression.SECONDS_PER_YEAR * 20.0)
+	var pre_battle_pet_x := pet.position.x
 	main.call("_on_event_invitation_accepted", "battle")
 	if not bool(main.get("_battle_active")):
 		failures.append("accepting the debug invitation must enter battle state")
@@ -653,7 +676,11 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	):
 		failures.append("battle encounters must use the full 55-second clear deadline")
 	if not bool(pet.get("_battle_mode")):
-		failures.append("battle start must move deployed pets into the right-side formation mode")
+		failures.append("battle start must enable combat behavior for deployed pets")
+	if not is_equal_approx(pet.position.x, pre_battle_pet_x):
+		failures.append("battle start must keep every pet at its existing desktop position")
+	if not bool((main.get("_battle_pet_formed") as Dictionary).get(str(pet.get_instance_id()), false)):
+		failures.append("pets must begin battle already settled at their current positions")
 	if not bool(pet.get("_interaction_enabled")):
 		failures.append("battle pets must remain draggable so placement can alter the fight")
 	var projectile_source := (main.get("_battle_enemies") as Array)[0] as Node2D
@@ -670,9 +697,14 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 		failures.append("expanded enemy barrages must respect the shared battle-effect soft limit")
 	var formation_start_x := pet.position.x
 	main.call("_update_battle_pet_formation", 1.0 / 60.0)
+	if not is_equal_approx(pet.position.x, formation_start_x):
+		failures.append("melee pets must not camp or chase enemies before their entry protection ends")
+	projectile_source.call("_process", 4.0)
+	formation_start_x = pet.position.x
+	main.call("_update_battle_pet_formation", 1.0 / 60.0)
 	var formation_step := absf(pet.position.x - formation_start_x)
 	if formation_step <= 0.0 or formation_step > 5.0:
-		failures.append("battle formation must move smoothly at render cadence instead of jumping at 10 Hz")
+		failures.append("melee combat movement must remain smooth after an enemy finishes entering")
 	main.call("_on_pet_grabbed_changed", pet, true)
 	if not bool((main.get("_battle_pet_formed") as Dictionary).get(str(pet.get_instance_id()), false)):
 		failures.append("manually grabbing a battle pet must release it from formation correction")

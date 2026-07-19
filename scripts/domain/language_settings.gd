@@ -6,10 +6,12 @@ const DEFAULT_LANGUAGE := "en"
 const ENGLISH := "en"
 const CHINESE := "zh"
 const SUPPORTED_LANGUAGES := [ENGLISH, CHINESE]
-const ENGLISH_UI_FONT := "res://assets/ui/font/NormalFont.ttf"
+const ENGLISH_DISPLAY_FONT := "res://assets/ui/font/NormalFont.ttf"
 
-static var _english_font: Font
+static var _english_body_font: Font
+static var _english_display_font: Font
 static var _chinese_font: Font
+static var _chinese_display_font: Font
 
 
 static func sanitize(language_code: String) -> String:
@@ -30,18 +32,49 @@ static func get_ui_font(language_code: String) -> Font:
 				"Arial Unicode MS"
 			])
 			system_font.allow_system_fallback = true
-			system_font.font_weight = 600
+			system_font.font_weight = 400
 			_chinese_font = system_font
 		return _chinese_font
 
-	if _english_font == null:
-		_english_font = load(ENGLISH_UI_FONT) as Font
-		if _english_font == null:
+	# Body copy needs normal word spacing and readable glyphs at 14-18 px. The
+	# authored bitmap-like face is intentionally reserved for a few display labels.
+	if _english_body_font == null:
+		var system_font := SystemFont.new()
+		system_font.font_names = PackedStringArray([
+			"Segoe UI Variable Text",
+			"Segoe UI",
+			"Arial"
+		])
+		system_font.allow_system_fallback = true
+		system_font.font_weight = 400
+		_english_body_font = system_font
+	return _english_body_font
+
+
+static func get_display_font(language_code: String) -> Font:
+	if sanitize(language_code) == CHINESE:
+		if _chinese_display_font == null:
 			var system_font := SystemFont.new()
-			system_font.font_names = PackedStringArray(["Segoe UI", "Arial"])
+			system_font.font_names = PackedStringArray([
+				"Microsoft YaHei UI",
+				"Microsoft YaHei",
+				"Noto Sans CJK SC"
+			])
 			system_font.allow_system_fallback = true
-			_english_font = system_font
-	return _english_font
+			system_font.font_weight = 700
+			_chinese_display_font = system_font
+		return _chinese_display_font
+	if _english_display_font == null:
+		_english_display_font = load(ENGLISH_DISPLAY_FONT) as Font
+		if _english_display_font == null:
+			_english_display_font = get_ui_font(ENGLISH)
+	return _english_display_font
+
+
+static func get_numeric_display_font() -> Font:
+	# The counter strings contain digits and compact suffixes only, so the
+	# authored pixel face remains safe and visually consistent in both locales.
+	return get_display_font(ENGLISH)
 
 
 static func make_ui_theme(language_code: String) -> Theme:

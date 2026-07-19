@@ -88,14 +88,14 @@ static func _test_language_defaults_and_pet_names(failures: Array[String]) -> vo
 
 	var gacha := Main.GachaWindowScript.new()
 	gacha.setup()
-	if String(gacha.get("_language")) != "en" or gacha.theme.default_font is SystemFont:
-		failures.append("the standalone gacha window must start in English with its authored font")
+	if String(gacha.get("_language")) != "en" or not gacha.theme.default_font is SystemFont:
+		failures.append("the standalone gacha window must start in English with readable body typography")
 	gacha.set_language("zh")
 	if not gacha.theme.default_font is SystemFont:
 		failures.append("the Chinese gacha UI must switch to a CJK-capable system font")
 	gacha.set_language("en")
-	if gacha.theme.default_font is SystemFont:
-		failures.append("switching gacha back to English must restore its authored font")
+	if not gacha.theme.default_font is SystemFont:
+		failures.append("switching gacha back to English must restore its readable body font")
 	gacha.free()
 
 
@@ -111,6 +111,21 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	var unlocked_after_first: Array = main.get("_unlocked_pet_ids")
 	if unlocked_after_first.size() != 2 or not unlocked_after_first.has("pet1"):
 		failures.append("the first successful pet draw must unlock exactly one new non-starter pet")
+	var newly_unlocked_id := ""
+	for unlocked_id_value in unlocked_after_first:
+		var unlocked_id := String(unlocked_id_value)
+		if unlocked_id != "pet1":
+			newly_unlocked_id = unlocked_id
+			break
+	var deployed_after_first: Array = main.get("_deployed_pet_ids")
+	var spawned_after_first: Array = main.get("_pets")
+	if newly_unlocked_id.is_empty() or not deployed_after_first.has(newly_unlocked_id):
+		failures.append("a newly unlocked pet must default to the deployed desktop roster")
+	elif spawned_after_first.is_empty() or String(main.call("_get_actor_pet_id", spawned_after_first.back())) != newly_unlocked_id:
+		failures.append("a newly unlocked pet must appear on the desktop immediately instead of entering storage")
+	for inventory_entry in main.call("_get_inventory_pet_entries"):
+		if String((inventory_entry as Dictionary).get("id", "")) == newly_unlocked_id:
+			failures.append("an automatically deployed new pet must not also appear in storage")
 	if int(main.get("_gacha_draw_count")) != 1:
 		failures.append("a successful pet draw must advance the saved draw count")
 	if int(main.get("_gold_coins")) != 1000000 - first_cost:
