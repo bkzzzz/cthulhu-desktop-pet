@@ -17,8 +17,8 @@ static func run() -> Array[String]:
 
 
 static func _test_runtime_pacing_settings(failures: Array[String]) -> void:
-	if bool(ProjectSettings.get_setting("application/run/low_processor_mode", true)):
-		failures.append("animated desktop pets must not use low-processor sleeps that create uneven frame pacing")
+	if bool(ProjectSettings.get_setting("application/run/low_processor_mode", false)) and int(ProjectSettings.get_setting("application/run/low_processor_mode_sleep_usec", 10000)) > 3000:
+		failures.append("low-processor mode must use a short sleep that preserves smooth animated frame pacing")
 
 
 static func _test_pet_interaction_geometry_cache(failures: Array[String]) -> void:

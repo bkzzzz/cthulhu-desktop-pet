@@ -206,8 +206,8 @@ static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 	main.set("_debug_enemy_power_scale", 2.0)
 	var base_difficulty := float(main.call("_get_base_battle_difficulty_scale"))
 	var difficulty_text := String(main.call("_get_battle_difficulty_text"))
-	if not difficulty_text.contains("难度") or not difficulty_text.contains("×%.2f" % base_difficulty):
-		failures.append("battle invitations must expose difficulty derived from hidden combat-power difference")
+	if not difficulty_text.contains("敌军编成") or not difficulty_text.contains("奖励预算") or difficulty_text.contains("战斗力") or difficulty_text.contains("敌军 ×"):
+		failures.append("battle invitations must show enemy composition and reward budget without exposing combat power")
 	var rolled_values: Array[float] = []
 	(main.get("_rng") as RandomNumberGenerator).seed = 71218
 	for _roll_index in 4:
@@ -219,8 +219,10 @@ static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 	if is_equal_approx(rolled_values[0], rolled_values[1]):
 		failures.append("successive battle invitations must have real difficulty variance")
 	main.set("_active_battle_difficulty_scale", 2.73)
-	if not String(main.call("_get_battle_difficulty_text")).contains("×2.73"):
-		failures.append("battle difficulty text must use the value locked for the active encounter")
+	var stronger_budget: Dictionary = main.call("_get_battle_reward_budget", 2.73)
+	var weaker_budget: Dictionary = main.call("_get_battle_reward_budget", 0.5)
+	if int(stronger_budget.get("gold", 0)) <= int(weaker_budget.get("gold", 0)) or int(stronger_budget.get("faith", 0)) <= int(weaker_budget.get("faith", 0)):
+		failures.append("stronger enemy encounters must advertise richer gold and faith budgets")
 	main.free()
 
 
@@ -415,8 +417,10 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 		failures.append("debug-triggered battles must still drop a clickable invitation item")
 	var pending_difficulty := float(main.get("_pending_battle_difficulty_scale"))
 	var invitation := main.get("_event_invitation") as Node2D
-	if pending_difficulty < 0.0 or invitation == null or not String(invitation.get("_difficulty_text")).contains("×%.2f" % pending_difficulty):
-		failures.append("battle invitations must display the exact randomly rolled encounter difficulty")
+	var invitation_text := String(invitation.get("_difficulty_text")) if invitation != null else ""
+	var pending_budget: Dictionary = main.call("_get_battle_reward_budget", pending_difficulty)
+	if pending_difficulty < 0.0 or invitation == null or not invitation_text.contains("%d 金币 + %d 信仰" % [int(pending_budget.get("gold", 0)), int(pending_budget.get("faith", 0))]):
+		failures.append("battle invitations must display the reward budget for the exact randomly rolled encounter")
 	main.call("_on_event_invitation_accepted", "battle")
 	if not bool(main.get("_battle_active")):
 		failures.append("accepting the debug invitation must enter battle state")

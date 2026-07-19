@@ -110,9 +110,9 @@ static func get_wave_schedule(total_runtime_seconds: float) -> Array[Dictionary]
 		]
 	if get_era_index(total_runtime_seconds) >= 4:
 		schedule = [
-			{"time": 0.0, "types": ["outerspace1"]},
+			{"time": 0.0, "types": ["modern3", "outerspace1"]},
 			{"time": 4.5, "types": ["outerspace1", "outerspace2"]},
-			{"time": 9.5, "types": ["outerspace2", "outerspace3"]},
-			{"time": 15.5, "types": ["outerspace3", "outerspace2", "outerspace1"]}
+			{"time": 9.5, "types": ["modern2", "outerspace2", "outerspace3"]},
+			{"time": 15.5, "types": ["outerspace3", "outerspace2", "modern3"]}
 		]
 	return schedule

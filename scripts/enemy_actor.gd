@@ -396,6 +396,11 @@ static func get_combat_power(type_id: String) -> float:
 	return float(COMBAT_POWER.get(type_id, 10.0))
 
 
+static func get_reward_count(type_id: String) -> int:
+	var data: Dictionary = DEFINITIONS.get(type_id, DEFINITIONS["villager1"])
+	return maxi(0, int(data.get("reward", 0)))
+
+
 func _create_sprite(data: Dictionary) -> void:
 	_sprite = AnimatedSprite2D.new()
 	_sprite.name = "EnemySprite"

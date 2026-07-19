@@ -56,7 +56,9 @@ func setup_explosion(world_position: Vector2, visual_power: float) -> void:
 	_sprite.sprite_frames = _get_explosion_frames(tier, config)
 	_sprite.centered = true
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	var level_scale := clampf(0.9 + visual_power * 0.035, 0.95, 1.3)
+	# Tier changes the artwork, while this continuous curve makes late-game pet
+	# growth unmistakable without multiplying particles or effect nodes.
+	var level_scale := clampf(0.72 + pow(maxf(1.0, visual_power), 0.72) * 0.18, 0.90, 1.85)
 	_sprite.scale = Vector2.ONE * float(config.get("scale", 1.0)) * level_scale
 	_sprite.animation_finished.connect(queue_free)
 	add_child(_sprite)

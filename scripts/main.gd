@@ -118,6 +118,7 @@ const BATTLE_DRAG_HINT_EN := "Melee pets charge automatically; drag them forward
 const BATTLE_DRAG_HINT_ZH := "近战宠物会自动冲锋；拖动宠物到前线可以保护后排远程宠物"
 const BATTLE_PET_RECOVERY_MIN_SECONDS := 75.0
 const BATTLE_PET_RECOVERY_MAX_SECONDS := 180.0
+const BATTLE_EFFECT_LIMIT := 28
 const SMOKE_SHEET_TEXTURE := "res://assets/effects/smoke/smoke1_sheet.png"
 const SMOKE_FRAME_COUNT := 10
 const RANGED_BATTLE_PET_IDS := ["pet2", "pet7", "pet8", "pet9", "pet10"]
@@ -184,6 +185,8 @@ var _battle_pet_formed := {}
 var _battle_pet_enemy_targets := {}
 var _battle_pet5_rolls := {}
 var _battle_save_pending := false
+var _battle_defeated_enemies := 0
+var _battle_dropped_coin_budget := 0
 var _pending_battle_difficulty_scale := -1.0
 var _active_battle_difficulty_scale := -1.0
 var _last_era_display := ""
@@ -686,24 +689,56 @@ func _get_battle_difficulty_text(difficulty_override := -1.0) -> String:
 		if difficulty_override >= 0.0
 		else _get_battle_difficulty_scale()
 	)
-	var tier := ""
-	if difficulty <= 0.35:
-		tier = "TRIVIAL" if _language == "en" else "微不足道"
-	elif difficulty <= 0.75:
-		tier = "EASY" if _language == "en" else "简单"
-	elif difficulty <= 1.25:
-		tier = "NORMAL" if _language == "en" else "普通"
-	elif difficulty <= 2.0:
-		tier = "HARD" if _language == "en" else "困难"
-	elif difficulty <= 4.0:
-		tier = "NIGHTMARE" if _language == "en" else "噩梦"
-	else:
-		tier = "APOCALYPSE" if _language == "en" else "末日"
+	var schedule := EraProgression.get_wave_schedule(_total_runtime_seconds)
+	var counts := {}
+	for wave in schedule:
+		for enemy_id_value in (wave as Dictionary).get("types", []):
+			var enemy_id := String(enemy_id_value)
+			counts[enemy_id] = int(counts.get(enemy_id, 0)) + 1
+	var parts: Array[String] = []
+	for enemy_id_value in counts.keys():
+		var enemy_id := String(enemy_id_value)
+		parts.append("%s×%d" % [_get_enemy_display_name(enemy_id), int(counts[enemy_id])])
+	var rewards := _get_battle_reward_budget(difficulty)
 	return (
-		"DIFFICULTY: %s  ·  ENEMY ×%.2f"
+		"ENEMIES: %s\nREWARD BUDGET: %d GOLD + %d FAITH"
 		if _language == "en"
-		else "难度：%s  ·  敌军 ×%.2f"
-	) % [tier, difficulty]
+		else "敌军编成：%s\n奖励预算：%d 金币 + %d 信仰"
+	) % ["、".join(parts), int(rewards["gold"]), int(rewards["faith"])]
+
+
+func _get_enemy_display_name(enemy_id: String) -> String:
+	var names_zh := {
+		"villager1": "村民", "villager2": "持械村民", "soldier1": "步兵", "soldier2": "弓兵",
+		"victorian1": "维多利亚枪手", "victorian2": "维多利亚卫兵", "victorian_boss": "维多利亚统领",
+		"modern2": "现代炮兵", "modern3": "现代术士", "outerspace1": "星际侦察兵",
+		"outerspace2": "星际轰炸者", "outerspace3": "星际主宰"
+	}
+	var names_en := {
+		"villager1": "Villager", "villager2": "Armed Villager", "soldier1": "Infantry", "soldier2": "Archer",
+		"victorian1": "Victorian Gunner", "victorian2": "Victorian Guard", "victorian_boss": "Victorian Commander",
+		"modern2": "Modern Artillery", "modern3": "Modern Adept", "outerspace1": "Star Scout",
+		"outerspace2": "Star Bomber", "outerspace3": "Star Overlord"
+	}
+	return String((names_en if _language == "en" else names_zh).get(enemy_id, enemy_id))
+
+
+func _get_battle_reward_budget(difficulty: float) -> Dictionary:
+	var total_power := 0.0
+	var enemy_drop_gold := 0
+	for wave in EraProgression.get_wave_schedule(_total_runtime_seconds):
+		for enemy_id_value in (wave as Dictionary).get("types", []):
+			var enemy_id := String(enemy_id_value)
+			total_power += EnemyActor.get_combat_power(enemy_id)
+			enemy_drop_gold += EnemyActor.get_reward_count(enemy_id)
+	var strength := total_power * clampf(pow(maxf(0.05, difficulty), 0.42), 0.45, 8.0)
+	var victory_gold := maxi(80, int(round(55.0 + strength * 0.82)))
+	return {
+		"gold": enemy_drop_gold + victory_gold,
+		"enemy_gold": enemy_drop_gold,
+		"victory_gold": victory_gold,
+		"faith": maxi(25, int(round(18.0 + strength * 0.28)))
+	}
 
 
 func _on_event_invitation_accepted(event_type: String) -> void:
@@ -988,6 +1023,8 @@ func _start_battle() -> void:
 	_battle_pet_enemy_targets.clear()
 	_battle_pet5_rolls.clear()
 	_battle_save_pending = false
+	_battle_defeated_enemies = 0
+	_battle_dropped_coin_budget = 0
 	_update_actor_window_bounds()
 
 	var battle_pets: Array[Node2D] = []
@@ -1408,6 +1445,8 @@ func _on_pet_projectile_impacted(
 
 
 func _spawn_battle_explosion(world_position: Vector2, visual_power: float) -> void:
+	if _battle_effects.size() >= BATTLE_EFFECT_LIMIT:
+		return
 	var effect: Node2D = BattleEffectActor.new()
 	effect.set_meta("battle_runtime", true)
 	effect.call("setup_explosion", world_position, visual_power)
@@ -1583,14 +1622,24 @@ func _clear_battle_target_locks_for_enemy(enemy: Node2D) -> void:
 
 
 func _spawn_battle_reward(drop_position: Vector2, reward_count: int) -> void:
-	var safe_count := clampi(reward_count, 3, 24)
-	for coin_index in safe_count:
-		var coin_type := "D" if coin_index < 2 else "P" if coin_index % 3 == 0 else "R"
-		var spread := float(coin_index) - float(safe_count - 1) * 0.5
-		_spawn_coin(coin_type, drop_position + Vector2(
-			spread * 12.0 + _rng.randf_range(-9.0, 9.0),
-			_rng.randf_range(-18.0, 12.0)
-		))
+	# Preserve real kill drops, but express the exact value with a few larger coins
+	# instead of one node per gold piece.
+	_battle_defeated_enemies += 1
+	var remaining := maxi(0, reward_count)
+	_battle_dropped_coin_budget += remaining
+	var coin_types: Array[String] = []
+	while remaining >= 50:
+		coin_types.append("D")
+		remaining -= 50
+	while remaining >= 5:
+		coin_types.append("P")
+		remaining -= 5
+	while remaining > 0:
+		coin_types.append("R")
+		remaining -= 1
+	for coin_index in coin_types.size():
+		var spread := float(coin_index) - float(coin_types.size() - 1) * 0.5
+		_spawn_coin(coin_types[coin_index], drop_position + Vector2(spread * 15.0 + _rng.randf_range(-5.0, 5.0), _rng.randf_range(-14.0, 8.0)))
 
 
 func _defeat_battle_pet(actor: Node2D) -> void:
@@ -1643,6 +1692,16 @@ func _set_pet_recovery(pet_id: String) -> void:
 func _finish_battle(victory: bool) -> void:
 	if not _battle_active:
 		return
+	var settlement := _get_battle_reward_budget(_get_battle_difficulty_scale())
+	var settlement_gold := _battle_dropped_coin_budget + int(settlement.get("victory_gold", 0))
+	var victory_gold := int(settlement.get("victory_gold", 0))
+	var settlement_faith := int(settlement.get("faith", 0))
+	if victory:
+		# Enemy gold already exists as collectible battlefield drops. Credit only
+		# the completion bonus here so the advertised total is never duplicated.
+		_gold_coins += victory_gold
+		_faith_points += float(settlement_faith)
+		_lifetime_faith += float(settlement_faith)
 	_battle_active = false
 	_battle_started_at = 0.0
 	_battle_ends_at = 0.0
@@ -1676,7 +1735,13 @@ func _finish_battle(victory: bool) -> void:
 	_last_believer_spawn_at = now
 	_schedule_next_believer_spawn(now)
 	var title := "BATTLE WON" if victory and _language == "en" else "BATTLE ENDED" if _language == "en" else "战斗胜利" if victory else "防线失守"
-	var subtitle := "The desktop is safe again" if victory and _language == "en" else "Surviving pets have left the field" if _language == "en" else "桌面重新恢复平静" if victory else "受伤宠物已返回仓库休整"
+	var subtitle := (
+		"LOOT: %d GOLD + %d FAITH · %d ENEMIES DEFEATED" % [settlement_gold, settlement_faith, _battle_defeated_enemies]
+		if victory and _language == "en"
+		else "战利品结算：%d 金币 + %d 信仰 · 击退 %d 名敌人" % [settlement_gold, settlement_faith, _battle_defeated_enemies]
+		if victory
+		else "Surviving pets have left the field" if _language == "en" else "受伤宠物已返回仓库休整"
+	)
 	_show_pilgrimage_broadcast(title, subtitle)
 	_publish_news({
 		"category": "公告",
