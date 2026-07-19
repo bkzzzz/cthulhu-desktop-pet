@@ -3,10 +3,14 @@ extends Window
 signal dismissed
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 const WINDOW_SIZE := Vector2i(760, 470)
 
 var _pet_id := ""
-var _language := "zh"
+var _pet_level := 0
+var _pet_custom_name := ""
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _root: Control
 var _title_label: Label
 var _before_icon: TextureRect
@@ -18,13 +22,11 @@ var _confirm_button: Button
 var _cancel_button: Button
 
 
-func setup(language_code := "zh") -> void:
-	_language = "en" if language_code == "en" else "zh"
+func setup(language_code := LanguageSettings.DEFAULT_LANGUAGE) -> void:
+	_language = LanguageSettings.sanitize(language_code)
+	theme = LanguageSettings.make_ui_theme(_language)
 	name = "EvolutionWindow"
 	title = "Pet Evolution" if _language == "en" else "宠物进化"
-	size = WINDOW_SIZE
-	min_size = WINDOW_SIZE
-	max_size = WINDOW_SIZE
 	borderless = true
 	transparent = true
 	transparent_bg = true
@@ -32,30 +34,33 @@ func setup(language_code := "zh") -> void:
 	always_on_top = false
 	visible = false
 	close_requested.connect(close_window)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, DisplayLayout.get_current_usable_rect(self))
 	_create_content()
 
 
 func set_language(language_code: String) -> void:
-	_language = "en" if language_code == "en" else "zh"
+	_language = LanguageSettings.sanitize(language_code)
+	theme = LanguageSettings.make_ui_theme(_language)
 	title = "Pet Evolution" if _language == "en" else "宠物进化"
 	_refresh_language()
+	_refresh_pet_content()
 
 
-func open_for_pet(pet_id: String, display_name: String, level: int) -> void:
+func open_for_pet(pet_id: String, display_name: String, level: int, custom_name := "") -> void:
 	if not PetCatalog.can_evolve(pet_id) or level < 100:
 		return
 	_pet_id = pet_id
-	var base_data := PetCatalog.get_definition(pet_id)
-	var evolved_data := PetCatalog.get_evolution_definition(pet_id)
-	_before_icon.texture = PetCatalog.make_icon_texture(String(base_data.get("icon", "")), 8)
-	_after_icon.texture = PetCatalog.make_icon_texture(String(evolved_data.get("icon", base_data.get("icon", ""))), 8)
-	_before_label.text = "%s\nLv.%d" % [display_name, level]
-	_after_label.text = String(evolved_data.get("evolution_name", "%s · 进化" % display_name))
-	_hint_label.text = (
-		"Evolution completed at Lv.100. Combat power is now ×%.2f and production ×%.2f."
-		if _language == "en"
-		else "达到 Lv.100 后进化完成。战斗力提升至 ×%.2f，信仰与金币产出提升至 ×%.2f。"
-	) % [PetCatalog.EVOLUTION_POWER_MULTIPLIER, PetCatalog.EVOLUTION_PRODUCTION_MULTIPLIER]
+	_pet_level = level
+	_pet_custom_name = String(custom_name).strip_edges()
+	if _pet_custom_name.is_empty():
+		var provided_name := display_name.strip_edges()
+		var authored_names := [
+			PetCatalog.get_localized_name(pet_id, "en"),
+			PetCatalog.get_localized_name(pet_id, "zh")
+		]
+		if not provided_name.is_empty() and not authored_names.has(provided_name):
+			_pet_custom_name = provided_name
+	_refresh_pet_content()
 	_cancel_button.visible = false
 	_refresh_language()
 	_center_window()
@@ -68,10 +73,34 @@ func open_for_pet(pet_id: String, display_name: String, level: int) -> void:
 	tween.parallel().tween_property(_root, "scale", Vector2.ONE, 0.18)
 
 
+func _refresh_pet_content() -> void:
+	if _pet_id.is_empty() or _before_icon == null:
+		return
+	var pet_id := _pet_id
+	var base_data := PetCatalog.get_definition(pet_id)
+	var evolved_data := PetCatalog.get_evolution_definition(pet_id)
+	_before_icon.texture = PetCatalog.make_icon_texture(String(base_data.get("icon", "")), 8)
+	_after_icon.texture = PetCatalog.make_icon_texture(String(evolved_data.get("icon", base_data.get("icon", ""))), 8)
+	var display_name := (
+		_pet_custom_name
+		if not _pet_custom_name.is_empty()
+		else PetCatalog.get_localized_name(pet_id, _language)
+	)
+	_before_label.text = "%s\nLv.%d" % [display_name, _pet_level]
+	_after_label.text = PetCatalog.get_localized_evolution_name(pet_id, _language)
+	_hint_label.text = (
+		"Evolution completed at Lv.100. Combat power is now ×%.2f and production ×%.2f."
+		if _language == "en"
+		else "达到 Lv.100 后进化完成。战斗力提升至 ×%.2f，信仰与金币产出提升至 ×%.2f。"
+	) % [PetCatalog.EVOLUTION_POWER_MULTIPLIER, PetCatalog.EVOLUTION_PRODUCTION_MULTIPLIER]
+
+
 func close_window() -> void:
 	var was_showing_pet := not _pet_id.is_empty()
 	visible = false
 	_pet_id = ""
+	_pet_level = 0
+	_pet_custom_name = ""
 	if was_showing_pet:
 		dismissed.emit()
 
@@ -209,8 +238,5 @@ func _make_panel_style() -> StyleBoxFlat:
 
 
 func _center_window() -> void:
-	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS
-	if screen < 0:
-		screen = DisplayServer.window_get_current_screen()
-	var usable := DisplayServer.screen_get_usable_rect(screen)
-	position = usable.position + ((usable.size - WINDOW_SIZE) / 2)
+	var usable_rect := DisplayLayout.get_current_usable_rect(self)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, usable_rect)

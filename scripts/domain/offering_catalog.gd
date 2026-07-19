@@ -6,6 +6,19 @@ extends RefCounted
 
 const KIND := "offering"
 
+const ENGLISH_COPY := {
+	"red_fruit": ["Red Fruit", "Sweet and juicy. Doubles this pet's faith production for 60 seconds."],
+	"rice_paste": ["Rice Paste", "Warm and soft. Raises this pet's faith production to ×2.5 for 60 seconds."],
+	"waffle": ["Waffle", "Crisp outside and soft within. Raises this pet's faith production to ×3 for 60 seconds."],
+	"cheese": ["Cheese", "Richly fragrant. Raises this pet's faith production to ×4 for 60 seconds."],
+	"chicken": ["Chicken", "Cooked chicken. Raises this pet's faith production to ×5 for 60 seconds."],
+	"thick_soup": ["Thick Soup", "A bowl of hearty soup. Raises this pet's faith production to ×6.5 for 60 seconds."],
+	"fish": ["Fresh Fish", "Today's fresh catch. Raises this pet's faith production to ×8 for 60 seconds."],
+	"braised_intestine": ["Braised Intestine", "An unmistakably fragrant dish. Raises this pet's faith production to ×10 for 60 seconds."],
+	"blood_cup": ["Blood Cup", "A vivid red nutritional drink. Raises this pet's faith production to ×13 for 60 seconds."],
+	"eyeball_soup": ["Eyeball Soup", "The most lavish specialty. Raises this pet's faith production to ×16 for 60 seconds."]
+}
+
 const ITEMS := [
 	{
 		"id": "red_fruit",
@@ -116,6 +129,17 @@ static func make_shop_goods() -> Array[Dictionary]:
 		var item: Dictionary = item_value
 		goods.append(item.duplicate(true))
 	return goods
+
+
+static func localize(offering: Dictionary, language_code: String) -> Dictionary:
+	var localized := offering.duplicate(true)
+	if language_code != "en":
+		return localized
+	var copy_value: Variant = ENGLISH_COPY.get(String(offering.get("id", "")), [])
+	if copy_value is Array and copy_value.size() >= 2:
+		localized["name"] = String(copy_value[0])
+		localized["description"] = String(copy_value[1])
+	return localized
 
 
 static func normalize_offering(raw: Dictionary) -> Dictionary:

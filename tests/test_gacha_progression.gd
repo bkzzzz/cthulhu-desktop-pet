@@ -151,6 +151,9 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		failures.append("the pet gacha must use the supplied egg image")
 	var window := GachaWindow.new()
 	window.setup()
+	# This suite verifies the authored Chinese result copy. Default-English
+	# behavior is covered by the localization integration suite.
+	window.set_language("zh")
 	var background := window.get_node_or_null("GachaRoot/GachaBackground") as TextureRect
 	if background == null or background.texture == null:
 		failures.append("the supplied gacha UI must render as the window background")
@@ -233,7 +236,7 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 	duplicate["duplicate_faith"] = 30
 	window.show_results([result, duplicate])
 	var action_button: Button = window.get("_result_action_button")
-	if action_button == null or not action_button.text.begins_with("SKIP"):
+	if action_button == null or not action_button.text.begins_with("跳过"):
 		failures.append("multi-draw results must expose a skip-to-next action")
 	else:
 		window.call("_on_result_advance_pressed")
@@ -245,6 +248,19 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 	window.call("_show_batch_summary")
 	if not result_detail.text.contains("+30") or not result_detail.text.contains("新宠物"):
 		failures.append("skip all must show only new pets and combined duplicate faith")
+
+	var localized_result := GachaProgression.roll_pet(0.0, ["pet1"], 0)
+	var localized_pet_id := String(localized_result.get("pet_id", ""))
+	localized_result["name"] = PetCatalog.get_localized_name(localized_pet_id, "zh")
+	localized_result["use_localized_name"] = true
+	window.show_result(localized_result)
+	window.call("_finish_draw_animation")
+	window.set_language("en")
+	if result_title.text != PetCatalog.get_localized_name(localized_pet_id, "en"):
+		failures.append("an open gacha result must switch its authored pet name to English")
+	window.set_language("zh")
+	if result_title.text != PetCatalog.get_localized_name(localized_pet_id, "zh"):
+		failures.append("an open gacha result must switch its authored pet name back to Chinese")
 	window.free()
 
 

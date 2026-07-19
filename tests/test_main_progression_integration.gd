@@ -8,6 +8,7 @@ static func run() -> Array[String]:
 	_test_legacy_state_migration(failures)
 	_test_explicit_level_migration(failures)
 	_test_starter_unlock_state(failures)
+	_test_language_defaults_and_pet_names(failures)
 	_test_pet_gacha_integration(failures)
 	_test_hidden_inventory_updates_are_lazy(failures)
 	_test_single_level_upgrade(failures)
@@ -42,6 +43,60 @@ static func _test_starter_unlock_state(failures: Array[String]) -> void:
 	if not is_equal_approx(float(main.call("_get_faith_growth_rate")), expected_rate):
 		failures.append("locked pets must not produce faith before they are drawn")
 	main.free()
+
+
+static func _test_language_defaults_and_pet_names(failures: Array[String]) -> void:
+	var main := _make_main()
+	if String(main.get("_language")) != "en":
+		failures.append("a fresh game state must default to English")
+
+	var language_less_save := ConfigFile.new()
+	if Main.PersistenceController.resolve_saved_language(language_less_save) != "en":
+		failures.append("a legacy save without a language key must migrate to English")
+	language_less_save.set_value("settings", "language", "zh")
+	if Main.PersistenceController.resolve_saved_language(language_less_save) != "zh":
+		failures.append("an existing explicit Chinese language selection must be preserved")
+	var migrated_names: Dictionary = main.call("_sanitize_loaded_pet_states", {
+		"pet1": {"upgrade_level": 7, "name": Main.PetCatalog.get_localized_name("pet1", "zh")},
+		"pet2": {"upgrade_level": 8, "name": Main.PetCatalog.get_localized_name("pet2", "en")},
+		"pet3": {"upgrade_level": 9, "name": "Nyx"}
+	})
+	for pet_id in ["pet1", "pet2", "pet3"]:
+		if String((migrated_names[pet_id] as Dictionary).get("name", "")).is_empty():
+			failures.append("save migration must preserve every explicit custom name, even when it matches an authored name")
+
+	var english_name := Main.PetCatalog.get_localized_name("pet1", "en")
+	var chinese_name := Main.PetCatalog.get_localized_name("pet1", "zh")
+	if String(main.call("_get_pet_display_name", "pet1")) != english_name:
+		failures.append("an unrenamed pet must use its English name by default")
+	main.set("_language", "zh")
+	if String(main.call("_get_pet_display_name", "pet1")) != chinese_name:
+		failures.append("an unrenamed pet must switch to its Chinese authored name")
+	var state: Dictionary = main.call("_get_pet_state", "pet1")
+	state["name"] = "Nyx"
+	for language_code in ["en", "zh"]:
+		main.set("_language", language_code)
+		if String(main.call("_get_pet_display_name", "pet1")) != "Nyx":
+			failures.append("switching to %s must not overwrite a custom pet name" % language_code)
+	main.set("_language", "en")
+	for pet_id in ["pet7", "pet9", "pet10"]:
+		var pet_data := Main.PetCatalog.get_definition(pet_id)
+		var english_age := String(main.call("_get_pet_age_text", pet_data))
+		if english_age != Main.PetCatalog.get_localized_field(pet_id, "age", "en"):
+			failures.append("%s must not leak its Chinese unknown-age copy in English mode" % pet_id)
+	main.free()
+
+	var gacha := Main.GachaWindowScript.new()
+	gacha.setup()
+	if String(gacha.get("_language")) != "en" or gacha.theme.default_font is SystemFont:
+		failures.append("the standalone gacha window must start in English with its authored font")
+	gacha.set_language("zh")
+	if not gacha.theme.default_font is SystemFont:
+		failures.append("the Chinese gacha UI must switch to a CJK-capable system font")
+	gacha.set_language("en")
+	if gacha.theme.default_font is SystemFont:
+		failures.append("switching gacha back to English must restore its authored font")
+	gacha.free()
 
 
 static func _test_pet_gacha_integration(failures: Array[String]) -> void:
@@ -251,6 +306,9 @@ static func _test_explicit_level_migration(failures: Array[String]) -> void:
 
 static func _test_single_level_upgrade(failures: Array[String]) -> void:
 	var main := _make_main()
+	# Post-campaign levels are intentionally available only after the player
+	# chooses Endless Mode on the completion screen.
+	main.set("_endless_mode", true)
 	var unlocked: Array = main.get("_unlocked_pet_ids")
 	unlocked.append("pet2")
 	var state: Dictionary = main.call("_get_pet_state", "pet2")
@@ -280,6 +338,7 @@ static func _test_single_level_upgrade(failures: Array[String]) -> void:
 
 static func _test_upgrade_entry_simplicity(failures: Array[String]) -> void:
 	var main := _make_main()
+	main.set("_language", "zh")
 	var entries: Array[Dictionary] = main.call("_get_pet_upgrade_entries")
 	var pet1_entry: Dictionary = entries[0]
 	if int(pet1_entry.get("level", 0)) != 1:
@@ -320,6 +379,7 @@ static func _test_scaled_manual_click(failures: Array[String]) -> void:
 
 static func _test_news_overlay_tuning(failures: Array[String]) -> void:
 	var main := _make_main()
+	main.set("_language", "zh")
 	var style: StyleBoxFlat = main.call("_make_news_broadcast_style")
 	if style.bg_color.a <= 0.0 or style.bg_color.a >= 0.5:
 		failures.append("the desktop news broadcast must tint the desktop without hiding it")

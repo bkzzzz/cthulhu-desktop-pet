@@ -28,16 +28,18 @@ config/icon="res://assets/ui/starterUi/启动icon.png"
 
 [display]
 
-window/size/viewport_width=820
-window/size/viewport_height=420
+window/size/mode=2
 window/size/resizable=false
 window/size/borderless=true
 window/size/transparent=true
-window/size/window_width_override=820
-window/size/window_height_override=420
 window/subwindows/embed_subwindows=false
 window/stretch/aspect="ignore"
+window/dpi/allow_hidpi=true
 window/per_pixel_transparency/allowed=true
+
+[internationalization]
+
+locale/fallback="en"
 
 [rendering]
 

@@ -3,6 +3,8 @@ extends Window
 signal purchase_requested(good_id: String)
 
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 
 const WINDOW_SIZE := Vector2i(1117, 1034)
 const SHOP_TEXTURE := "res://assets/ui/shop/商店ui.png"
@@ -40,15 +42,16 @@ var _owned_counts := {}
 var _goods: Array[Dictionary] = []
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
-var _language := "zh"
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 
 
 func setup() -> void:
 	_goods = _make_default_goods()
+	theme = LanguageSettings.make_ui_theme(_language)
 	_configure_window()
 	_create_content()
 	_center_window()
-	_refresh_page()
+	set_language(_language)
 
 
 func open_window() -> void:
@@ -80,7 +83,8 @@ func set_faith_points(legacy_balance: int) -> void:
 
 
 func set_language(language_code: String) -> void:
-	_language = "en" if language_code == "en" else "zh"
+	_language = LanguageSettings.sanitize(language_code)
+	theme = LanguageSettings.make_ui_theme(_language)
 	title = "Shop" if _language == "en" else "商店"
 	if _result_label != null:
 		_result_label.text = "Click an item to buy" if _language == "en" else "点击商品购买"
@@ -144,14 +148,14 @@ func _normalize_good(good: Dictionary) -> Dictionary:
 
 func _configure_window() -> void:
 	name = "ShopWindow"
-	title = "商店"
-	size = WINDOW_SIZE
+	title = "Shop"
 	borderless = true
 	always_on_top = false
 	unresizable = true
 	transparent = true
 	transparent_bg = true
 	visible = false
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, DisplayLayout.get_current_usable_rect(self))
 
 
 func _create_content() -> void:
@@ -299,10 +303,10 @@ func _create_result_label() -> void:
 func _create_coin_balance() -> void:
 	_coin_balance_label = Label.new()
 	_coin_balance_label.name = "ShopGoldBalance"
-	_coin_balance_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_coin_balance_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_coin_balance_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_coin_balance_label.position = Vector2(348.0, 172.0)
-	_coin_balance_label.size = Vector2(420.0, 48.0)
+	_coin_balance_label.position = Vector2(650.0, 170.0)
+	_coin_balance_label.size = Vector2(315.0, 50.0)
 	_coin_balance_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_coin_balance_label.add_theme_font_size_override("font_size", 28)
 	_coin_balance_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.34, 1.0))
@@ -393,11 +397,7 @@ func _refresh_page() -> void:
 			else "第 %d / %d 页" % [_page + 1, page_count]
 		)
 	if _coin_balance_label != null:
-		_coin_balance_label.text = (
-			"GOLD  $ %d" % _coin_balance
-			if _language == "en"
-			else "金币  $ %d" % _coin_balance
-		)
+		_coin_balance_label.text = "$ %s" % _format_compact_number(float(_coin_balance))
 
 	var page_start := _page * GOODS_PER_PAGE
 	for slot_index in _slot_controls.size():
@@ -419,13 +419,14 @@ func _refresh_page() -> void:
 			continue
 
 		var good := _goods[good_index]
+		var display_good := OfferingCatalog.localize(good, _language)
 		var price := int(good.get("price", 0))
 		var affordable := _coin_balance >= price
 		var offering := OfferingCatalog.is_offering(good)
 		var owned := int(_owned_counts.get(String(good.get("id", "")), 0))
 		icon.texture = load(String(good.get("texture", ""))) as Texture2D
 		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
-		name_label.text = String(good.get("name", "商品"))
+		name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
 		price_label.text = ("PRICE  $%d" if _language == "en" else "价格 $%d 金币") % price
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
 		owned_label.text = (
@@ -469,8 +470,9 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	if _info_panel == null:
 		return
 
-	_info_name_label.text = String(good.get("name", "商品"))
-	_info_desc_label.text = String(good.get("description", ""))
+	var display_good := OfferingCatalog.localize(good, _language)
+	_info_name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
+	_info_desc_label.text = String(display_good.get("description", ""))
 	if OfferingCatalog.is_offering(good):
 		_info_price_label.text = ("PRICE: $%d GOLD    BOOST: %ds ×%s" if _language == "en" else "价格：$%d 金币    加速：%d秒 ×%s") % [
 			int(good.get("price", 0)),
@@ -498,6 +500,31 @@ static func _format_multiplier(value: float) -> String:
 	return text
 
 
+static func _format_compact_number(value: float) -> String:
+	var absolute := absf(value)
+	if absolute < 1000.0:
+		return "%d" % int(round(value))
+
+	var units := [
+		{"threshold": 1.0e15, "suffix": "Qa"},
+		{"threshold": 1.0e12, "suffix": "T"},
+		{"threshold": 1.0e9, "suffix": "B"},
+		{"threshold": 1.0e6, "suffix": "M"},
+		{"threshold": 1.0e3, "suffix": "K"}
+	]
+	for unit in units:
+		var threshold := float(unit.get("threshold", 1.0))
+		if absolute < threshold:
+			continue
+		var scaled := value / threshold
+		if absf(scaled) >= 100.0:
+			return "%.0f%s" % [scaled, String(unit.get("suffix", ""))]
+		if absf(scaled) >= 10.0:
+			return "%.1f%s" % [scaled, String(unit.get("suffix", ""))]
+		return "%.2f%s" % [scaled, String(unit.get("suffix", ""))]
+	return "%d" % int(round(value))
+
+
 func _hide_info_panel() -> void:
 	if _info_panel != null:
 		_info_panel.visible = false
@@ -523,11 +550,8 @@ func _on_arrow_pressed(direction: int, button: Control) -> void:
 
 
 func _center_window() -> void:
-	var screen_rect := _get_current_screen_rect()
-	position = Vector2i(
-		maxi(screen_rect.position.x, screen_rect.position.x + int((screen_rect.size.x - WINDOW_SIZE.x) * 0.5)),
-		maxi(screen_rect.position.y, screen_rect.position.y + int((screen_rect.size.y - WINDOW_SIZE.y) * 0.5))
-	)
+	var usable_rect := DisplayLayout.get_current_usable_rect(self)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, usable_rect)
 
 
 func _close_window() -> void:
@@ -571,12 +595,14 @@ func _on_root_gui_input(event: InputEvent) -> void:
 				_drag_offset = DisplayServer.mouse_get_position() - position
 			_root.accept_event()
 	elif event is InputEventMouseMotion and _dragging:
-		position = DisplayServer.mouse_get_position() - _drag_offset
+		var desired := DisplayServer.mouse_get_position() - _drag_offset
+		position = DisplayLayout.clamp_position(
+			desired,
+			size,
+			DisplayLayout.get_current_usable_rect(self)
+		)
 		_root.accept_event()
 
 
 func _get_current_screen_rect() -> Rect2i:
-	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS
-	if screen < 0:
-		screen = DisplayServer.window_get_current_screen()
-	return Rect2i(DisplayServer.screen_get_position(screen), DisplayServer.screen_get_size(screen))
+	return DisplayLayout.get_current_usable_rect(self)

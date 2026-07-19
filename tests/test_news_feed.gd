@@ -54,6 +54,7 @@ static func run() -> Array[String]:
 	_test_milestones(failures)
 	_test_slow_expansion_scopes(failures)
 	_test_history_and_restore(failures)
+	_test_bilingual_history_switching(failures)
 	_test_copy_version_migration(failures)
 	_test_cooldown_and_cadence(failures)
 	_test_news_bookmark_signal(failures)
@@ -106,11 +107,20 @@ static func _test_event_templates(failures: Array[String]) -> void:
 	feed.restore({}, 0.0, 0.0)
 	var offering: Dictionary = feed.make_event(
 		"offering",
-		{"pet_name": PET_NAME_SENTINEL, "item_name": "眼球汤"},
+		{
+			"pet_name": PET_NAME_SENTINEL,
+			"item_name": "Red Fruit",
+			"item_name_en": "Red Fruit",
+			"item_name_zh": "眼球汤"
+		},
 		0.0
 	)
 	var offering_text := String(offering.get("headline", ""))
-	if offering_text.contains(PET_NAME_SENTINEL) or not offering_text.contains("眼球汤"):
+	if (
+		offering_text.contains(PET_NAME_SENTINEL)
+		or not offering_text.contains("眼球汤")
+		or offering_text.contains("Red Fruit")
+	):
 		failures.append("offering news must keep the item name without exposing the pet name")
 
 	var wall: Dictionary = feed.make_event("wall_crawl", {"pet_name": PET_NAME_SENTINEL}, 0.0)
@@ -308,6 +318,37 @@ static func _test_history_and_restore(failures: Array[String]) -> void:
 		failures.append("news save sanitization must cap headline length")
 
 
+static func _test_bilingual_history_switching(failures: Array[String]) -> void:
+	var feed := NewsFeed.new()
+	feed.restore({}, 0.0, 0.0)
+	var stored := feed.add_article(
+		{"category": "公告", "headline": "中文公告", "headline_en": "English notice"},
+		1.0,
+		"12:00"
+	)
+	if NewsFeed.get_localized_headline(stored, "en") != "English notice" or NewsFeed.get_localized_headline(stored, "zh") != "中文公告":
+		failures.append("news history must retain both authored languages instead of overwriting one at publish time")
+	if NewsFeed.format_number_en(5200000000.0) != "5.2B":
+		failures.append("English news must use English magnitude suffixes instead of Chinese units")
+	var restored := NewsFeed.new()
+	restored.restore(feed.get_state(), 0.0, 0.0)
+	var restored_entry: Dictionary = restored.get_history()[0]
+	if String(restored_entry.get("headline_en", "")) != "English notice":
+		failures.append("English news copy must survive save sanitization and restore")
+
+	var window := NewsWindow.new()
+	window.setup([restored_entry])
+	window.set_language("en")
+	var headline_label := window.find_child("Headline", true, false) as Label
+	if headline_label == null or headline_label.text != "English notice":
+		failures.append("the news archive must render stored English copy after switching to English")
+	window.set_language("zh")
+	headline_label = window.find_child("Headline", true, false) as Label
+	if headline_label == null or headline_label.text != "中文公告":
+		failures.append("the news archive must re-render stored Chinese copy after switching to Chinese")
+	window.free()
+
+
 static func _test_copy_version_migration(failures: Array[String]) -> void:
 	var legacy_without_version := {
 		"history": [
@@ -406,8 +447,8 @@ static func _test_news_bookmark_signal(failures: Array[String]) -> void:
 
 static func _test_news_window_fitting(failures: Array[String]) -> void:
 	var fitted := NewsWindow.fit_window_size(Vector2i(1280, 680))
-	if fitted != Vector2i(760, 632):
-		failures.append("the news archive must fit inside the usable screen and taskbar margins")
+	if fitted != Vector2i(706, 632):
+		failures.append("the news archive must fit without distorting its design coordinate space")
 	var compact := NewsWindow.fit_window_size(Vector2i(640, 480))
 	if compact.x > 640 or compact.y > 480 or compact.x <= 0 or compact.y <= 0:
 		failures.append("the news archive must remain valid on compact screens")

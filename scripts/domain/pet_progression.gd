@@ -7,17 +7,30 @@ const MAX_UPGRADE_COST := 8_000_000_000_000_000_000
 const MAX_FAITH_PER_SECOND := 1.0e300
 const MAX_MONEY_VALUE_PER_MINUTE := 2500.0
 const MAX_LEVEL := 100_000
-const CAMPAIGN_TARGET_HOURS := 800.0
+const CAMPAIGN_TARGET_HOURS := 50.0
+const CAMPAIGN_PASSIVE_TARGET_HOURS := 90.0
 const CAMPAIGN_PET_LEVEL_TARGET := 100
 
-# Early levels stay deliberately restrained. From level 20 onward, each upgrade
-# contributes increasingly more power until the campaign target, creating a
-# visible slow-to-fast payoff without changing the established opening.
-const MOMENTUM_START_LEVEL := 20.0
+# Authored base_fps values are intentionally tiny, so the campaign-wide
+# multiplier makes a fresh pet visibly productive instead of requiring several
+# minutes for its first point. The additional opening boost starts at 13x and
+# eases out gradually by Lv.50; this puts the first visible point inside ten
+# seconds and avoids a production trough while momentum takes over.
+const CAMPAIGN_BASE_PRODUCTION_MULTIPLIER := 3.25
+const OPENING_EXTRA_PRODUCTION_MULTIPLIER := 12.0
+const OPENING_BOOST_END_LEVEL := 50.0
+
+# Momentum begins while the opening boost is easing out. That long overlap
+# avoids a dead zone while preserving the much larger mid/late gains.
+const MOMENTUM_START_LEVEL := 12.0
 const MOMENTUM_TARGET_LEVEL := float(CAMPAIGN_PET_LEVEL_TARGET)
-const MOMENTUM_EXTRA_POWER_LEVELS := 70.0
-const POST_TARGET_EXTRA_POWER_LEVELS := 525.0
+const MOMENTUM_EXTRA_POWER_LEVELS := 111.0
+# Endless production keeps growing, but its exponential component saturates.
+# The explicit level multiplier in faith_per_second still provides unbounded
+# linear growth without turning high-level upgrades into instant purchases.
+const POST_TARGET_EXTRA_POWER_LEVELS := 300.0
 const POST_TARGET_MOMENTUM_SPAN := 300.0
+const ENDLESS_BASE_RATE_PAYBACK_SECONDS := 78_000.0
 
 # Upgrade prices retain their full exponential growth through level 100. Later
 # price exponents soften toward 160 so the accelerating output remains playable.
@@ -38,7 +51,13 @@ static func faith_per_second(pet_data: Dictionary, level: int) -> float:
 	var power_growth := maxf(0.0, float(pet_data.get("power_growth", 1.035)))
 	var safe_level := maxi(0, level)
 	var power_multiplier := pow(power_growth, _accelerated_power_level(safe_level))
-	var result := base_fps * float(safe_level) * power_multiplier
+	var result := (
+		base_fps
+		* float(safe_level)
+		* power_multiplier
+		* CAMPAIGN_BASE_PRODUCTION_MULTIPLIER
+		* _opening_production_multiplier(safe_level)
+	)
 	if not is_finite(result):
 		return MAX_FAITH_PER_SECOND
 	return clampf(result, 0.0, MAX_FAITH_PER_SECOND)
@@ -67,10 +86,16 @@ static func upgrade_cost(pet_data: Dictionary, state: Dictionary) -> int:
 	var growth := maxf(0.0, float(pet_data.get("upgrade_cost_growth", 1.3)))
 	var level := progression_level(state)
 	var raw_cost := base_cost * pow(growth, _softened_growth_level(level))
+	if level >= CAMPAIGN_PET_LEVEL_TARGET:
+		# At Lv.100 this nearly matches the authored 1.18^level curve. Beyond
+		# that point, the evolved pet keeps a roughly 14.4-hour self-payback.
+		raw_cost = maxf(
+			raw_cost,
+			faith_per_second(pet_data, level) * ENDLESS_BASE_RATE_PAYBACK_SECONDS
+		)
 	if not is_finite(raw_cost) or raw_cost >= float(MAX_UPGRADE_COST):
 		return MAX_UPGRADE_COST
 	return clampi(int(round(raw_cost)), 1, MAX_UPGRADE_COST)
-
 
 static func _softened_growth_level(level: int) -> float:
 	var safe_level := float(maxi(1, level))
@@ -95,9 +120,23 @@ static func _accelerated_power_level(level: int) -> float:
 
 	var excess := safe_level - MOMENTUM_TARGET_LEVEL
 	return (
-		safe_level
+		MOMENTUM_TARGET_LEVEL
 		+ MOMENTUM_EXTRA_POWER_LEVELS
 		+ POST_TARGET_EXTRA_POWER_LEVELS * (
 			1.0 - exp(-excess / POST_TARGET_MOMENTUM_SPAN)
 		)
+	)
+
+
+static func _opening_production_multiplier(level: int) -> float:
+	var opening_progress := clampf(
+		(OPENING_BOOST_END_LEVEL - float(maxi(1, level)))
+		/ (OPENING_BOOST_END_LEVEL - 1.0),
+		0.0,
+		1.0
+	)
+	return 1.0 + (
+		OPENING_EXTRA_PRODUCTION_MULTIPLIER
+		* opening_progress
+		* opening_progress
 	)

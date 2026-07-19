@@ -4,10 +4,11 @@ signal draw_requested(draw_amount: int)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 
 const WINDOW_SIZE := Vector2i(570, 798)
 const CONTENT_WIDTH := 538.0
-const UI_FONT := "res://assets/ui/font/NormalFont.ttf"
 const GACHA_UI_TEXTURE := "res://assets/ui/gacha/gachaUI.png"
 const GACHA_MACHINE_TEXTURE := "res://assets/ui/gacha/gacha.png"
 const GACHA_EGG_TEXTURE := "res://assets/ui/gacha/egg.png"
@@ -70,15 +71,12 @@ var _coin_balance := 0.0
 var _next_cost := GachaProgression.BASE_DRAW_COST
 var _draw_count := 0
 var _rng := RandomNumberGenerator.new()
-var _language := "zh"
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 
 
 func setup() -> void:
 	name = "GachaWindow"
 	title = "宠物扭蛋"
-	size = WINDOW_SIZE
-	min_size = WINDOW_SIZE
-	max_size = WINDOW_SIZE
 	unresizable = true
 	borderless = true
 	transparent = true
@@ -88,8 +86,10 @@ func setup() -> void:
 	visible = false
 	_rng.randomize()
 	close_requested.connect(close_window)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, DisplayLayout.get_current_usable_rect(self))
 	_create_content()
 	_create_result_overlay()
+	set_language(_language)
 	_center_window()
 
 
@@ -117,13 +117,22 @@ func refresh_state(
 
 
 func set_language(language_code: String) -> void:
-	_language = "en" if language_code == "en" else "zh"
+	_language = LanguageSettings.sanitize(language_code)
+	theme = _make_ui_theme()
 	_refresh_draw_amount_labels()
 	title = "Pet Gacha" if _language == "en" else "宠物扭蛋"
-	if _result_title != null and _pending_results.is_empty():
-		_result_title.text = "WAITING FOR DRAW" if _language == "en" else "等待抽取"
-	if _result_detail != null and _pending_results.is_empty():
-		_result_detail.text = "[center]Waiting for a gacha result[/center]" if _language == "en" else "[center]等待扭蛋结果[/center]"
+	if _result_skip_all_button != null:
+		_result_skip_all_button.text = "SKIP ALL" if _language == "en" else "全部跳过"
+	if _pending_results.is_empty() or _animation_playing:
+		if _result_title != null:
+			_result_title.text = "WAITING FOR DRAW" if _language == "en" else "等待抽取"
+		if _result_detail != null:
+			_result_detail.text = "[center]Waiting for a gacha result[/center]" if _language == "en" else "[center]等待扭蛋结果[/center]"
+	elif _result_overlay != null and _result_overlay.visible:
+		if _showing_batch_summary:
+			_show_batch_summary()
+		else:
+			_reveal_current_result(false)
 	_update_draw_button()
 
 
@@ -548,7 +557,7 @@ func _finish_draw_animation() -> void:
 	_update_draw_button()
 
 
-func _reveal_current_result() -> void:
+func _reveal_current_result(animate := true) -> void:
 	if _pending_results.is_empty() or _result_title == null:
 		return
 	_result_index = clampi(_result_index, 0, _pending_results.size() - 1)
@@ -556,7 +565,7 @@ func _reveal_current_result() -> void:
 	var result := _pending_results[_result_index]
 	var pet_id := String(result.get("pet_id", ""))
 	var pet_data := PetCatalog.get_definition(pet_id)
-	var pet_name := String(result.get("name", pet_data.get("name", pet_id)))
+	var pet_name := _get_result_pet_name(result)
 	var stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
 	var stars_text := "★".repeat(stars)
 	var color := String(STAR_COLORS[stars - 1])
@@ -584,7 +593,7 @@ func _reveal_current_result() -> void:
 		else ""
 	)
 	_result_action_button.text = (
-		"SKIP  ›"
+		("SKIP  ›" if _language == "en" else "跳过  ›")
 		if _result_index < _pending_results.size() - 1
 		else (("DONE" if _pending_results.size() > 1 else "CLAIM") if _language == "en" else ("完成" if _pending_results.size() > 1 else "收下"))
 	)
@@ -592,7 +601,7 @@ func _reveal_current_result() -> void:
 		_result_skip_all_button.visible = _pending_results.size() > 1
 	_result_overlay.visible = true
 	_update_draw_button()
-	if is_inside_tree():
+	if animate and is_inside_tree():
 		_result_overlay.modulate = Color(1.0, 1.0, 1.0, 0.2)
 		var tween := create_tween()
 		tween.tween_property(_result_overlay, "modulate", Color.WHITE, 0.18)
@@ -616,34 +625,32 @@ func _show_batch_summary() -> void:
 	var duplicate_faith_total := 0
 	var first_new_pet_id := ""
 	if not _prepared_batch_summary.is_empty():
-		for name_value in _prepared_batch_summary.get("new_names", []):
-			new_names.append(String(name_value))
 		duplicate_faith_total = maxi(0, int(_prepared_batch_summary.get("duplicate_faith_total", 0)))
 		first_new_pet_id = String(_prepared_batch_summary.get("first_new_pet_id", ""))
-	else:
-		# Direct/unit callers can still supply raw results without a prepared
-		# summary. Production batches build this incrementally across frames.
-		var seen_new_ids := {}
-		for result in _pending_results:
+	# Rebuild names from the result IDs every time so an open summary follows a
+	# live language switch while custom pet names remain untouched.
+	var seen_new_ids := {}
+	for result in _pending_results:
+		if _prepared_batch_summary.is_empty():
 			duplicate_faith_total += maxi(0, int(result.get("duplicate_faith", 0)))
-			if not bool(result.get("is_new", false)):
-				continue
-			var pet_id := String(result.get("pet_id", ""))
-			if seen_new_ids.has(pet_id):
-				continue
-			seen_new_ids[pet_id] = true
-			if first_new_pet_id.is_empty():
-				first_new_pet_id = pet_id
-			new_names.append(String(result.get("name", PetCatalog.get_definition(pet_id).get("name", pet_id))))
+		if not bool(result.get("is_new", false)):
+			continue
+		var pet_id := String(result.get("pet_id", ""))
+		if seen_new_ids.has(pet_id):
+			continue
+		seen_new_ids[pet_id] = true
+		if first_new_pet_id.is_empty():
+			first_new_pet_id = pet_id
+		new_names.append(_get_result_pet_name(result))
 	_showing_batch_summary = true
-	_result_progress.text = "%d DRAWS" % _pending_results.size()
+	_result_progress.text = ("%d DRAWS" if _language == "en" else "%d 次") % _pending_results.size()
 	_result_title.text = "BATCH RESULT" if _language == "en" else "批量扭蛋结果"
 	if first_new_pet_id.is_empty():
 		_result_icon.texture = load(GACHA_EGG_TEXTURE) as Texture2D
 	else:
 		var first_pet_data := PetCatalog.get_definition(first_new_pet_id)
 		_result_icon.texture = PetCatalog.make_icon_texture(String(first_pet_data.get("icon", "")), 10)
-	var new_text := "NONE" if new_names.is_empty() else "、".join(new_names)
+	var new_text := "NONE" if new_names.is_empty() else (", " if _language == "en" else "、").join(new_names)
 	_result_detail.text = (
 		"[center]NEW PETS: %s\n[color=#d8c675][font_size=25]DUPLICATES  +%s FAITH[/font_size][/color][/center]"
 		if _language == "en"
@@ -651,6 +658,16 @@ func _show_batch_summary() -> void:
 	) % [new_text, _format_number(float(duplicate_faith_total))]
 	_result_action_button.text = "DONE" if _language == "en" else "完成"
 	_result_skip_all_button.visible = false
+
+
+func _get_result_pet_name(result: Dictionary) -> String:
+	var custom_name := String(result.get("custom_name", "")).strip_edges()
+	if not custom_name.is_empty():
+		return custom_name
+	var pet_id := String(result.get("pet_id", ""))
+	if bool(result.get("use_localized_name", false)):
+		return PetCatalog.get_localized_name(pet_id, _language)
+	return String(result.get("name", PetCatalog.get_localized_name(pet_id, _language)))
 
 
 func _close_results() -> void:
@@ -737,11 +754,7 @@ func _make_label(text_value: String, font_size: int, color: Color) -> Label:
 
 
 func _make_ui_theme() -> Theme:
-	var ui_theme := Theme.new()
-	var font := load(UI_FONT) as Font
-	if font != null:
-		ui_theme.default_font = font
-	return ui_theme
+	return LanguageSettings.make_ui_theme(_language)
 
 
 func _make_result_style() -> StyleBoxFlat:
@@ -777,11 +790,8 @@ func _make_button_style(background: Color, border: Color, compact: bool) -> Styl
 
 
 func _center_window() -> void:
-	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS
-	if screen < 0:
-		screen = DisplayServer.window_get_current_screen()
-	var usable := DisplayServer.screen_get_usable_rect(screen)
-	position = usable.position + ((usable.size - size) / 2)
+	var usable_rect := DisplayLayout.get_current_usable_rect(self)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, usable_rect)
 
 
 func _format_number(value: float) -> String:

@@ -1,5 +1,9 @@
 extends Window
 
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const NewsFeed = preload("res://scripts/domain/news_feed.gd")
+const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
+
 const WINDOW_MAX_SIZE := Vector2i(760, 680)
 const WINDOW_SCREEN_MARGIN := 24
 
@@ -14,15 +18,16 @@ var _scroller: ScrollContainer
 var _entries: Array[Dictionary] = []
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
-var _language := "zh"
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 
 
 func setup(initial_entries: Array[Dictionary]) -> void:
 	_entries = initial_entries.duplicate(true)
+	theme = LanguageSettings.make_ui_theme(_language)
 	_configure_window()
 	_create_content()
 	_center_window()
-	_refresh_entries()
+	set_language(_language)
 
 
 func open_window() -> void:
@@ -60,7 +65,10 @@ func add_entry(entry: Dictionary) -> void:
 
 
 func set_language(language_code: String) -> void:
-	_language = "en" if language_code == "en" else "zh"
+	_language = LanguageSettings.sanitize(language_code)
+	theme = LanguageSettings.make_ui_theme(_language)
+	if _root != null:
+		_root.theme = LanguageSettings.make_ui_theme(_language)
 	title = "Cult News Archive" if _language == "en" else "教团新闻档案"
 	if _title_label != null:
 		_title_label.text = "CULT NEWS ARCHIVE" if _language == "en" else "教团新闻档案"
@@ -77,8 +85,7 @@ func set_language(language_code: String) -> void:
 
 func _configure_window() -> void:
 	name = "NewsWindow"
-	title = "教团新闻档案"
-	size = _get_fitted_window_size()
+	title = "Cult News Archive"
 	borderless = true
 	always_on_top = false
 	unresizable = true
@@ -86,18 +93,17 @@ func _configure_window() -> void:
 	transparent_bg = true
 	visible = false
 	close_requested.connect(_close_window)
+	DisplayLayout.apply_scaled_window(self, WINDOW_MAX_SIZE, DisplayLayout.get_current_usable_rect(self), WINDOW_SCREEN_MARGIN)
 
 
 func _create_content() -> void:
 	_root = PanelContainer.new()
 	_root.name = "NewsArchiveRoot"
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_root.pivot_offset = Vector2(size) * 0.5
+	_root.pivot_offset = Vector2(WINDOW_MAX_SIZE) * 0.5
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.add_theme_stylebox_override("panel", _make_window_style())
-	var theme := Theme.new()
-	theme.default_font = _make_readable_font()
-	_root.theme = theme
+	_root.theme = LanguageSettings.make_ui_theme(_language)
 	add_child(_root)
 
 	var outer_margin := MarginContainer.new()
@@ -263,7 +269,8 @@ func _make_entry_row(entry: Dictionary, index: int) -> PanelContainer:
 	meta.add_child(time_label)
 
 	var headline := Label.new()
-	headline.text = String(entry.get("headline", ""))
+	headline.name = "Headline"
+	headline.text = NewsFeed.get_localized_headline(entry, _language)
 	headline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	headline.custom_minimum_size = Vector2(0.0, 42.0)
 	headline.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -274,19 +281,6 @@ func _make_entry_row(entry: Dictionary, index: int) -> PanelContainer:
 	headline.add_theme_constant_override("outline_size", 2)
 	body.add_child(headline)
 	return row
-
-
-func _make_readable_font() -> SystemFont:
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray([
-		"Microsoft YaHei UI",
-		"Microsoft YaHei",
-		"PingFang SC",
-		"Noto Sans CJK SC",
-		"Noto Sans SC"
-	])
-	font.font_weight = 600
-	return font
 
 
 func _scroll_to_latest() -> void:
@@ -301,13 +295,9 @@ func _close_window() -> void:
 
 func _center_window() -> void:
 	var screen_rect := _get_current_screen_usable_rect()
-	size = _get_fitted_window_size()
+	DisplayLayout.apply_scaled_window(self, WINDOW_MAX_SIZE, screen_rect, WINDOW_SCREEN_MARGIN)
 	if _root != null:
-		_root.pivot_offset = Vector2(size) * 0.5
-	position = Vector2i(
-		screen_rect.position.x + maxi(0, int((screen_rect.size.x - size.x) * 0.5)),
-		screen_rect.position.y + maxi(0, int((screen_rect.size.y - size.y) * 0.5))
-	)
+		_root.pivot_offset = Vector2(WINDOW_MAX_SIZE) * 0.5
 
 
 func _get_fitted_window_size() -> Vector2i:
@@ -316,12 +306,7 @@ func _get_fitted_window_size() -> Vector2i:
 
 
 static func fit_window_size(usable_size: Vector2i) -> Vector2i:
-	if usable_size.x <= 0 or usable_size.y <= 0:
-		return WINDOW_MAX_SIZE
-	return Vector2i(
-		maxi(1, mini(WINDOW_MAX_SIZE.x, usable_size.x - (WINDOW_SCREEN_MARGIN * 2))),
-		maxi(1, mini(WINDOW_MAX_SIZE.y, usable_size.y - (WINDOW_SCREEN_MARGIN * 2)))
-	)
+	return DisplayLayout.fit_design_size(WINDOW_MAX_SIZE, usable_size, WINDOW_SCREEN_MARGIN)
 
 
 func _on_header_gui_input(event: InputEvent) -> void:
@@ -332,14 +317,12 @@ func _on_header_gui_input(event: InputEvent) -> void:
 			if _dragging:
 				_drag_offset = DisplayServer.mouse_get_position() - position
 	elif event is InputEventMouseMotion and _dragging:
-		position = DisplayServer.mouse_get_position() - _drag_offset
+		var desired := DisplayServer.mouse_get_position() - _drag_offset
+		position = DisplayLayout.clamp_position(desired, size, _get_current_screen_usable_rect())
 
 
 func _get_current_screen_usable_rect() -> Rect2i:
-	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS
-	if screen < 0:
-		screen = DisplayServer.window_get_current_screen()
-	return DisplayServer.screen_get_usable_rect(screen)
+	return DisplayLayout.get_current_usable_rect(self)
 
 
 func _get_category_color(category: String) -> Color:
@@ -359,17 +342,7 @@ func _get_category_color(category: String) -> Color:
 
 
 func _get_localized_category(category: String) -> String:
-	if _language != "en":
-		return category
-	var names := {
-		"公告": "NOTICE",
-		"传播": "SPREAD",
-		"信仰": "FAITH",
-		"宠物": "PETS",
-		"教团": "CULT",
-		"异闻": "REPORT"
-	}
-	return String(names.get(category, category))
+	return NewsFeed.get_localized_category(category, _language)
 
 
 func _make_window_style() -> StyleBoxFlat:

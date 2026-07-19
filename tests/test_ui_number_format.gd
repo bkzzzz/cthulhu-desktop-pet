@@ -19,6 +19,9 @@ static func run() -> Array[String]:
 	if FileAccess.file_exists("res://scripts/windows_clickthrough_helper.ps1"):
 		failures.append("desktop input must not depend on an asynchronous clickthrough helper")
 	var formatter := SideDrawer.new()
+	# Keep the legacy Chinese-copy assertions explicit now that fresh games
+	# correctly start in English.
+	formatter.call("set_language", "zh")
 	_check(failures, formatter.call("_format_number", 1250.0, false, true), "1.25K")
 	_check(failures, formatter.call("_format_number", 18400.0, false, true), "18.4K")
 	_check(failures, formatter.call("_format_number", 125000.0, false, true), "125K")
@@ -111,6 +114,12 @@ static func run() -> Array[String]:
 				failures.append("the era line must sit directly above the pet upgrade block instead of at the drawer top")
 		if era_label.horizontal_alignment != HORIZONTAL_ALIGNMENT_CENTER or era_label.custom_minimum_size.y < SideDrawer.ERA_LABEL_HEIGHT:
 			failures.append("the era line must remain a centered, readable upgrade-section heading")
+		if (
+			era_label.custom_minimum_size.x >= SideDrawer.DRAWER_CONTENT_WIDTH
+			or not is_equal_approx(era_label.custom_minimum_size.x, SideDrawer.ERA_LABEL_WIDTH)
+			or era_label.size_flags_horizontal != Control.SIZE_SHRINK_CENTER
+		):
+			failures.append("the era line must be shorter than the drawer content and centered instead of stretching past it")
 	if drawer_root.find_child("FollowerSummary", true, false) != null:
 		failures.append("the faith header must not retain the follower summary line")
 	var faith_value := formatter.get("_faith_value_label") as Label
@@ -137,7 +146,7 @@ static func run() -> Array[String]:
 			failures.append("the coin icon and money amount must be aligned by the same row container")
 		if faith_growth != null and gold_center.position.y <= faith_growth.position.y + faith_growth.size.y:
 			failures.append("the money row must leave visible space below faith growth")
-		if stage == null or gold_center.position.y + gold_center.size.y > stage.custom_minimum_size.y:
+		if stage == null or (gold_center.position.y + gold_center.size.y) * stage.scale.y > stage.custom_minimum_size.y:
 			failures.append("the money row must remain immediately above the pet upgrade block")
 	var bookmark_container := drawer_root.get_node_or_null("DrawerBookmarks") as VBoxContainer
 	var bookmark_names: Array[String] = []
@@ -185,6 +194,14 @@ static func run() -> Array[String]:
 	var menu_window := formatter.get("_menu_window") as Window
 	if menu_window == null or menu_window.get_node_or_null("MenuHandleRoot/CultAltar") != null:
 		failures.append("the desktop menu handle must not create the removed altar")
+	formatter.call("set_language", "en")
+	var detail_window := formatter.get("_upgrade_detail_window") as Window
+	if menu_window == null or menu_window.title != "Menu":
+		failures.append("the native menu handle title must switch to English")
+	if detail_window == null or detail_window.title != "Pet Details":
+		failures.append("the native pet-detail title must switch to English")
+	if detail_name_edit == null or detail_name_edit.placeholder_text != "Pet name" or "输入" in detail_name_edit.tooltip_text:
+		failures.append("the pet-detail rename controls must switch fully to English")
 	formatter.free()
 	return failures
 

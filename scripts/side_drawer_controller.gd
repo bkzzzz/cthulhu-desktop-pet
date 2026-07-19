@@ -15,6 +15,7 @@ signal drawer_opened
 # Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 
 # Window and drawer layout
 const DESKTOP_MARGIN_X := 24
@@ -26,11 +27,13 @@ const DRAWER_CONTENT_WIDTH := DRAWER_PANEL_WIDTH - (DRAWER_CONTENT_MARGIN_X * 2)
 const DRAWER_SLIDE_SPEED := 1800.0
 const DRAWER_CONTENT_TOP_MARGIN := 46
 const ERA_LABEL_HEIGHT := 34.0
+const ERA_LABEL_WIDTH := DRAWER_CONTENT_WIDTH - 56.0
 const MENU_WINDOW_SIZE := Vector2i(228, 150)
 const MENU_TO_DRAWER_GAP := 2
 const MENU_DRAG_THRESHOLD := 6.0
 const RATE_SUFFIX := "/s"
 const POSITION_RETRY_FRAMES := 12
+const DISPLAY_LAYOUT_POLL_SECONDS := 1.0
 
 enum TaskbarEdge {
 	BOTTOM,
@@ -49,7 +52,6 @@ const GLOW_TEXTURE := "res://assets/ui/newElements/glow.png"
 const UPGRADE_EFFECT_TEXTURE := "res://assets/ui/newElements/upgradeEffect.png"
 const UPGRADE_TEXTURE := "res://assets/ui/testElements/upgrade.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
-const UI_FONT := "res://assets/ui/font/NormalFont.ttf"
 const COIN_TEXTURE := "res://assets/ui/coins/MonedaD.png"
 
 # Core UI sizing
@@ -67,8 +69,11 @@ const UPGRADE_ROW_GAP := 6
 const UPGRADE_LOCKED_ROWS := 12
 const UPGRADE_SCROLL_TOP_PADDING := 44
 const UPGRADE_SCROLL_BOTTOM_PADDING := 24
-const UPGRADE_SCROLL_MIN_HEIGHT := 320.0
+const UPGRADE_SCROLL_MIN_HEIGHT := 64.0
 const UPGRADE_SCROLL_MAX_HEIGHT := 760.0
+const LOCKED_PET_TEXT := "??????"
+const LOCKED_PET_LEVEL_TEXT := "????\n????"
+const LOCKED_PET_SILHOUETTE_COLOR := Color(0.025, 0.025, 0.035, 1.0)
 # Particle data
 const SYMBOL_EFFECT_TEXTURES := [
 	"res://assets/ui/newElements/符号特效1.png",
@@ -132,7 +137,10 @@ var _updating_upgrade_detail_name := false
 var _upgrade_detail_last_committed_name := ""
 var _adder_glow: Sprite2D
 var _adder_button: TextureButton
+var _adder_stage: Control
 var _upgrade_scroller: ScrollContainer
+var _drawer_close_button: Button
+var _quit_fallback_label: Label
 var _drawer_open := false
 var _drawer_target_x := 0
 var _drawer_closed_x := 0
@@ -171,9 +179,10 @@ var _ui_font: Font
 var _upgrade_row_texture: Texture2D
 var _menu_hit_images := {}
 var _bookmark_labels := {}
-var _language := "zh"
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _rng := RandomNumberGenerator.new()
 var _drawer_symbol_update_time := 0.0
+var _display_layout_poll_time := 0.0
 
 
 # Lifecycle
@@ -193,6 +202,11 @@ func _process(delta: float) -> void:
 		_refresh_drawer_geometry()
 	if _menu_drag_active and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_finish_menu_drag()
+	_display_layout_poll_time += maxf(0.0, delta)
+	if _display_layout_poll_time >= DISPLAY_LAYOUT_POLL_SECONDS:
+		_display_layout_poll_time = 0.0
+		if not _menu_drag_active:
+			_refresh_drawer_geometry()
 
 	_update_drawer_slide(delta)
 	if _drawer_window != null and _drawer_window.visible:
@@ -230,18 +244,27 @@ func refresh_faith(faith_count: float, growth_rate: float) -> void:
 
 func refresh_pet_upgrades(entries: Array) -> void:
 	var next_entries := []
+	var entries_by_id := {}
 	for entry_value in entries:
 		var entry: Dictionary = entry_value
-		next_entries.append(entry.duplicate())
+		var entry_copy := entry.duplicate()
+		next_entries.append(entry_copy)
+		var entry_pet_id := String(entry_copy.get("id", ""))
+		if not entry_pet_id.is_empty():
+			entries_by_id[entry_pet_id] = entry_copy
 	_upgrade_entries = next_entries
 	# The drawer spends most of its life closed. Keep the data current without
 	# invalidating dozens of labels, textures and controls that cannot be seen.
 	if _drawer_window != null and not _drawer_window.visible and not _drawer_open:
 		return
 
-	for entry_value in next_entries:
-		var entry: Dictionary = entry_value
-		var pet_id := String(entry.get("id", ""))
+	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
+		var pet_id := String(pet_id_value)
+		var entry: Dictionary = entries_by_id.get(pet_id, {})
+		var unlocked := not entry.is_empty()
+		_set_upgrade_row_locked_state(pet_id, not unlocked)
+		if not unlocked:
+			continue
 		var level_label := _upgrade_level_labels.get(pet_id) as Label
 		var name_label := _upgrade_name_labels.get(pet_id) as Label
 		var level := _get_upgrade_level(entry)
@@ -310,13 +333,17 @@ func refresh_pet_upgrades(entries: Array) -> void:
 func set_pet_name(pet_id: String, display_name: String) -> void:
 	if pet_id.is_empty():
 		return
+	var is_unlocked := false
 	for entry_index in _upgrade_entries.size():
 		var entry: Dictionary = _upgrade_entries[entry_index]
 		if String(entry.get("id", "")) != pet_id:
 			continue
 		entry["name"] = display_name
 		_upgrade_entries[entry_index] = entry
+		is_unlocked = true
 		break
+	if not is_unlocked:
+		return
 	var name_label := _upgrade_name_labels.get(pet_id) as Label
 	if name_label != null:
 		_set_fitted_label_text(name_label, display_name, 19, 12, 12)
@@ -351,9 +378,27 @@ func refresh_coins(coin_count: int) -> void:
 
 
 func set_language(language_code: String) -> void:
-	_language = "en" if language_code == "en" else "zh"
+	_language = LanguageSettings.sanitize(language_code)
+	_apply_language_theme()
+	if _menu_window != null:
+		_menu_window.title = "Menu" if _language == "en" else "菜单栏"
+	if _menu_hint != null:
+		_menu_hint.text = "MENU" if _language == "en" else "菜单栏"
+	if _upgrade_detail_window != null:
+		_upgrade_detail_window.title = "Pet Details" if _language == "en" else "宠物详情"
+	if _upgrade_detail_name_edit != null:
+		_upgrade_detail_name_edit.placeholder_text = "Pet name" if _language == "en" else "宠物名字"
+		_upgrade_detail_name_edit.tooltip_text = (
+			"Enter a new name, then press Enter or click elsewhere to save"
+			if _language == "en"
+			else "输入新名字，按回车或点击别处保存"
+		)
 	if _faith_title_label != null:
 		_faith_title_label.text = "FAITH" if _language == "en" else "信仰点数"
+	if _drawer_close_button != null:
+		_drawer_close_button.text = "CLOSE MENU" if _language == "en" else "收起菜单"
+	if _quit_fallback_label != null:
+		_quit_fallback_label.text = "QUIT" if _language == "en" else "退出"
 	var labels := {
 		"inventory": "INVENTORY" if _language == "en" else "仓库",
 		"shop": "SHOP" if _language == "en" else "商店",
@@ -533,7 +578,8 @@ func _create_drawer_window() -> void:
 	var footer := HBoxContainer.new()
 	footer.add_theme_constant_override("separation", 8)
 	content.add_child(footer)
-	footer.add_child(_make_text_button("收起菜单", _on_drawer_button_pressed))
+	_drawer_close_button = _make_text_button("CLOSE MENU", _on_drawer_button_pressed)
+	footer.add_child(_drawer_close_button)
 	footer.add_child(_make_texture_button("Quit", QUIT_BUTTON_TEXTURE, _on_quit_pressed))
 
 	set_language(_language)
@@ -543,8 +589,8 @@ func _create_drawer_window() -> void:
 func _create_era_label(parent: Node) -> void:
 	_era_label = Label.new()
 	_era_label.name = "EraDisplay"
-	_era_label.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, ERA_LABEL_HEIGHT)
-	_era_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_era_label.custom_minimum_size = Vector2(ERA_LABEL_WIDTH, ERA_LABEL_HEIGHT)
+	_era_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_era_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -769,6 +815,7 @@ func _create_upgrade_detail_panel() -> void:
 
 func _make_faith_adder_stage() -> Control:
 	var stage := Control.new()
+	_adder_stage = stage
 	stage.name = "FaithAdderStage"
 	stage.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, ADDER_STAGE_HEIGHT)
 	stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -934,7 +981,7 @@ func _get_upgrade_scroll_height() -> float:
 	var fixed_height := (
 		DRAWER_CONTENT_TOP_MARGIN
 		+ 20.0
-		+ ADDER_STAGE_HEIGHT
+		+ (_adder_stage.custom_minimum_size.y if _adder_stage != null else ADDER_STAGE_HEIGHT)
 		+ ERA_LABEL_HEIGHT
 		+ 4.0
 		+ 28.0
@@ -942,6 +989,20 @@ func _get_upgrade_scroll_height() -> float:
 	)
 	var available := float(_drawer_screen_size.y) - fixed_height
 	return clampf(available, UPGRADE_SCROLL_MIN_HEIGHT, UPGRADE_SCROLL_MAX_HEIGHT)
+
+
+static func _get_responsive_adder_stage_height(window_height: float) -> float:
+	return clampf(window_height * 0.5, 220.0, ADDER_STAGE_HEIGHT)
+
+
+func _refresh_adder_stage_geometry() -> void:
+	if _adder_stage == null:
+		return
+	var stage_height := _get_responsive_adder_stage_height(float(_drawer_screen_size.y))
+	var stage_scale := stage_height / ADDER_STAGE_HEIGHT
+	_adder_stage.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, stage_height)
+	_adder_stage.pivot_offset = Vector2(DRAWER_CONTENT_WIDTH * 0.5, 0.0)
+	_adder_stage.scale = Vector2.ONE * stage_scale
 
 
 func _make_upgrade_column() -> Control:
@@ -1032,6 +1093,7 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	level_label.add_theme_constant_override("outline_size", 4)
 	button.add_child(level_label)
 	_upgrade_level_labels[pet_id] = level_label
+	_set_upgrade_row_locked_state(pet_id, not _has_upgrade_entry(pet_id))
 
 	return button
 
@@ -1041,6 +1103,7 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	button.name = "LockedUpgrade%d" % display_index
 	_configure_upgrade_row_button(button, "未解锁", true)
 	_set_upgrade_row_affordable(button, false)
+	button.tooltip_text = LOCKED_PET_TEXT
 
 	var slot := PanelContainer.new()
 	slot.name = "LockedProfileBox"
@@ -1062,7 +1125,7 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	slot.add_child(question)
 
 	var name_label := Label.new()
-	name_label.text = "未知宠物 %02d" % display_index
+	name_label.text = LOCKED_PET_TEXT
 	name_label.position = Vector2(106, 22)
 	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 242.0, 30)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1071,7 +1134,7 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	button.add_child(name_label)
 
 	var desc_label := Label.new()
-	desc_label.text = "未解锁"
+	desc_label.text = LOCKED_PET_TEXT
 	desc_label.position = Vector2(108, 61)
 	desc_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 24)
 	desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1080,7 +1143,7 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	button.add_child(desc_label)
 
 	var level_label := Label.new()
-	level_label.text = "等级\n--"
+	level_label.text = LOCKED_PET_LEVEL_TEXT
 	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
@@ -1218,7 +1281,7 @@ func _get_ui_theme() -> Theme:
 	_ui_theme = Theme.new()
 	var font := _get_ui_font()
 	if font != null:
-		for theme_type in ["Label", "LineEdit", "Button"]:
+		for theme_type in ["Label", "RichTextLabel", "LineEdit", "Button"]:
 			_ui_theme.set_font("font", theme_type, font)
 	return _ui_theme
 
@@ -1227,8 +1290,22 @@ func _get_ui_font() -> Font:
 	if _ui_font != null:
 		return _ui_font
 
-	_ui_font = load(UI_FONT) as Font
+	_ui_font = LanguageSettings.get_ui_font(_language)
 	return _ui_font
+
+
+func _apply_language_theme() -> void:
+	_ui_font = null
+	_ui_theme = null
+	var language_theme := _get_ui_theme()
+	if _menu_window != null:
+		var menu_root := _menu_window.get_node_or_null("MenuHandleRoot") as Control
+		if menu_root != null:
+			menu_root.theme = language_theme
+	if _drawer_root != null:
+		_drawer_root.theme = language_theme
+	if _upgrade_detail_window != null:
+		_upgrade_detail_window.theme = language_theme
 
 
 func _make_line_edit_style(focused: bool) -> StyleBoxFlat:
@@ -1319,8 +1396,62 @@ func _set_upgrade_row_affordable(button: TextureButton, affordable: bool) -> voi
 	button.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.74, 0.74, 0.74, 0.92)
 
 
+func _has_upgrade_entry(pet_id: String) -> bool:
+	if pet_id.is_empty():
+		return false
+	for entry_value in _upgrade_entries:
+		var entry: Dictionary = entry_value
+		if String(entry.get("id", "")) == pet_id:
+			return true
+	return false
+
+
+func _set_upgrade_row_locked_state(pet_id: String, locked: bool) -> void:
+	var button := _upgrade_buttons.get(pet_id) as TextureButton
+	if button != null:
+		button.set_meta("pet_unlocked", not locked)
+		if locked:
+			_set_upgrade_row_affordable(button, false)
+			button.tooltip_text = LOCKED_PET_TEXT
+
+	var icon := _upgrade_icons.get(pet_id) as TextureRect
+	if icon != null:
+		icon.modulate = LOCKED_PET_SILHOUETTE_COLOR if locked else Color.WHITE
+		if locked:
+			var base_icon_path := String(PetCatalog.get_definition(pet_id).get("icon", ""))
+			if String(icon.get_meta("source_path", "")) != base_icon_path:
+				icon.texture = PetCatalog.make_icon_texture(base_icon_path, 12)
+				icon.set_meta("source_path", base_icon_path)
+
+	if not locked:
+		return
+
+	var name_label := _upgrade_name_labels.get(pet_id) as Label
+	if name_label != null:
+		_set_fitted_label_text(name_label, LOCKED_PET_TEXT, 19, 12, 12)
+	var level_label := _upgrade_level_labels.get(pet_id) as Label
+	if level_label != null:
+		_set_fitted_label_text(level_label, LOCKED_PET_LEVEL_TEXT, 25, 18, 6)
+	var cost_label := _upgrade_cost_labels.get(pet_id) as Label
+	if cost_label != null:
+		_set_fitted_label_text(cost_label, LOCKED_PET_TEXT, 19, 14, 6)
+	var bonus_label := _upgrade_bonus_labels.get(pet_id) as Label
+	if bonus_label != null:
+		_set_fitted_label_text(bonus_label, LOCKED_PET_TEXT, 17, 11, 18)
+	var recovery_ring := _upgrade_recovery_rings.get(pet_id) as Control
+	if recovery_ring != null:
+		recovery_ring.visible = false
+	_upgrade_last_levels.erase(pet_id)
+	_upgrade_affordables[pet_id] = false
+
+
 # Upgrade hover detail
 func _on_upgrade_row_hovered(pet_id: String, button: Control, hovered: bool) -> void:
+	if not _has_upgrade_entry(pet_id):
+		if _hovered_upgrade_pet_id == pet_id:
+			_hovered_upgrade_pet_id = ""
+			_hovered_upgrade_button = null
+		return
 	if hovered:
 		_hovered_upgrade_pet_id = pet_id
 		_hovered_upgrade_button = button
@@ -1510,18 +1641,27 @@ func _get_rarity_stars_text(entry: Dictionary, pet_data := {}) -> String:
 
 
 func _get_pet_profile_text(entry: Dictionary, pet_data: Dictionary) -> String:
+	var pet_id := String(entry.get("id", pet_data.get("id", "")))
+	var fallback_age := (
+		String(pet_data.get("age_text", pet_data.get("age", "不详")))
+		if _language == "zh"
+		else "Unknown"
+	)
+	var fallback_personality := PetCatalog.get_localized_field(pet_id, "personality", _language)
+	if fallback_personality.is_empty():
+		fallback_personality = "Still under observation" if _language == "en" else "尚待观察"
 	var age_text := String(entry.get(
 		"age_text",
-		entry.get("age", pet_data.get("age_text", pet_data.get("age", "不详")))
+		entry.get("age", fallback_age)
 	)).strip_edges()
 	var personality := String(entry.get(
 		"personality",
-		pet_data.get("personality", "尚待观察")
+		fallback_personality
 	)).strip_edges()
 	if age_text.is_empty():
-		age_text = "不详"
+		age_text = "Unknown" if _language == "en" else "不详"
 	if personality.is_empty():
-		personality = "尚待观察"
+		personality = "Still under observation" if _language == "en" else "尚待观察"
 	return ("Age: %s\nPersonality: %s" if _language == "en" else "年龄：%s\n性格：%s") % [age_text, personality]
 
 
@@ -1552,15 +1692,19 @@ func _get_upgrade_evolution_text(entry: Dictionary, pet_id: String) -> String:
 
 
 func _get_pet_display_name(pet_id: String, pet_data: Dictionary) -> String:
+	var localized_default := PetCatalog.get_localized_name(pet_id, _language)
 	for entry_value in _upgrade_entries:
 		var entry: Dictionary = entry_value
 		if String(entry.get("id", "")) == pet_id:
-			return String(entry.get("name", pet_data.get("name", pet_id)))
-	return String(pet_data.get("name", pet_id))
+			return String(entry.get("name", localized_default))
+	return localized_default if not localized_default.is_empty() else String(pet_data.get("name", pet_id))
 
 
 func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 	if _upgrade_detail_panel == null:
+		return
+	if not _has_upgrade_entry(pet_id):
+		_hide_upgrade_detail_panel()
 		return
 
 	var pet_data := PetCatalog.get_definition(pet_id)
@@ -1603,7 +1747,7 @@ func _position_upgrade_detail_window() -> void:
 		return
 	if not is_instance_valid(_upgrade_detail_source_button):
 		return
-	var screen_rect := _get_current_screen_rect()
+	var screen_rect := _get_current_screen_usable_rect()
 	var screen_left := screen_rect.position.x + 8
 	var x := _drawer_window.position.x - _upgrade_detail_window.size.x - UPGRADE_DETAIL_GAP
 	x = maxi(screen_left, x)
@@ -1654,7 +1798,8 @@ func _make_texture_button(button_name: String, texture_path: String, callback: C
 	button.pressed.connect(callback)
 	if button.texture_normal == null:
 		var fallback_label := Label.new()
-		fallback_label.text = "退出"
+		fallback_label.text = "QUIT" if _language == "en" else "退出"
+		_quit_fallback_label = fallback_label
 		fallback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		fallback_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		fallback_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1929,7 +2074,7 @@ func _refresh_drawer_geometry(keep_current_slide := true) -> void:
 	if _drawer_window == null:
 		return
 
-	var screen_rect := _get_current_screen_rect()
+	var screen_rect := _get_current_screen_usable_rect()
 	var screen_right := screen_rect.position.x + screen_rect.size.x
 	var open_x := screen_right - DRAWER_WIDTH
 	open_x = maxi(screen_rect.position.x, open_x)
@@ -1940,6 +2085,7 @@ func _refresh_drawer_geometry(keep_current_slide := true) -> void:
 	_drawer_closed_x = screen_right
 	_drawer_screen_size = Vector2i(drawer_width, screen_rect.size.y)
 	_drawer_window.size = _drawer_screen_size
+	_refresh_adder_stage_geometry()
 	var window_right := float(_drawer_screen_size.x)
 	var window_bottom := float(_drawer_screen_size.y)
 	var panel_left := minf(float(DRAWER_BOOKMARK_WIDTH - 10), window_right)
@@ -2174,7 +2320,11 @@ func _get_current_screen_rect() -> Rect2i:
 
 
 func _get_current_screen() -> int:
-	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS
+	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS if _menu_drag_active else -1
+	if screen < 0 and _menu_window != null:
+		screen = DisplayServer.window_get_current_screen(_menu_window.get_window_id())
+	if screen < 0 and _drawer_window != null:
+		screen = DisplayServer.window_get_current_screen(_drawer_window.get_window_id())
 	if screen < 0:
 		screen = DisplayServer.window_get_current_screen()
 	return screen

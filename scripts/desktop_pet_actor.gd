@@ -9,6 +9,7 @@ signal battle_roll_swept(actor: Node2D, from_x: float, to_x: float)
 signal battle_roll_finished(actor: Node2D)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 
 const DEFAULT_PET_SCALE := 1.65
 const PET_WALK_SPEED := 34.0
@@ -215,7 +216,7 @@ var _stable_hit_image: Image
 var _stable_hit_bounds := Rect2i()
 var _stable_hit_polygon := PackedVector2Array()
 var _input_window_update_time := 0.0
-var _language := "zh"
+var _language := "en"
 
 
 func _ready() -> void:
@@ -238,7 +239,7 @@ func setup(
 	pet_id = new_pet_id
 	is_evolved = evolved and PetCatalog.has_evolution(pet_id)
 	pet_data = PetCatalog.get_runtime_definition(pet_id, is_evolved)
-	display_name = String(pet_data.get("name", pet_id))
+	display_name = PetCatalog.get_localized_name(pet_id, _language)
 	pet_level = maxi(1, new_pet_level)
 	_window_size = window_size
 	_stage_ground_y = _resolve_stage_ground_y(float(ground_contact_y))
@@ -362,12 +363,14 @@ func set_pet_level(new_level: int) -> void:
 func set_display_name(new_display_name: String) -> void:
 	display_name = new_display_name.strip_edges()
 	if display_name.is_empty():
-		display_name = String(pet_data.get("name", pet_id))
+		display_name = PetCatalog.get_localized_name(pet_id, _language)
 	_refresh_hover_hint_text()
 
 
 func set_language(language_code: String) -> void:
-	_language = "en" if language_code == "en" else "zh"
+	_language = LanguageSettings.sanitize(language_code)
+	if _hover_hint != null:
+		_hover_hint.add_theme_font_override("font", LanguageSettings.get_ui_font(_language))
 	_refresh_hover_hint_text()
 
 
@@ -1014,6 +1017,7 @@ func _create_hover_hint() -> void:
 	_hover_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hover_hint.z_index = 40
 	_hover_hint.add_theme_font_size_override("font_size", 14)
+	_hover_hint.add_theme_font_override("font", LanguageSettings.get_ui_font(_language))
 	_hover_hint.add_theme_color_override("font_color", Color(0.94, 0.88, 0.64, 1.0))
 	_hover_hint.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 1.0))
 	_hover_hint.add_theme_constant_override("outline_size", 3)
@@ -1326,6 +1330,21 @@ func _start_emerging() -> void:
 func _start_sleeping() -> void:
 	if _battle_mode:
 		_start_idle()
+		return
+	# Most of the newly-authored pets intentionally only ship a shared idle cycle.
+	# Their emotion weights may still choose "sleepy", so use the lightweight
+	# doze pose unless the complete close/sleep/open sequence actually exists.
+	var frames := _sprite.sprite_frames if _sprite != null else null
+	if (
+		frames == null
+		or not frames.has_animation("close_eye")
+		or frames.get_frame_count("close_eye") == 0
+		or not frames.has_animation("sleep")
+		or frames.get_frame_count("sleep") == 0
+		or not frames.has_animation("open_eye")
+		or frames.get_frame_count("open_eye") == 0
+	):
+		_start_dozing()
 		return
 	_sleep_anchor_position = position
 	if _behavior_style == "sleepy_floater":

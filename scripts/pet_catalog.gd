@@ -21,6 +21,88 @@ const BASE_COMBAT_POWER := {
 const EVOLUTION_POWER_MULTIPLIER := 1.85
 const EVOLUTION_PRODUCTION_MULTIPLIER := 1.5
 
+# User-facing catalogue copy lives beside the authored definitions without
+# replacing their stable Chinese source data.  All UI code reads through the
+# helpers below so changing language never changes save data or custom names.
+const ENGLISH_METADATA := {
+	"pet1": {
+		"name": "Fungal Kin",
+		"species": "Aberrant Kin",
+		"description": "A low-crawling fungal kin that steadily gathers faith.",
+		"personality": "Quiet and cautious. It rests near the taskbar and occasionally changes its spot."
+	},
+	"pet2": {
+		"name": "Abyssal Gaze",
+		"species": "Abyssal Kin",
+		"description": "A great-eyed abyssal kin whose stare draws in stronger faith.",
+		"personality": "Drowsy and gentle. It sometimes hides near desktop folders before suddenly reappearing."
+	},
+	"pet3": {
+		"name": "Burrowing Whelp",
+		"species": "Burrow Kin",
+		"description": "A shy whelp that slips into shadows and gathers faith beneath the ground.",
+		"personality": "Curious but timid. It stays near the taskbar and occasionally burrows for a moment."
+	},
+	"pet4": {
+		"name": "Star-Sea Crawler",
+		"species": "Star-Sea Kin",
+		"description": "A soft creature from between the stars. Slow steps amplify its whispers.",
+		"personality": "Quiet and observant. It can stare at the same icon for a very long time."
+	},
+	"pet5": {
+		"name": "Moonshadow Maw",
+		"species": "Dream-Eater Kin",
+		"description": "A strange being that devours nightmares and moonlight, spreading potent faith after a meal.",
+		"personality": "Bold but calm. It guards the taskbar and occasionally rolls along the screen edge."
+	},
+	"pet6": {
+		"name": "Deep-Sea Lurker",
+		"species": "Humanoid Deep-Sea Kin",
+		"description": "A humanoid kin that crouches in desktop corners, like an old coat left behind.",
+		"personality": "Taciturn and sleepy. It prefers quiet corners beside the taskbar."
+	},
+	"pet7": {
+		"name": "Abyss-Gazing Coin",
+		"species": "Living Coin",
+		"age": "Age unknown",
+		"description": "An ancient coin etched with kin sigils. It rests by the taskbar and rolls in its travel direction.",
+		"personality": "Silent and steady. It usually stays put, then rolls a short distance along the taskbar."
+	},
+	"pet8": {
+		"name": "Spiked Gear Eye",
+		"species": "Stargate Kin",
+		"description": "A floating eye in a spiked shell, gliding quietly across the desktop without limbs.",
+		"personality": "Alert and restrained. It enjoys slow patrols through the air."
+	},
+	"pet9": {
+		"name": "Floating Obelisk",
+		"species": "Deep-Space Relic",
+		"age": "Age unknown",
+		"description": "A tentacled triangular obelisk that floats instead of walking.",
+		"personality": "Taciturn and aloof. It occasionally crosses the desktop at high altitude."
+	},
+	"pet10": {
+		"name": "Juvenile Vortex Core",
+		"species": "Living Singularity",
+		"age": "Birth date unknown",
+		"description": "A conscious miniature vortex whose center flickers with an unformed cluster of stars.",
+		"personality": "Curious and dangerous. It quietly drifts around the other kin."
+	}
+}
+
+const ENGLISH_EVOLUTION_NAMES := {
+	"pet1": "Fungal Broodmother",
+	"pet2": "Void Gaze Watcher",
+	"pet3": "Bone Burrower",
+	"pet4": "Deep-Tide Devourer",
+	"pet5": "Eclipsed Crawler",
+	"pet6": "Deep-Sea Lurker Lord",
+	"pet7": "Ancient Coin Demon Disc",
+	"pet8": "Spiked Gear Celestial Eye",
+	"pet9": "Crowned Obelisk",
+	"pet10": "World-Eating Vortex Core"
+}
+
 const DEFINITIONS := {
 	"pet1": {
 		"id": "pet1",
@@ -793,6 +875,27 @@ static func get_definition(pet_id: String) -> Dictionary:
 	return DEFINITIONS[ACTIVE_DESKTOP_PETS[0]]
 
 
+static func get_localized_field(pet_id: String, field: String, language_code: String) -> String:
+	var definition := get_definition(pet_id)
+	if language_code != "zh":
+		var english_value: Variant = ENGLISH_METADATA.get(pet_id, {}).get(field, "")
+		if not String(english_value).is_empty():
+			return String(english_value)
+	return String(definition.get(field, pet_id if field == "name" else ""))
+
+
+static func get_localized_name(pet_id: String, language_code: String) -> String:
+	return get_localized_field(pet_id, "name", language_code)
+
+
+static func get_localized_evolution_name(pet_id: String, language_code: String) -> String:
+	if language_code != "zh":
+		var english_name := String(ENGLISH_EVOLUTION_NAMES.get(pet_id, ""))
+		if not english_name.is_empty():
+			return english_name
+	return String(get_evolution_definition(pet_id).get("evolution_name", get_localized_name(pet_id, language_code)))
+
+
 static func has_evolution(pet_id: String) -> bool:
 	return EVOLUTION_DEFINITIONS.has(pet_id)
 
@@ -828,19 +931,19 @@ static func get_combat_power(pet_id: String, level := 1, evolved := false) -> fl
 	return result * (EVOLUTION_POWER_MULTIPLIER if evolved and can_evolve(pet_id) else 1.0)
 
 
-static func make_inventory_entry(pet_id: String) -> Dictionary:
+static func make_inventory_entry(pet_id: String, language_code := "en") -> Dictionary:
 	var pet_data := get_definition(pet_id)
 	return {
 		"id": String(pet_data.get("id", pet_id)),
-		"name": String(pet_data.get("name", pet_id)),
+		"name": get_localized_name(pet_id, language_code),
 		"texture": String(pet_data.get("icon", ""))
 	}
 
 
-static func make_inventory_entries(pet_ids: Array) -> Array[Dictionary]:
+static func make_inventory_entries(pet_ids: Array, language_code := "en") -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	for pet_id in pet_ids:
-		entries.append(make_inventory_entry(String(pet_id)))
+		entries.append(make_inventory_entry(String(pet_id), language_code))
 	return entries
 
 

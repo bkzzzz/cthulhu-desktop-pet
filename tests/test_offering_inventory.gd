@@ -11,6 +11,7 @@ static func run() -> Array[String]:
 	_test_catalog(failures)
 	_test_normalization(failures)
 	_test_shop_goods(failures)
+	_test_shop_balance_display(failures)
 	_test_shop_purchase_to_cursor(failures)
 	_test_pet_specific_timed_buff(failures)
 	_test_removed_altar_api(failures)
@@ -118,6 +119,31 @@ static func _test_shop_goods(failures: Array[String]) -> void:
 		failures.append("shop normalization must preserve valid offering metadata")
 	if float(fish.get("multiplier", 0.0)) <= 1.0 or int(fish.get("price", 0)) > 40:
 		failures.append("shop lookup must preserve the affordable timed boost metadata")
+	shop.free()
+
+
+static func _test_shop_balance_display(failures: Array[String]) -> void:
+	var shop := ShopWindow.new()
+	shop.setup()
+	shop.set_coin_balance(1_250_000_000)
+	var balance_label := shop.get("_coin_balance_label") as Label
+	var close_button := shop.get_node_or_null("ShopRoot/CloseShop") as TextureButton
+	if balance_label == null:
+		failures.append("the shop must create a visible gold balance")
+	else:
+		if balance_label.text != "$ 1.25B":
+			failures.append("the shop balance must omit GOLD/金币 wording and compact large values")
+		if balance_label.horizontal_alignment != HORIZONTAL_ALIGNMENT_RIGHT:
+			failures.append("the shop balance must align its amount to the right")
+		if balance_label.position.x <= float(ShopWindow.WINDOW_SIZE.x) * 0.5:
+			failures.append("the shop balance must move into the clear right side of the header")
+		if close_button != null and balance_label.position.x + balance_label.size.x >= close_button.position.x:
+			failures.append("the right-aligned shop balance must leave room for the close control")
+	shop.set_language("en")
+	if balance_label != null and balance_label.text != "$ 1.25B":
+		failures.append("changing shop language must not restore a GOLD text prefix")
+	if ShopWindow._format_compact_number(1_000_000_000_000_000.0) != "1.00Qa":
+		failures.append("the shop balance formatter must remain compact at quadrillion-scale progression")
 	shop.free()
 
 

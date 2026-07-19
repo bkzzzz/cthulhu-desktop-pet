@@ -157,6 +157,15 @@ static func _test_evolution_detail_and_confirmation_windows(failures: Array[Stri
 		failures.append("the evolution confirmation title must say only evolution complete")
 	if hint_label == null or "自动" in hint_label.text:
 		failures.append("the evolution confirmation copy must not mention automatic evolution")
+	evolution_window.set_language("en")
+	var before_label := evolution_window.get("_before_label") as Label
+	var after_label := evolution_window.get("_after_label") as Label
+	if before_label == null or not before_label.text.contains(PetCatalog.get_localized_name("pet1", "en")):
+		failures.append("an open evolution window must translate the authored pet name to English")
+	if after_label == null or after_label.text != PetCatalog.get_localized_evolution_name("pet1", "en"):
+		failures.append("an open evolution window must translate the evolved form name to English")
+	if hint_label == null or not hint_label.text.contains("Evolution completed"):
+		failures.append("an open evolution window must translate its explanation to English")
 	evolution_window.free()
 
 

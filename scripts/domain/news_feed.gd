@@ -6,7 +6,7 @@ extends RefCounted
 const MAX_HISTORY := 80
 const MAX_HEADLINE_LENGTH := 220
 const RECENT_TEMPLATE_LIMIT := 6
-const NEWS_COPY_VERSION := 4
+const NEWS_COPY_VERSION := 6
 const AMBIENT_INTERVAL_MIN_SECONDS := 240.0
 const AMBIENT_INTERVAL_MAX_SECONDS := 360.0
 
@@ -158,6 +158,7 @@ var _faith_tier := 0
 var _follower_tier := 0
 var _recent_template_ids: Array[String] = []
 var _event_last_at := {}
+static var _report_number_regex: RegEx
 
 
 func restore(state_value: Variant, current_faith_rate: float, current_followers: float) -> void:
@@ -219,6 +220,7 @@ func add_article(article: Dictionary, created_at: float, clock_text: String) -> 
 	var headline := String(article.get("headline", "")).strip_edges().left(MAX_HEADLINE_LENGTH)
 	if headline.is_empty():
 		return {}
+	var headline_en := String(article.get("headline_en", "")).strip_edges().left(MAX_HEADLINE_LENGTH)
 
 	var safe_created_at := created_at if is_finite(created_at) else 0.0
 	var entry := {
@@ -228,6 +230,8 @@ func add_article(article: Dictionary, created_at: float, clock_text: String) -> 
 		"category": category,
 		"headline": headline
 	}
+	if not headline_en.is_empty():
+		entry["headline_en"] = headline_en
 	_next_id += 1
 	_history.push_front(entry)
 	if _history.size() > MAX_HISTORY:
@@ -262,6 +266,7 @@ func make_ambient(
 	return {
 		"category": category,
 		"headline": _render_template(template, context, detail_roll),
+		"headline_en": _make_ambient_headline_en(selected_scope, context, detail_roll),
 		"template_id": String(template.get("id", ""))
 	}
 
@@ -275,6 +280,7 @@ func make_event(event_type: String, context: Dictionary, template_roll: float) -
 	return {
 		"category": "信仰" if event_type in ["petting", "burrow", "sleep", "air_roam", "wall_crawl", "hide", "offering", "upgrade"] else "教团",
 		"headline": _render_template(template, context, template_roll),
+		"headline_en": _make_event_headline_en(event_type, context),
 		"template_id": String(template.get("id", ""))
 	}
 
@@ -292,7 +298,8 @@ func collect_milestones(faith_rate: float, followers: float, detail_roll: float)
 				threshold,
 				mini(next_faith_tier, current_follower_tier),
 				detail_roll
-			)
+			),
+			"headline_en": "Faith production reached %s per second; new public recruitment centers are opening." % format_number_en(threshold)
 		})
 
 	var next_follower_tier := current_follower_tier
@@ -301,9 +308,40 @@ func collect_milestones(faith_rate: float, followers: float, detail_roll: float)
 		var threshold := int(FOLLOWER_MILESTONES[next_follower_tier - 1])
 		articles.append({
 			"category": "传播",
-			"headline": _make_follower_milestone_headline(threshold, next_follower_tier, detail_roll)
+			"headline": _make_follower_milestone_headline(threshold, next_follower_tier, detail_roll),
+			"headline_en": "Registered followers reached %s; the cult is establishing new chapters and supply routes." % format_number_en(float(threshold))
 		})
 	return articles
+
+
+static func _make_ambient_headline_en(scope: int, context: Dictionary, detail_roll: float) -> String:
+	var followers := format_number_en(float(context.get("followers", 0.0)))
+	match scope:
+		0:
+			return "A new local chapter opened near the old district; %d volunteers are recruiting residents and preparing a public meeting place." % _report_number(18, detail_roll, 1)
+		1:
+			return "Regional chapters expanded into %d towns, with %d transport teams moving members and supplies between gathering sites." % [_report_number(12, detail_roll, 2), _report_number(6, detail_roll, 3)]
+		2:
+			return "Cult service stations now operate across %d countries, drawing new volunteers through food, water, and agricultural programs." % _report_number(9, detail_roll, 4)
+		3:
+			return "The cult expanded its global network of chapters, broadcasts, and transport routes; registered followers now number %s." % followers
+		_:
+			return "Interstellar chapters reported contacts in %d star systems, and %d expansion teams are preparing routes to distant civilizations." % [_report_number(12, detail_roll, 5), _report_number(3, detail_roll, 6)]
+
+
+static func _make_event_headline_en(event_type: String, context: Dictionary) -> String:
+	var level := maxi(1, int(context.get("level", 1)))
+	match event_type:
+		"petting": return "A street recruitment drive welcomed new residents and trained volunteers for the next gathering."
+		"burrow": return "Volunteers secured an underground storehouse and opened a supply route to a nearby chapter."
+		"sleep": return "A quiet nighttime gathering ended with several workers joining the cult."
+		"air_roam": return "Aerial displays carried recruitment messages across the old district."
+		"wall_crawl": return "Recruitment teams placed new signs across several high-rise buildings."
+		"hide": return "A rapid recruitment operation established new storage and meeting points."
+		"offering": return "A gathering centered on a new offering attracted members and volunteers."
+		"upgrade": return "Cult preparations reached level %d, opening new activity areas and recruitment posts." % level
+		"gacha": return "The cult welcomed a newly summoned companion at a public gathering and began a recruitment campaign."
+		_: return "Cult activity increased as new volunteers joined local chapters."
 
 
 static func get_scope_tier(progression_tier: int) -> int:
@@ -428,16 +466,42 @@ static func sanitize_history(raw_value: Variant) -> Array[Dictionary]:
 		var created_at := float(raw_entry.get("created_at", 0.0))
 		if not is_finite(created_at):
 			created_at = 0.0
-		sanitized.append({
+		var sanitized_entry := {
 			"id": maxi(0, int(raw_entry.get("id", 0))),
 			"created_at": maxf(0.0, created_at),
 			"time_text": String(raw_entry.get("time_text", "")).strip_edges().left(16),
 			"category": category,
 			"headline": headline
-		})
+		}
+		var headline_en := String(raw_entry.get("headline_en", "")).strip_edges().left(MAX_HEADLINE_LENGTH)
+		if not headline_en.is_empty():
+			sanitized_entry["headline_en"] = headline_en
+		sanitized.append(sanitized_entry)
 		if sanitized.size() >= MAX_HISTORY:
 			break
 	return sanitized
+
+
+static func get_localized_headline(entry: Dictionary, language_code: String) -> String:
+	if language_code != "zh":
+		var english_headline := String(entry.get("headline_en", "")).strip_edges()
+		if not english_headline.is_empty():
+			return english_headline
+	return String(entry.get("headline", "")).strip_edges()
+
+
+static func get_localized_category(category: String, language_code: String) -> String:
+	if language_code == "zh":
+		return category
+	var english_names := {
+		"公告": "NOTICE",
+		"异闻": "REPORT",
+		"传播": "SPREAD",
+		"信仰": "FAITH",
+		"教团": "CULT",
+		"宠物": "PETS"
+	}
+	return String(english_names.get(category, category))
 
 
 static func format_number(value: float) -> String:
@@ -446,6 +510,25 @@ static func format_number(value: float) -> String:
 		return _trim_decimal(String.num(safe_value / 100000000.0, 1)) + "亿"
 	if safe_value >= 10000.0:
 		return _trim_decimal(String.num(safe_value / 10000.0, 1)) + "万"
+	if safe_value >= 100.0:
+		return String.num(safe_value, 0)
+	if safe_value >= 10.0:
+		return _trim_decimal(String.num(safe_value, 1))
+	return _trim_decimal(String.num(safe_value, 2))
+
+
+static func format_number_en(value: float) -> String:
+	var safe_value := maxf(0.0, value) if is_finite(value) else 0.0
+	for scale_value in [
+		[1.0e15, "Qa"],
+		[1.0e12, "T"],
+		[1.0e9, "B"],
+		[1.0e6, "M"],
+		[1.0e3, "K"]
+	]:
+		var scale: float = scale_value[0]
+		if safe_value >= scale:
+			return _trim_decimal(String.num(safe_value / scale, 1)) + String(scale_value[1])
 	if safe_value >= 100.0:
 		return String.num(safe_value, 0)
 	if safe_value >= 10.0:
@@ -482,13 +565,47 @@ func _render_template(template: Dictionary, context: Dictionary, detail_roll: fl
 	var place := _get_place(detail_roll, int(context.get("spread_tier", 0)))
 	var raw_followers := float(context.get("followers", 0.0))
 	var follower_count := maxi(0, int(floor(raw_followers))) if is_finite(raw_followers) else 0
-	return String(template.get("text", "")).format({
+	var report_text := _vary_report_numbers(String(template.get("text", "")), detail_roll)
+	return report_text.format({
 		"place": place,
 		"followers": format_number(float(follower_count)),
 		"rate": format_number(float(context.get("faith_rate", 0.0))),
-		"item": String(context.get("item_name", "一份贡品")).strip_edges().left(40),
+		"item": String(context.get("item_name_zh", context.get("item_name", "一份贡品"))).strip_edges().left(40),
 		"level": maxi(1, int(context.get("level", 1)))
 	})
+
+
+static func _vary_report_numbers(text: String, unit_roll: float) -> String:
+	if _report_number_regex == null:
+		_report_number_regex = RegEx.new()
+		_report_number_regex.compile("[0-9]+(?:\\.[0-9]+)?")
+	var matches := _report_number_regex.search_all(text)
+	var varied := text
+	# Replace backwards so earlier match offsets remain valid. Placeholder values
+	# are formatted afterwards and therefore keep exact player progression values.
+	for match_index in range(matches.size() - 1, -1, -1):
+		var number_match: RegExMatch = matches[match_index]
+		var original_text := number_match.get_string()
+		var original := float(original_text)
+		var varied_value := _report_number(original, unit_roll, match_index + 1)
+		var replacement := (
+			_trim_decimal("%.1f" % float(varied_value))
+			if original_text.contains(".")
+			else str(varied_value)
+		)
+		varied = varied.left(number_match.get_start()) + replacement + varied.substr(number_match.get_end())
+	return varied
+
+
+static func _report_number(base_value: float, unit_roll: float, salt: int) -> int:
+	var safe_base := maxf(1.0, base_value)
+	var mixed := fposmod(_safe_unit_roll(unit_roll) * 0.754877666 + float(salt) * 0.569840291, 1.0)
+	var spread := 0.34 if safe_base < 20.0 else 0.22
+	var result := maxi(1, int(round(safe_base * lerpf(1.0 - spread, 1.0 + spread, mixed))))
+	# Avoid the conspicuous template constant surviving most rolls after rounding.
+	if result == int(round(safe_base)) and safe_base >= 3.0:
+		result += -1 if mixed < 0.5 else 1
+	return result
 
 
 static func _get_place(unit_roll: float, tier_hint: int) -> String:

@@ -6,6 +6,8 @@ signal pet_evolution_requested(pet_id: String)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 
 const WINDOW_SIZE := Vector2i(1160, 850)
 const DISPLAY_SIZE := Vector2(1128.0, 826.0)
@@ -47,16 +49,17 @@ var _page := 0
 var _pets: Array[Dictionary] = []
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
-var _language := "zh"
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _visuals_dirty := false
 
 
 func setup(initial_pets: Array[Dictionary]) -> void:
 	_pets = initial_pets.duplicate(true)
+	theme = LanguageSettings.make_ui_theme(_language)
 	_configure_window()
 	_create_content()
 	_center_window()
-	_refresh_page()
+	set_language(_language)
 
 
 func open_window() -> void:
@@ -122,7 +125,7 @@ func remove_pet(pet_id: String) -> bool:
 func set_pet_name(pet_id: String, custom_name: String) -> void:
 	var next_name := custom_name.strip_edges().left(40)
 	if next_name.is_empty():
-		next_name = String(PetCatalog.get_definition(pet_id).get("name", pet_id))
+		next_name = PetCatalog.get_localized_name(pet_id, _language)
 	for index in _pets.size():
 		var entry := _pets[index]
 		if String(entry.get("id", "")) != pet_id:
@@ -136,7 +139,8 @@ func set_pet_name(pet_id: String, custom_name: String) -> void:
 
 
 func set_language(language_code: String) -> void:
-	_language = "en" if language_code == "en" else "zh"
+	_language = LanguageSettings.sanitize(language_code)
+	theme = LanguageSettings.make_ui_theme(_language)
 	title = "Inventory" if _language == "en" else "仓库"
 	if _empty_label != null:
 		_empty_label.text = "This page is empty" if _language == "en" else "这一页暂时空着"
@@ -146,6 +150,7 @@ func set_language(language_code: String) -> void:
 		_detail_hint_label.text = "Rename the pet here, then return it to the desktop" if _language == "en" else "可在这里改名，然后放回桌面"
 	if _detail_close_button != null:
 		_detail_close_button.text = "Close" if _language == "en" else "关闭"
+		_detail_close_button.tooltip_text = "Close inventory" if _language == "en" else "关闭仓库"
 	if _detail_deploy_button != null:
 		_detail_deploy_button.text = "Return to desktop" if _language == "en" else "放回桌面"
 	var left_arrow := get_node_or_null("InventoryRoot/InventoryArrow-1") as TextureButton
@@ -159,14 +164,14 @@ func set_language(language_code: String) -> void:
 
 func _configure_window() -> void:
 	name = "InventoryWindow"
-	title = "仓库"
-	size = WINDOW_SIZE
+	title = "Inventory"
 	borderless = true
 	always_on_top = false
 	unresizable = true
 	transparent = true
 	transparent_bg = true
 	visible = false
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, DisplayLayout.get_current_usable_rect(self))
 
 
 func _create_content() -> void:
@@ -527,11 +532,8 @@ func _turn_page(direction: int) -> void:
 
 
 func _center_window() -> void:
-	var screen_rect := _get_current_screen_rect()
-	position = Vector2i(
-		maxi(screen_rect.position.x, screen_rect.position.x + int((screen_rect.size.x - WINDOW_SIZE.x) * 0.5)),
-		maxi(screen_rect.position.y, screen_rect.position.y + int((screen_rect.size.y - WINDOW_SIZE.y) * 0.5))
-	)
+	var usable_rect := DisplayLayout.get_current_usable_rect(self)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, usable_rect)
 
 
 func _close_window() -> void:
@@ -602,8 +604,8 @@ func _show_detail_panel(pet_index: int) -> void:
 	var rarity_stars := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
 	_detail_desc_label.text = ("Stars  %s\nAge  %s\nPersonality  %s" if _language == "en" else "星级  %s\n年龄  %s\n性格  %s") % [
 		"★".repeat(rarity_stars),
-		String(pet_data.get("age_text", pet_data.get("age", "不详"))),
-		String(pet_data.get("personality", "不详"))
+		String(entry.get("age_text", pet_data.get("age_text", pet_data.get("age", "Unknown" if _language == "en" else "不详")))),
+		String(entry.get("personality", PetCatalog.get_localized_field(pet_id, "personality", _language)))
 	]
 	var recovering := bool(entry.get("recovering", false))
 	if recovering:
@@ -625,7 +627,7 @@ func _show_detail_panel(pet_index: int) -> void:
 	if evolved:
 		_detail_evolution_label.text = (
 			"Evolution complete: %s" if _language == "en" else "已完成进化：%s"
-		) % String(evolution_data.get("evolution_name", entry.get("name", pet_id)))
+		) % PetCatalog.get_localized_evolution_name(pet_id, _language)
 		_detail_evolution_button.text = "EVOLVED" if _language == "en" else "已进化"
 		_detail_evolution_button.disabled = true
 	elif level < 100:
@@ -721,12 +723,14 @@ func _on_root_gui_input(event: InputEvent) -> void:
 				_drag_offset = DisplayServer.mouse_get_position() - position
 			_root.accept_event()
 	elif event is InputEventMouseMotion and _dragging:
-		position = DisplayServer.mouse_get_position() - _drag_offset
+		var desired := DisplayServer.mouse_get_position() - _drag_offset
+		position = DisplayLayout.clamp_position(
+			desired,
+			size,
+			DisplayLayout.get_current_usable_rect(self)
+		)
 		_root.accept_event()
 
 
 func _get_current_screen_rect() -> Rect2i:
-	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS
-	if screen < 0:
-		screen = DisplayServer.window_get_current_screen()
-	return Rect2i(DisplayServer.screen_get_position(screen), DisplayServer.screen_get_size(screen))
+	return DisplayLayout.get_current_usable_rect(self)

@@ -62,11 +62,11 @@ static func get_sheet_frame_count(type_id: String) -> int:
 	return CRYSTAL_SHEET_FRAMES if type_id.to_upper() in ["C", "S", "G"] else SHEET_FRAMES
 
 
-static func get_drop_label(type_id: String, language_code := "zh") -> String:
+static func get_drop_label(type_id: String, language_code := "en") -> String:
 	var safe_type := type_id.to_upper()
-	if language_code == "en":
-		return String(CRYSTAL_NAMES_EN.get(safe_type, safe_type))
-	return String(CRYSTAL_NAMES_ZH.get(safe_type, safe_type))
+	if language_code == "zh":
+		return String(CRYSTAL_NAMES_ZH.get(safe_type, safe_type))
+	return String(CRYSTAL_NAMES_EN.get(safe_type, safe_type))
 
 
 func setup(type_id: String, start_position: Vector2, window_size: Vector2i, ground_y: float) -> void:

@@ -199,9 +199,54 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 	if SettingsWindow._format_duration(3661.9) != "01:01:01":
 		failures.append("settings must format current and total runtime as HH:MM:SS")
 	var settings := SettingsWindow.new()
-	settings.setup("right", "en")
+	settings.setup("right", "not-a-language")
 	if settings.get_activity_range() != "right" or settings.get_language() != "en":
-		failures.append("settings must restore the saved activity range and language")
+		failures.append("settings must restore the range and default malformed or missing language values to English")
+	if settings.theme == null or settings.theme.default_font is SystemFont:
+		failures.append("English settings must use the authored English UI font")
+	var settings_root := settings.get("_root") as Control
+	var settings_panel := settings_root.get_node_or_null("SettingsPanel") as PanelContainer
+	var close_button := settings.get("_close_button") as Button
+	if settings_root.find_child("SettingsBackground", true, false) != null:
+		failures.append("settings must not recreate the removed decorative background texture")
+	if settings_panel == null or close_button == null:
+		failures.append("settings must create its content panel and close control")
+	else:
+		var panel_rect := Rect2(settings_panel.position, settings_panel.size)
+		var close_rect := Rect2(close_button.position, close_button.size)
+		if not panel_rect.encloses(close_rect):
+			failures.append("the settings close control must sit visibly inside the content panel")
+		if not close_button.get_theme_stylebox("normal") is StyleBoxFlat:
+			failures.append("the settings close control must have a visible normal-state background")
+
+	var reset_button := settings.get("_debug_reset_button") as Button
+	var reset_confirmation := settings.get("_reset_confirmation") as ConfirmationDialog
+	var debug_back_button := settings.get("_debug_back_button") as Button
+	if not settings.has_signal("reset_game_requested") or reset_button == null or reset_confirmation == null:
+		failures.append("debug settings must expose a confirmed reset-all-progress action")
+	else:
+		if reset_button.get_parent() != debug_back_button.get_parent():
+			failures.append("reset and back actions must share one compact footer row")
+		if reset_button.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
+			failures.append("the reset action must share footer width without overflowing the debug panel")
+		if reset_button.text != "RESET ALL PROGRESS" or reset_confirmation.ok_button_text != "RESET EVERYTHING":
+			failures.append("the reset confirmation workflow must localize its English destructive-action copy")
+		var reset_style := reset_button.get_theme_stylebox("normal") as StyleBoxFlat
+		if reset_style == null or reset_style.bg_color.r <= reset_style.bg_color.g * 2.0:
+			failures.append("the destructive reset action must use a clearly red normal style")
+		var reset_requests: Array[bool] = []
+		settings.reset_game_requested.connect(func() -> void: reset_requests.append(true))
+		reset_confirmation.confirmed.emit()
+		if reset_requests.size() != 1:
+			failures.append("reset progress must emit only after the confirmation accepts")
+		settings.set_language("zh")
+		if settings.theme == null or not settings.theme.default_font is SystemFont:
+			failures.append("Chinese settings must switch to a CJK-capable system font")
+		if reset_button.text != "重置全部进度" or reset_confirmation.cancel_button_text != "取消":
+			failures.append("the reset confirmation workflow must localize its Chinese destructive-action copy")
+		settings.set_language("en")
+		if settings.theme == null or settings.theme.default_font is SystemFont:
+			failures.append("switching settings back to English must restore the authored font")
 	settings.refresh_runtime(61.0, 3723.0)
 	var session_label := settings.get("_session_value_label") as Label
 	var total_label := settings.get("_total_value_label") as Label

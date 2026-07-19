@@ -58,7 +58,7 @@ static func get_era_index(total_runtime_seconds: float) -> int:
 	return 1 if progression_year >= SOLDIER_ERA_START_YEAR else 0
 
 
-static func get_era_name(total_runtime_seconds: float, language := "zh") -> String:
+static func get_era_name(total_runtime_seconds: float, language := "en") -> String:
 	var era_index := get_era_index(total_runtime_seconds)
 	if era_index >= 4:
 		return "OUTER SPACE" if language == "en" else "外太空时代"
@@ -71,7 +71,7 @@ static func get_era_name(total_runtime_seconds: float, language := "zh") -> Stri
 	return "MEDIEVAL VILLAGES" if language == "en" else "中世纪·村落"
 
 
-static func get_display_text(total_runtime_seconds: float, language := "zh") -> String:
+static func get_display_text(total_runtime_seconds: float, language := "en") -> String:
 	var calendar_year := get_calendar_year(total_runtime_seconds)
 	return (
 		"%s · AD %d" % [get_era_name(total_runtime_seconds, language), calendar_year]

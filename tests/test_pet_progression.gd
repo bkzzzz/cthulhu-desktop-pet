@@ -6,7 +6,26 @@ const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_check_close(failures, "level zero produces no faith", PetProgression.faith_per_second({"base_fps": 2.0}, 0), 0.0)
-	_check_close(failures, "faith applies level and power growth", PetProgression.faith_per_second({"base_fps": 2.0, "power_growth": 1.1}, 2), 4.84)
+	var level_two_opening_progress := (
+		(PetProgression.OPENING_BOOST_END_LEVEL - 2.0)
+		/ (PetProgression.OPENING_BOOST_END_LEVEL - 1.0)
+	)
+	var expected_level_two_rate := (
+		4.84
+		* PetProgression.CAMPAIGN_BASE_PRODUCTION_MULTIPLIER
+		* (
+			1.0
+			+ PetProgression.OPENING_EXTRA_PRODUCTION_MULTIPLIER
+			* level_two_opening_progress
+			* level_two_opening_progress
+		)
+	)
+	_check_close(
+		failures,
+		"faith applies growth and the opening production boost",
+		PetProgression.faith_per_second({"base_fps": 2.0, "power_growth": 1.1}, 2),
+		expected_level_two_rate
+	)
 	_check_equal(failures, "faith production is finite for hostile data", is_finite(PetProgression.faith_per_second({"base_fps": 2.0, "power_growth": 1000.0}, 100_000)), true)
 	var money_at_one := PetProgression.money_drop_value_per_minute({"base_money_rate": 10.0}, 1)
 	var money_at_two := PetProgression.money_drop_value_per_minute({"base_money_rate": 10.0}, 2)
@@ -22,6 +41,7 @@ static func run() -> Array[String]:
 	_check_equal(failures, "progression level remains positive", PetProgression.progression_level({"upgrade_level": -4}), 1)
 	_check_equal(failures, "progression level is capped", PetProgression.progression_level({"upgrade_level": PetProgression.MAX_LEVEL + 1}), PetProgression.MAX_LEVEL)
 	_check_upgrade_cost_ignores_legacy_population(failures)
+	_check_opening_production_curve(failures)
 	_check_large_level_costs(failures)
 	return failures
 
@@ -34,6 +54,31 @@ static func _check_upgrade_cost_ignores_legacy_population(failures: Array[String
 		PetProgression.upgrade_cost(pet_data, {"count": 20_000, "upgrade_level": 100}),
 		PetProgression.upgrade_cost(pet_data, {"upgrade_level": 100})
 	)
+
+
+static func _check_opening_production_curve(failures: Array[String]) -> void:
+	var pet_data := {
+		"base_fps": 0.0025,
+		"power_growth": 1.035,
+		"upgrade_cost_base": 1,
+		"upgrade_cost_growth": 1.18
+	}
+	var previous_rate := 0.0
+	for level in range(1, 21):
+		var rate := PetProgression.faith_per_second(pet_data, level)
+		if rate <= previous_rate:
+			failures.append("opening production must increase at every level through Lv.%d" % level)
+		previous_rate = rate
+
+	var first_upgrade_seconds := (
+		float(PetProgression.upgrade_cost(pet_data, {"upgrade_level": 1}))
+		/ maxf(PetProgression.faith_per_second(pet_data, 1), 0.0000001)
+	)
+	if first_upgrade_seconds > 10.0:
+		failures.append(
+			"opening passive progress must fund the first upgrade within 10 seconds, got %.1f"
+			% first_upgrade_seconds
+		)
 
 
 static func _check_large_level_costs(failures: Array[String]) -> void:

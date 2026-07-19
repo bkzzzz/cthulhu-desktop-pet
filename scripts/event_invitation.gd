@@ -1,10 +1,11 @@
 extends Node2D
 
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+
 signal accepted(event_type: String)
 signal discarded(event_type: String)
 signal expired(event_type: String)
 
-const INVITE_LIFETIME_SECONDS := 90.0
 const INPUT_UPDATE_INTERVAL := 1.0 / 15.0
 const ICON_SIZE := {
 	"pilgrimage": Vector2(92.0, 92.0),
@@ -25,8 +26,10 @@ var _icon_button: Button
 var _prompt_panel: PanelContainer
 var _prompt_open := false
 var _resolved := false
-var _language := "zh"
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _difficulty_text := ""
+var _difficulty_text_en := ""
+var _difficulty_text_zh := ""
 
 
 func setup(
@@ -35,16 +38,48 @@ func setup(
 	window_size: Vector2i,
 	ground_y: float,
 	spawn_x: float,
-	language_code := "zh",
-	difficulty_text := ""
+	language_code := LanguageSettings.DEFAULT_LANGUAGE,
+	difficulty_text := "",
+	difficulty_text_en := "",
+	difficulty_text_zh := ""
 ) -> void:
 	event_type = new_event_type
 	_window_size = window_size
 	_ground_y = ground_y
-	_language = "en" if language_code == "en" else "zh"
-	_difficulty_text = difficulty_text.strip_edges()
+	_language = LanguageSettings.sanitize(language_code)
+	_difficulty_text_en = difficulty_text_en.strip_edges()
+	_difficulty_text_zh = difficulty_text_zh.strip_edges()
+	if _difficulty_text_en.is_empty() and _language == "en":
+		_difficulty_text_en = difficulty_text.strip_edges()
+	if _difficulty_text_zh.is_empty() and _language == "zh":
+		_difficulty_text_zh = difficulty_text.strip_edges()
+	_refresh_difficulty_text(difficulty_text)
 	position = Vector2(spawn_x, -72.0)
 	_create_sprite(texture_path)
+
+
+func set_language(language_code: String) -> void:
+	_language = LanguageSettings.sanitize(language_code)
+	_refresh_difficulty_text()
+	if _input_window != null:
+		_input_window.theme = LanguageSettings.make_ui_theme(_language)
+		_input_window.title = "Desktop Event" if _language == "en" else "桌面事件"
+	_refresh_icon_tooltip()
+	if _prompt_open and _prompt_panel != null:
+		_input_window.remove_child(_prompt_panel)
+		_prompt_panel.queue_free()
+		_prompt_panel = null
+		_prompt_open = false
+		_open_prompt()
+
+
+func _refresh_difficulty_text(fallback_text := "") -> void:
+	var localized_text := _difficulty_text_en if _language == "en" else _difficulty_text_zh
+	if localized_text.is_empty():
+		localized_text = fallback_text.strip_edges()
+	if localized_text.is_empty():
+		localized_text = _difficulty_text
+	_difficulty_text = localized_text
 
 
 func _ready() -> void:
@@ -91,8 +126,6 @@ func _process(delta: float) -> void:
 	if _input_update_time >= INPUT_UPDATE_INTERVAL:
 		_input_update_time = 0.0
 		_update_input_window()
-	if _age >= INVITE_LIFETIME_SECONDS and not _prompt_open:
-		_resolve(false, true)
 
 
 func _create_sprite(texture_path: String) -> void:
@@ -112,13 +145,14 @@ func _create_sprite(texture_path: String) -> void:
 func _create_input_window() -> void:
 	_input_window = Window.new()
 	_input_window.name = "EventInvitationInput"
-	_input_window.title = "Desktop Event"
+	_input_window.title = "Desktop Event" if _language == "en" else "桌面事件"
 	_input_window.borderless = true
 	_input_window.transparent = true
 	_input_window.transparent_bg = true
 	_input_window.unresizable = true
 	_input_window.always_on_top = false
 	_input_window.unfocusable = true
+	_input_window.theme = LanguageSettings.make_ui_theme(_language)
 	add_child(_input_window)
 
 	_icon_button = Button.new()
@@ -127,6 +161,15 @@ func _create_input_window() -> void:
 	_icon_button.flat = true
 	_icon_button.text = ""
 	_icon_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_refresh_icon_tooltip()
+	_icon_button.pressed.connect(_open_prompt)
+	_input_window.add_child(_icon_button)
+	_input_window.visible = true
+
+
+func _refresh_icon_tooltip() -> void:
+	if _icon_button == null:
+		return
 	_icon_button.tooltip_text = (
 		("Battle invitation" if event_type == "battle" else "Pilgrimage invitation")
 		if _language == "en"
@@ -134,9 +177,6 @@ func _create_input_window() -> void:
 	)
 	if event_type == "battle" and not _difficulty_text.is_empty():
 		_icon_button.tooltip_text += "\n%s" % _difficulty_text
-	_icon_button.pressed.connect(_open_prompt)
-	_input_window.add_child(_icon_button)
-	_input_window.visible = true
 
 
 func _open_prompt() -> void:
@@ -190,7 +230,11 @@ func _open_prompt() -> void:
 		difficulty_label.name = "BattleDifficulty"
 		difficulty_label.text = _difficulty_text
 		difficulty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		difficulty_label.add_theme_font_size_override("font_size", 18)
+		difficulty_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		difficulty_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		difficulty_label.custom_minimum_size = Vector2(0.0, 86.0)
+		difficulty_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		difficulty_label.add_theme_font_size_override("font_size", 16)
 		difficulty_label.add_theme_color_override("font_color", Color(1.0, 0.64, 0.32, 1.0))
 		content.add_child(difficulty_label)
 	var actions := HBoxContainer.new()
@@ -214,7 +258,13 @@ func _update_input_window() -> void:
 	if _input_window == null or _visual_window == null:
 		return
 	if _prompt_open:
-		var prompt_size := Vector2i(330, 180) if event_type == "battle" and not _difficulty_text.is_empty() else Vector2i(310, 150)
+		var available_width := maxi(280, _window_size.x - 16)
+		var prompt_size := (
+			Vector2i(mini(520, available_width), 258)
+			if event_type == "battle" and not _difficulty_text.is_empty()
+			else Vector2i(mini(360, available_width), 176)
+		)
+		prompt_size.y = mini(prompt_size.y, maxi(150, _window_size.y - 16))
 		var local_x := clampi(int(round(position.x - prompt_size.x * 0.5)), 8, maxi(8, _window_size.x - prompt_size.x - 8))
 		var local_y := clampi(int(round(position.y - prompt_size.y - 58.0)), 8, maxi(8, _window_size.y - prompt_size.y - 8))
 		_input_window.position = _visual_window.position + Vector2i(local_x, local_y)

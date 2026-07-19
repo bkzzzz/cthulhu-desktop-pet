@@ -24,6 +24,13 @@ static func run() -> Array[String]:
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
+		var english_name := PetCatalog.get_localized_name(pet_id, "en")
+		if english_name.is_empty() or english_name == String(definition.get("name", "")):
+			failures.append("%s must expose a distinct English default name" % pet_id)
+		if PetCatalog.get_localized_field(pet_id, "personality", "en").is_empty():
+			failures.append("%s must expose English profile copy" % pet_id)
+		if PetCatalog.can_evolve(pet_id) and PetCatalog.get_localized_evolution_name(pet_id, "en").is_empty():
+			failures.append("%s must expose an English evolution name" % pet_id)
 		var behavior_style := String(definition.get("behavior", ""))
 		behavior_styles[behavior_style] = true
 		if behavior_style.is_empty():

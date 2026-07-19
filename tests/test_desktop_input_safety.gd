@@ -12,8 +12,8 @@ static func run() -> Array[String]:
 		failures.append("click-through setup must reject a missing window")
 	var main := Main.new()
 	var target_size: Vector2i = main.call("_get_target_pet_window_size", Rect2i(0, 0, 1920, 1080))
-	if target_size.y != 1080 + Main.PET_TASKBAR_OVERLAP_PIXELS:
-		failures.append("the visual pet window must include only the configured taskbar art overlap")
+	if target_size != Vector2i(1920, 1080):
+		failures.append("the visual pet window must exactly match the Windows usable work area")
 	main.set("_pet_window_size", target_size)
 	if not bool(main.call("_is_offering_drop_zone", Vector2(900.0, 300.0))):
 		failures.append("offerings must be droppable across the upper desktop")

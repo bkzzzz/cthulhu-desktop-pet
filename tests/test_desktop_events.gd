@@ -5,6 +5,7 @@ const EraProgression = preload("res://scripts/domain/era_progression.gd")
 const EnemyActor = preload("res://scripts/enemy_actor.gd")
 const BattleEffectActor = preload("res://scripts/battle_effect_actor.gd")
 const EnemyProjectileActor = preload("res://scripts/enemy_projectile_actor.gd")
+const EventInvitation = preload("res://scripts/event_invitation.gd")
 
 
 static func run() -> Array[String]:
@@ -16,10 +17,14 @@ static func run() -> Array[String]:
 	_test_pet_combat_assets(failures)
 	_test_pet6_dragged_combat(failures)
 	_test_era_age_and_difficulty(failures)
+	_test_adaptive_encounter_and_rewards(failures)
+	_test_invitation_retention_and_singleton(failures)
+	_test_battle_invitation_cooldowns(failures)
 	_test_recovery_pauses_production(failures)
 	_test_battle_activity_override(failures)
 	_test_inventory_deploy_during_events(failures)
 	_test_battle_starts_first_wave(failures)
+	_test_battle_timeout_is_defeat(failures)
 	return failures
 
 
@@ -197,6 +202,7 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 
 static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 	var main := Main.new()
+	main.set("_language", "zh")
 	main.set("_total_runtime_seconds", EraProgression.SECONDS_PER_YEAR * 3.0)
 	var age_text := String(main.call("_get_pet_age_text", Main.PetCatalog.get_definition("pet1")))
 	var expected_age := 3 + EraProgression.get_elapsed_calendar_years(EraProgression.SECONDS_PER_YEAR * 3.0)
@@ -223,6 +229,196 @@ static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
 	var weaker_budget: Dictionary = main.call("_get_battle_reward_budget", 0.5)
 	if int(stronger_budget.get("gold", 0)) <= int(weaker_budget.get("gold", 0)) or int(stronger_budget.get("faith", 0)) <= int(weaker_budget.get("faith", 0)):
 		failures.append("stronger enemy encounters must advertise richer gold and faith budgets")
+	main.free()
+
+
+static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	var pet := Main.DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1200, 720), 0.0, 1200.0, 700.0, 704.0, false)
+	main.add_child(pet)
+	(main.get("_pets") as Array).append(pet)
+
+	var state: Dictionary = main.call("_get_pet_state", "pet1")
+	state["upgrade_level"] = 1
+	(main.get("_pet_states") as Dictionary)["pet1"] = state
+	var battle_controller: Node = main.get("_battle_controller")
+	var low_schedule: Array[Dictionary] = battle_controller.call("_build_battle_wave_schedule")
+	var low_enemy_count := 0
+	var low_wave_max := 0
+	for wave in low_schedule:
+		var wave_count: int = (wave as Dictionary).get("types", []).size()
+		low_enemy_count += wave_count
+		low_wave_max = maxi(low_wave_max, wave_count)
+	main.set("_battle_wave_schedule", low_schedule.duplicate(true))
+	var weak_difficulty := float(main.call("_get_base_battle_difficulty_scale"))
+	var low_budget: Dictionary = main.call("_get_battle_reward_budget", weak_difficulty)
+	var low_manual_click_gain := float(main.call("_get_manual_faith_click_gain", 1))
+	var low_baseline_faith_rate := float(main.call("_get_baseline_faith_growth_rate"))
+
+	state["upgrade_level"] = 50
+	(main.get("_pet_states") as Dictionary)["pet1"] = state
+	main.set("_battle_wave_schedule", [])
+	var mid_schedule: Array[Dictionary] = battle_controller.call("_build_battle_wave_schedule")
+	var mid_enemy_count := 0
+	var mid_wave_max := 0
+	for wave in mid_schedule:
+		var wave_count: int = (wave as Dictionary).get("types", []).size()
+		mid_enemy_count += wave_count
+		mid_wave_max = maxi(mid_wave_max, wave_count)
+
+	state["upgrade_level"] = 100
+	(main.get("_pet_states") as Dictionary)["pet1"] = state
+	main.set("_battle_wave_schedule", [])
+	var high_schedule: Array[Dictionary] = battle_controller.call("_build_battle_wave_schedule")
+	var high_enemy_count := 0
+	var high_wave_max := 0
+	for wave in high_schedule:
+		var wave_count: int = (wave as Dictionary).get("types", []).size()
+		high_enemy_count += wave_count
+		high_wave_max = maxi(high_wave_max, wave_count)
+	main.set("_battle_wave_schedule", low_schedule.duplicate(true))
+	var strong_difficulty := float(main.call("_get_base_battle_difficulty_scale"))
+	main.set("_battle_wave_schedule", high_schedule.duplicate(true))
+	var high_budget: Dictionary = main.call("_get_battle_reward_budget", strong_difficulty)
+
+	if low_schedule.size() != 4 or low_wave_max > 3 or int((low_schedule[0] as Dictionary).get("types", []).size()) != 2:
+		failures.append("opening battles must keep the authored four waves of only two to three enemies")
+	if not (low_enemy_count < mid_enemy_count and mid_enemy_count < high_enemy_count):
+		failures.append("enemy count must rise gradually across low, mid, and high pet levels")
+	if mid_wave_max > 4 or high_wave_max > 6:
+		failures.append("campaign pressure must cap mid-level waves at four and high-level waves at six enemies")
+	if strong_difficulty <= weak_difficulty:
+		failures.append("stronger pets must produce stronger enemy stats for the same wave composition")
+	if int(high_budget.get("gold", 0)) <= int(low_budget.get("gold", 0)):
+		failures.append("battle gold rewards must rise with potential coin income")
+	if int(high_budget.get("faith", 0)) <= int(low_budget.get("faith", 0)):
+		failures.append("battle faith rewards must rise with baseline faith growth")
+	if int(low_budget.get("faith", 0)) < int(floor(low_manual_click_gain * 75.0)):
+		failures.append("even an opening battle reward must be worth at least seventy-five Adder clicks")
+	if int(low_budget.get("faith", 0)) < int(floor(low_baseline_faith_rate * 22.0)):
+		failures.append("battle faith rewards must cover at least twenty-two seconds of baseline production")
+
+	for drop_index in 12:
+		main.call("_spawn_battle_reward", Vector2(300.0 + float(drop_index), 420.0), 50)
+	var visual_drops: Array = main.get("_coin_drops")
+	if visual_drops.size() > 8:
+		failures.append("enemy defeats must cap battlefield reward visuals independently of encounter size")
+	for visual_drop in visual_drops:
+		if int((visual_drop as Node2D).get("value")) != 0:
+			failures.append("battlefield reward coins must be visual-only so pickup cannot duplicate settlement")
+			break
+	main.set("_gold_coins", 0)
+	main.set("_faith_points", 0.0)
+	main.set("_battle_active", true)
+	main.set("_active_battle_difficulty_scale", strong_difficulty)
+	main.set("_persistence_enabled", true)
+	main.call("_finish_battle", true)
+	if int(main.get("_gold_coins")) != int(high_budget.get("gold", 0)):
+		failures.append("victory must credit the complete advertised gold budget directly")
+	if int(round(float(main.get("_faith_points")))) != int(high_budget.get("faith", 0)):
+		failures.append("victory must credit the complete advertised faith budget directly")
+	if not bool(main.get("_save_dirty")):
+		failures.append("victory rewards must immediately mark persistent progress for saving")
+	main.set("_persistence_enabled", false)
+	main.free()
+
+
+static func _test_invitation_retention_and_singleton(failures: Array[String]) -> void:
+	var standalone := EventInvitation.new()
+	standalone.setup(
+		"battle",
+		Main.BATTLE_INVITE_TEXTURE,
+		Vector2i(1200, 720),
+		704.0,
+		420.0,
+		"en",
+		"ENEMIES: TEST",
+		"ENEMIES: TEST",
+		"敌军编成：测试"
+	)
+	var expired_events: Array[String] = []
+	standalone.expired.connect(func(event_type: String) -> void: expired_events.append(event_type))
+	standalone.set_language("zh")
+	if String(standalone.get("_language")) != "zh" or not String(standalone.get("_difficulty_text")).contains("敌军编成"):
+		failures.append("a retained invitation must translate its locked encounter when language changes")
+	standalone.set_language("en")
+	if not String(standalone.get("_difficulty_text")).contains("ENEMIES"):
+		failures.append("a retained invitation must restore its English encounter copy")
+	standalone.call("_process", 10_000.0)
+	if bool(standalone.get("_resolved")) or not expired_events.is_empty():
+		failures.append("an untouched event invitation must remain on the desktop indefinitely")
+	standalone.free()
+
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	main.call("_spawn_event_invitation", "battle")
+	var first_invitation: Node2D = main.get("_event_invitation")
+	main.call("_spawn_event_invitation", "battle")
+	var events_controller: Node = main.get("_events_controller")
+	var invitation_count := 0
+	for child in events_controller.get_children():
+		if child is EventInvitation:
+			invitation_count += 1
+	if first_invitation == null or main.get("_event_invitation") != first_invitation or invitation_count != 1:
+		failures.append("event scheduling must retain exactly one desktop invitation at a time")
+	main.free()
+
+
+static func _test_battle_invitation_cooldowns(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_simulation_now_seconds", 1000.0)
+	main.call("_spawn_event_invitation", "battle")
+	var discarded_invitation := main.get("_event_invitation") as Node2D
+	main.call("_on_event_invitation_discarded", "battle")
+	if discarded_invitation != null:
+		discarded_invitation.free()
+	var invitation_history: Array = (main.get("_news_feed") as RefCounted).call("get_history")
+	if invitation_history.is_empty():
+		failures.append("discarded invitations must leave a localized archive entry")
+	else:
+		var invitation_article := invitation_history.back() as Dictionary
+		if (
+			String(invitation_article.get("headline", "")) != "事件邀请已被丢弃。"
+			or String(invitation_article.get("headline_en", "")) != "The invitation was discarded."
+		):
+			failures.append("system-event news must preserve both languages for later switching")
+	var declined_delay := float(main.get("_next_battle_at")) - 1000.0
+	if (
+		declined_delay < Main.BATTLE_DECLINED_DELAY_MIN_SECONDS
+		or declined_delay > Main.BATTLE_DECLINED_DELAY_MAX_SECONDS
+	):
+		failures.append("discarding a battle invitation must use the longer declined cooldown")
+
+	main.set("_simulation_now_seconds", 2000.0)
+	main.set("_battle_active", true)
+	main.set("_active_battle_difficulty_scale", 1.0)
+	main.call("_finish_battle", false)
+	var post_battle_delay := float(main.get("_next_battle_at")) - 2000.0
+	if (
+		post_battle_delay < Main.BATTLE_INTERVAL_MIN_SECONDS
+		or post_battle_delay > Main.BATTLE_INTERVAL_MAX_SECONDS
+	):
+		failures.append("a completed battle must use the configured short invitation cooldown")
+
+	var pet := Main.DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1200, 720), 0.0, 1200.0, 700.0, 704.0, false)
+	main.add_child(pet)
+	(main.get("_pets") as Array).append(pet)
+	main.set("_total_runtime_seconds", 1000.0)
+	main.set("_next_pilgrimage_at", 1999.0)
+	main.call("_update_pilgrimage")
+	if main.get("_event_invitation") != null:
+		failures.append("a due pilgrimage must not take the one invitation slot reserved after battle")
+	main.set("_simulation_now_seconds", float(main.get("_next_battle_at")) + 0.1)
+	main.call("_update_event_invitations")
+	var followup_invitation := main.get("_event_invitation") as Node2D
+	if followup_invitation == null or String(followup_invitation.get("event_type")) != "battle":
+		failures.append("the reserved post-battle invitation slot must produce the next battle letter")
 	main.free()
 
 
@@ -405,6 +601,7 @@ static func _test_inventory_deploy_during_events(failures: Array[String]) -> voi
 
 static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	var main := Main.new()
+	main.set("_language", "zh")
 	main.set("_persistence_enabled", false)
 	main.set("_pet_window_size", Vector2i(1200, 720))
 	var pet := Main.DesktopPetActor.new()
@@ -419,19 +616,58 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	var invitation := main.get("_event_invitation") as Node2D
 	var invitation_text := String(invitation.get("_difficulty_text")) if invitation != null else ""
 	var pending_budget: Dictionary = main.call("_get_battle_reward_budget", pending_difficulty)
+	var advertised_schedule: Array = (main.get("_battle_wave_schedule") as Array).duplicate(true)
 	if pending_difficulty < 0.0 or invitation == null or not invitation_text.contains("%d 金币 + %d 信仰" % [int(pending_budget.get("gold", 0)), int(pending_budget.get("faith", 0))]):
 		failures.append("battle invitations must display the reward budget for the exact randomly rolled encounter")
+	# Cross every authored era while the untouched letter remains on the desktop.
+	# Accepting it must still use exactly the encounter that the letter advertised.
+	main.set("_total_runtime_seconds", EraProgression.SECONDS_PER_YEAR * 20.0)
 	main.call("_on_event_invitation_accepted", "battle")
 	if not bool(main.get("_battle_active")):
 		failures.append("accepting the debug invitation must enter battle state")
 	if not is_equal_approx(float(main.get("_active_battle_difficulty_scale")), pending_difficulty):
 		failures.append("accepting an invitation must lock its advertised difficulty for every enemy wave")
-	if (main.get("_battle_enemies") as Array).size() < 2:
-		failures.append("battle start must immediately send the first timed enemy wave from the left")
+	if (main.get("_battle_wave_schedule") as Array) != advertised_schedule:
+		failures.append("an invitation must lock its advertised wave composition across later era changes")
+	var opening_enemy_count := (main.get("_battle_enemies") as Array).size()
+	if opening_enemy_count < 2 or opening_enemy_count > 4:
+		failures.append("battle start must send a readable opening formation of two to four enemies")
+	var entry_slots: Array[float] = []
+	for enemy_value in main.get("_battle_enemies") as Array:
+		entry_slots.append(float((enemy_value as Node2D).get("_entry_x")))
+	entry_slots.sort()
+	if (
+		entry_slots.size() >= 2
+		and (
+			entry_slots[1] <= entry_slots[0]
+			or (
+				entry_slots.size() >= 3
+				and entry_slots.back() <= entry_slots[entry_slots.size() - 2]
+			)
+		)
+	):
+		failures.append("enemy waves must spread across distinct left-side formation slots")
+	if not is_equal_approx(
+		float(main.get("_battle_ends_at")) - float(main.get("_battle_started_at")),
+		55.0
+	):
+		failures.append("battle encounters must use the full 55-second clear deadline")
 	if not bool(pet.get("_battle_mode")):
 		failures.append("battle start must move deployed pets into the right-side formation mode")
 	if not bool(pet.get("_interaction_enabled")):
 		failures.append("battle pets must remain draggable so placement can alter the fight")
+	var projectile_source := (main.get("_battle_enemies") as Array)[0] as Node2D
+	for _projectile_index in Main.BATTLE_EFFECT_LIMIT + 8:
+		main.call(
+			"_on_enemy_projectile_requested",
+			projectile_source,
+			pet,
+			1.0,
+			"arrow",
+			1.0
+		)
+	if (main.get("_battle_effects") as Array).size() > Main.BATTLE_EFFECT_LIMIT:
+		failures.append("expanded enemy barrages must respect the shared battle-effect soft limit")
 	var formation_start_x := pet.position.x
 	main.call("_update_battle_pet_formation", 1.0 / 60.0)
 	var formation_step := absf(pet.position.x - formation_start_x)
@@ -447,4 +683,36 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 		if bool(child.get_meta("battle_runtime", false)) and not child.is_queued_for_deletion():
 			failures.append("battle cleanup must remove every enemy/effect node, including actors already erased from combat arrays")
 			break
+	main.free()
+
+
+static func _test_battle_timeout_is_defeat(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	main.set("_simulation_now_seconds", 56.0)
+	var pet := Main.DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1200, 720), 0.0, 1200.0, 700.0, 704.0, false)
+	main.add_child(pet)
+	(main.get("_pets") as Array).append(pet)
+	var actor_key := str(pet.get_instance_id())
+	(main.get("_battle_pet_health") as Dictionary)[actor_key] = 20.0
+	(main.get("_battle_pet_max_health") as Dictionary)[actor_key] = 20.0
+	(main.get("_battle_pet_formed") as Dictionary)[actor_key] = false
+
+	var enemy := EnemyActor.new()
+	enemy.setup("villager1", Vector2(180.0, 704.0), 704.0, 1.0, 180.0)
+	main.add_child(enemy)
+	(main.get("_battle_enemies") as Array).append(enemy)
+	main.set("_battle_active", true)
+	main.set("_battle_started_at", 0.0)
+	main.set("_battle_ends_at", 55.0)
+	main.set("_battle_wave_schedule", [{"time": 0.0, "types": []}])
+	main.set("_battle_next_wave_index", 1)
+	main.set("_active_battle_difficulty_scale", 1.0)
+	main.call("_update_battle", 0.016)
+	if bool(main.get("_battle_active")):
+		failures.append("a battle must end when its 55-second deadline is reached")
+	if int(main.get("_gold_coins")) != 0 or float(main.get("_faith_points")) != 0.0:
+		failures.append("timing out with enemies alive must be a defeat without the victory reward")
 	main.free()

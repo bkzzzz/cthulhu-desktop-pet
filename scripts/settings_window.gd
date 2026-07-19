@@ -3,6 +3,7 @@ extends Window
 signal activity_range_changed(range_mode: String)
 signal language_changed(language_code: String)
 signal quit_requested
+signal reset_game_requested
 signal debug_economy_requested(faith_points: float, gold_coins: int)
 signal debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 signal debug_event_requested(event_type: String)
@@ -10,14 +11,15 @@ signal debug_pet_levels_requested(levels: Dictionary)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const PetProgression = preload("res://scripts/domain/pet_progression.gd")
+const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 
 const WINDOW_SIZE := Vector2i(720, 720)
-const BACKGROUND_TEXTURE := "res://assets/ui/setting/settingUI.png"
 const VALID_RANGE_MODES := ["full", "right", "left"]
-const VALID_LANGUAGES := ["zh", "en"]
+const VALID_LANGUAGES := LanguageSettings.SUPPORTED_LANGUAGES
 
 var _activity_range := "full"
-var _language := "zh"
+var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _session_seconds := 0.0
 var _total_seconds := 0.0
 var _title_label: Label
@@ -51,6 +53,8 @@ var _debug_event_title_label: Label
 var _debug_pilgrimage_button: Button
 var _debug_battle_button: Button
 var _debug_back_button: Button
+var _debug_reset_button: Button
+var _reset_confirmation: ConfirmationDialog
 var _updating_controls := false
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
@@ -76,6 +80,8 @@ func close_window() -> void:
 	_dragging = false
 	if _debug_panel != null:
 		_debug_panel.visible = false
+	if _reset_confirmation != null:
+		_reset_confirmation.hide()
 
 
 func refresh_runtime(session_seconds: float, total_seconds: float) -> void:
@@ -132,9 +138,6 @@ func get_language() -> String:
 func _configure_window() -> void:
 	name = "SettingsWindow"
 	title = "设置"
-	size = WINDOW_SIZE
-	min_size = WINDOW_SIZE
-	max_size = WINDOW_SIZE
 	unresizable = true
 	borderless = true
 	transparent = true
@@ -142,6 +145,7 @@ func _configure_window() -> void:
 	always_on_top = false
 	visible = false
 	close_requested.connect(close_window)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, DisplayLayout.get_current_usable_rect(self))
 
 
 func _create_content() -> void:
@@ -151,15 +155,6 @@ func _create_content() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.gui_input.connect(_on_root_gui_input)
 	add_child(_root)
-
-	var background := TextureRect.new()
-	background.name = "SettingsBackground"
-	background.texture = load(BACKGROUND_TEXTURE) as Texture2D
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(background)
 
 	var panel := PanelContainer.new()
 	panel.name = "SettingsPanel"
@@ -257,16 +252,24 @@ func _create_content() -> void:
 	_close_button = Button.new()
 	_close_button.name = "CloseSettings"
 	_close_button.text = "×"
-	_close_button.position = Vector2(591.0, 76.0)
+	_close_button.position = Vector2(514.0, 112.0)
 	_close_button.size = Vector2(54.0, 48.0)
+	_close_button.z_index = 10
+	_close_button.focus_mode = Control.FOCUS_NONE
 	_close_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	_close_button.add_theme_font_size_override("font_size", 28)
-	_close_button.add_theme_color_override("font_color", Color(0.92, 0.82, 0.62, 1.0))
-	_close_button.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-	_close_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.18, 0.12, 0.08, 0.72), Color(0.72, 0.58, 0.36, 0.72)))
+	_close_button.add_theme_font_size_override("font_size", 31)
+	_close_button.add_theme_color_override("font_color", Color(1.0, 0.91, 0.78, 1.0))
+	_close_button.add_theme_color_override("font_hover_color", Color.WHITE)
+	_close_button.add_theme_color_override("font_pressed_color", Color(1.0, 0.96, 0.9, 1.0))
+	_close_button.add_theme_color_override("font_outline_color", Color(0.08, 0.015, 0.012, 1.0))
+	_close_button.add_theme_constant_override("outline_size", 2)
+	_close_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.24, 0.055, 0.045, 0.98), Color(0.92, 0.48, 0.32, 1.0)))
+	_close_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.42, 0.08, 0.055, 1.0), Color(1.0, 0.72, 0.42, 1.0)))
+	_close_button.add_theme_stylebox_override("pressed", _make_button_style(Color(0.14, 0.025, 0.02, 1.0), Color(1.0, 0.82, 0.54, 1.0)))
 	_close_button.pressed.connect(close_window)
 	_root.add_child(_close_button)
 	_create_debug_panel()
+	_create_reset_confirmation()
 
 
 func _create_debug_panel() -> void:
@@ -390,11 +393,49 @@ func _create_debug_panel() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(spacer)
+	var footer_actions := HBoxContainer.new()
+	footer_actions.name = "DebugFooterActions"
+	footer_actions.custom_minimum_size = Vector2(600.0, 38.0)
+	footer_actions.add_theme_constant_override("separation", 10)
+	content.add_child(footer_actions)
 	_debug_back_button = Button.new()
+	_debug_back_button.name = "DebugBackToSettings"
 	_debug_back_button.text = "返回设置"
-	_debug_back_button.custom_minimum_size = Vector2(360.0, 38.0)
+	_debug_back_button.custom_minimum_size = Vector2(0.0, 38.0)
+	_debug_back_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_debug_back_button.pressed.connect(_close_debug_panel)
-	content.add_child(_debug_back_button)
+	footer_actions.add_child(_debug_back_button)
+	_debug_reset_button = Button.new()
+	_debug_reset_button.name = "ResetAllProgress"
+	_debug_reset_button.text = "重置全部进度"
+	_debug_reset_button.tooltip_text = "需要再次确认；确认后将永久清除当前存档"
+	_debug_reset_button.custom_minimum_size = Vector2(0.0, 38.0)
+	_debug_reset_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_debug_reset_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_debug_reset_button.add_theme_font_size_override("font_size", 17)
+	_debug_reset_button.add_theme_color_override("font_color", Color(1.0, 0.86, 0.8, 1.0))
+	_debug_reset_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.25, 0.055, 0.05, 0.98), Color(0.78, 0.25, 0.18, 1.0)))
+	_debug_reset_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.42, 0.075, 0.06, 1.0), Color(1.0, 0.48, 0.3, 1.0)))
+	_debug_reset_button.add_theme_stylebox_override("pressed", _make_button_style(Color(0.15, 0.025, 0.022, 1.0), Color(1.0, 0.62, 0.4, 1.0)))
+	_debug_reset_button.pressed.connect(_on_debug_reset_pressed)
+	footer_actions.add_child(_debug_reset_button)
+
+
+func _create_reset_confirmation() -> void:
+	_reset_confirmation = ConfirmationDialog.new()
+	_reset_confirmation.name = "ResetGameConfirmation"
+	_reset_confirmation.unresizable = true
+	_reset_confirmation.transient = true
+	_reset_confirmation.exclusive = true
+	_reset_confirmation.min_size = Vector2i(500, 220)
+	_reset_confirmation.confirmed.connect(_on_reset_confirmed)
+	add_child(_reset_confirmation)
+
+	var confirm_button := _reset_confirmation.get_ok_button()
+	confirm_button.add_theme_color_override("font_color", Color(1.0, 0.88, 0.82, 1.0))
+	confirm_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.28, 0.055, 0.05, 1.0), Color(0.82, 0.28, 0.2, 1.0)))
+	confirm_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.46, 0.075, 0.06, 1.0), Color(1.0, 0.5, 0.32, 1.0)))
+	confirm_button.add_theme_stylebox_override("pressed", _make_button_style(Color(0.16, 0.025, 0.02, 1.0), Color(1.0, 0.65, 0.42, 1.0)))
 
 
 func _make_debug_spin_box() -> SpinBox:
@@ -432,6 +473,17 @@ func _open_debug_panel() -> void:
 func _close_debug_panel() -> void:
 	if _debug_panel != null:
 		_debug_panel.visible = false
+	if _reset_confirmation != null:
+		_reset_confirmation.hide()
+
+
+func _on_debug_reset_pressed() -> void:
+	if _reset_confirmation != null:
+		_reset_confirmation.popup_centered(Vector2i(500, 220))
+
+
+func _on_reset_confirmed() -> void:
+	reset_game_requested.emit()
 
 
 func _on_debug_apply_pressed() -> void:
@@ -532,6 +584,7 @@ func _make_button_style(background: Color, border: Color) -> StyleBoxFlat:
 func _apply_language() -> void:
 	if _title_label == null:
 		return
+	theme = LanguageSettings.make_ui_theme(_language)
 	var english := _language == "en"
 	title = "Settings" if english else "设置"
 	_title_label.text = "SETTINGS" if english else "设置"
@@ -566,6 +619,24 @@ func _apply_language() -> void:
 		_debug_battle_button.text = "DROP BATTLE INVITE" if english else "投放战斗邀请"
 	if _debug_back_button != null:
 		_debug_back_button.text = "BACK TO SETTINGS" if english else "返回设置"
+	if _debug_reset_button != null:
+		_debug_reset_button.text = "RESET ALL PROGRESS" if english else "重置全部进度"
+		_debug_reset_button.tooltip_text = (
+			"Requires confirmation and permanently erases the current save"
+			if english
+			else "需要再次确认；确认后将永久清除当前存档"
+		)
+	if _close_button != null:
+		_close_button.tooltip_text = "Close settings" if english else "关闭设置"
+	if _reset_confirmation != null:
+		_reset_confirmation.title = "Reset all progress" if english else "重置全部进度"
+		_reset_confirmation.dialog_text = (
+			"This permanently erases all progress and returns the game to its beginning. This cannot be undone."
+			if english
+			else "这会永久清除全部进度并让游戏回到最开始，且无法撤销。"
+		)
+		_reset_confirmation.ok_button_text = "RESET EVERYTHING" if english else "确认全部重置"
+		_reset_confirmation.cancel_button_text = "CANCEL" if english else "取消"
 
 	_updating_controls = true
 	_range_options.clear()
@@ -573,8 +644,8 @@ func _apply_language() -> void:
 	_range_options.add_item("Right side" if english else "靠右", 1)
 	_range_options.add_item("Left side" if english else "靠左", 2)
 	_language_options.clear()
-	_language_options.add_item("中文", 0)
-	_language_options.add_item("English", 1)
+	_language_options.add_item("English", 0)
+	_language_options.add_item("中文", 1)
 	_updating_controls = false
 
 
@@ -613,18 +684,17 @@ func _on_root_gui_input(event: InputEvent) -> void:
 			_drag_offset = DisplayServer.mouse_get_position() - position
 		return
 	if event is InputEventMouseMotion and _dragging:
-		position = DisplayServer.mouse_get_position() - _drag_offset
+		var desired := DisplayServer.mouse_get_position() - _drag_offset
+		position = DisplayLayout.clamp_position(
+			desired,
+			size,
+			DisplayLayout.get_current_usable_rect(self)
+		)
 
 
 func _center_window() -> void:
-	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS
-	if screen < 0:
-		screen = DisplayServer.window_get_current_screen()
-	var screen_rect := Rect2i(DisplayServer.screen_get_position(screen), DisplayServer.screen_get_size(screen))
-	position = Vector2i(
-		screen_rect.position.x + maxi(0, int((screen_rect.size.x - WINDOW_SIZE.x) * 0.5)),
-		screen_rect.position.y + maxi(0, int((screen_rect.size.y - WINDOW_SIZE.y) * 0.5))
-	)
+	var usable_rect := DisplayLayout.get_current_usable_rect(self)
+	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, usable_rect)
 
 
 static func _format_duration(seconds: float) -> String:
@@ -640,4 +710,4 @@ static func _sanitize_range(value: String) -> String:
 
 
 static func _sanitize_language(value: String) -> String:
-	return value if VALID_LANGUAGES.has(value) else "zh"
+	return LanguageSettings.sanitize(value)
