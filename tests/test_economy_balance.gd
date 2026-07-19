@@ -71,8 +71,6 @@ static func _check_unlock_curve(failures: Array[String]) -> void:
 static func _check_duplicate_reward(failures: Array[String]) -> void:
 	var draw_cost := 1000
 	var two_star_duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
-	# The final pool entry is now pet10 (four stars); sample the pet6 boundary
-	# explicitly so this remains a genuine five-star duplicate comparison.
 	var five_star_duplicate := GachaProgression.roll_pet(
 		0.89,
 		PetCatalog.ACTIVE_DESKTOP_PETS,
@@ -205,9 +203,6 @@ static func _simulate_campaign(earned_faith_multiplier := 1.0) -> Dictionary:
 		"all_level_100": INF
 	}
 
-	# Gold and faith advance over the same wall-clock time, but they never pay
-	# each other's costs. Unlock the roster as soon as collectible gold can fund
-	# each worst-case pity cycle; accumulated faith remains available for levels.
 	while (
 		unlocked.size() < PetCatalog.ACTIVE_DESKTOP_PETS.size()
 		and steps < MAX_SIMULATION_STEPS
@@ -437,8 +432,6 @@ static func _check_dynamic_offering_prices(failures: Array[String]) -> void:
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		level_one_states[pet_id] = {"upgrade_level": 1}
-		# Potential income derives evolution from the campaign level even if a
-		# frame has not yet persisted the redundant evolved flag.
 		campaign_states[pet_id] = {"upgrade_level": 100}
 
 	var level_one_rate := EconomyBalance.potential_coin_rate_per_minute(

@@ -131,8 +131,8 @@ static func _test_shop_balance_display(failures: Array[String]) -> void:
 	if balance_label == null:
 		failures.append("the shop must create a visible gold balance")
 	else:
-		if balance_label.text != "$ 1.25B":
-			failures.append("the shop balance must omit GOLD/金币 wording and compact large values")
+		if balance_label.text != "1.25 YC":
+			failures.append("the shop balance must replace billion-scale gold with yellow crystals")
 		if balance_label.horizontal_alignment != HORIZONTAL_ALIGNMENT_RIGHT:
 			failures.append("the shop balance must align its amount to the right")
 		if balance_label.position.x <= float(ShopWindow.WINDOW_SIZE.x) * 0.5:
@@ -140,8 +140,8 @@ static func _test_shop_balance_display(failures: Array[String]) -> void:
 		if close_button != null and balance_label.position.x + balance_label.size.x >= close_button.position.x:
 			failures.append("the right-aligned shop balance must leave room for the close control")
 	shop.set_language("en")
-	if balance_label != null and balance_label.text != "$ 1.25B":
-		failures.append("changing shop language must not restore a GOLD text prefix")
+	if balance_label != null and balance_label.text != "1.25 YC":
+		failures.append("changing shop language must preserve crystal denomination display")
 	if ShopWindow._format_compact_number(1_000_000_000_000_000.0) != "1.00Qa":
 		failures.append("the shop balance formatter must remain compact at quadrillion-scale progression")
 	shop.free()

@@ -1,41 +1,42 @@
-# cthulu
+# Cthulhu Pet
 
-一个基于 Godot 4 的桌面宠物放置游戏demo工程。
+Cthulhu Pet is a Godot 4 desktop idle game for Windows. Pets live above the taskbar, generate faith and gold, react to the pointer, accept offerings, and fight era-based enemy waves.
 
-## 目录说明
-- scenes/ ：主场景与界面场景
-- scripts/ ：游戏脚本
-- assets/characters/ ：角色资源
-- assets/ui/ ：界面资源
-- assets/audio/ ：音频资源
-- builds/windows/ ：导出产物目录
+## Requirements
 
-## 当前配置
-- 已设置主场景为 res://scenes/Main.tscn
-- 已添加 Windows 导出预设
-- 已配置基础窗口尺寸与项目元信息
+- Windows 10 or 11
+- Godot 4.x
+- The Godot editor executable in the parent directory of this repository
 
-## 后续步骤
-1. 安装 Godot 4.x
-2. 打开项目文件夹，运行项目
-3. 在项目中替换图标、角色资源和主界面内容
-4. 使用导出预设生成 Windows 可执行文件
-5. 将生成产物上传到 Steam 发布流程
+## Run and test
 
-## 启动与测试
-
-Godot 编辑器位于项目的上层目录。不要依赖终端当前所在目录，统一从项目根目录使用启动脚本：
+From the repository root:
 
 ```powershell
-# 运行游戏
+# Run the game
 .\run_game.cmd
 
-# 打开编辑器
+# Open the project in the editor
 .\run_game.cmd -Editor
 
-# 运行全部测试
+# Run all headless tests
 .\run_tests.cmd
 ```
 
-VS Code 中也可以运行默认生成任务 `Godot: Run Game`，测试任务为 `Godot: Run Tests`。
-脚本会根据自身位置解析项目目录和上层的 Godot 程序，因此从任意工作目录调用都不会启动错项目。
+The launch scripts resolve the project directory and Godot executable from their own locations, so they work from any current directory. VS Code tasks named `Godot: Run Game` and `Godot: Run Tests` provide the same workflows.
+
+## Project layout
+
+- `scenes/`: Godot scenes
+- `scripts/`: gameplay, UI, runtime controllers, and pure domain rules
+- `assets/`: character, interface, audio, and effect assets
+- `tests/`: headless regression tests and visual QA harnesses
+- `builds/windows/`: Windows export output
+
+The main scene is `res://scenes/Main.tscn`. Runtime features are split into focused controllers under `scripts/runtime/`, while deterministic progression and balance rules live under `scripts/domain/`.
+
+The desktop layer follows the active monitor's usable Windows work area and responds to resolution, DPI, monitor, and taskbar changes. English is the default language; Chinese can be selected in Settings.
+
+## Windows export
+
+The repository includes a Windows export preset. Replace or update project assets as needed, export the executable into `builds/windows/`, and use that output for distribution.

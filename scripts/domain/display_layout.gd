@@ -1,14 +1,6 @@
 class_name DisplayLayout
 extends RefCounted
 
-## Shared window geometry rules.
-##
-## Windows keeps its own DPI-aware coordinate space, so every calculation is
-## based on DisplayServer's usable rectangle rather than an assumed desktop
-## resolution.  The pure geometry helpers are kept here so all native windows
-## follow the same rules and the common Windows resolutions can be regression
-## tested without opening real OS windows.
-
 const DEFAULT_SCREEN_MARGIN := 16
 const FALLBACK_USABLE_SIZE := Vector2i(1280, 720)
 

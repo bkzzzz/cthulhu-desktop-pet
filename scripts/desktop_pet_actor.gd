@@ -44,10 +44,6 @@ const SWALLOW_SPIT_DISTANCE_MAX := 240.0
 const PET5_DEFAULT_ROLL_SPEED := 7.5
 const PET5_BATTLE_ROLL_SPEED := 760.0
 
-# Authored desktop_scale values describe each form's intended display size.
-# Base forms grow while young but stop short of the evolved form's scale band.
-# Only evolved pets can continue growing above their Lv.100 authored size, and
-# even extreme debug/save levels stay bounded.
 const LEVEL_SIZE_BASELINE_LEVEL := 100
 const LEVEL_SIZE_MIN_MULTIPLIER := 0.70
 const LEVEL_SIZE_BASE_FORM_MAX_MULTIPLIER := 0.94
@@ -249,8 +245,6 @@ func setup(
 	_frame_center_y = float(pet_data.get("frame_center_y", 64.0))
 	_frame_foot_y = float(pet_data.get("frame_foot_y", 102.0))
 	_ground_offset_y = float(pet_data.get("ground_offset_y", 0.0))
-	# pet5 is a ball. Keep its rolling identity even when a newly imported asset
-	# temporarily omits the optional catalogue tuning keys.
 	_rolls_while_walking = (
 		(pet_id == "pet5" and not is_evolved)
 		or bool(pet_data.get("rolls_while_walking", false))
@@ -317,8 +311,6 @@ func setup(
 static func get_level_size_multiplier(level: int, evolved := false) -> float:
 	var safe_level := maxi(1, level)
 	if not evolved:
-		# A base form can only exist through Lv.99 in normal progression. Clamp the
-		# debug/save fallback too, so it can never enter the evolved size band.
 		var last_base_level := LEVEL_SIZE_BASELINE_LEVEL - 1
 		var clamped_base_level := mini(safe_level, last_base_level)
 		var progress := float(clamped_base_level - 1) / float(last_base_level - 1)
@@ -347,9 +339,6 @@ func set_pet_level(new_level: int) -> void:
 	if _sprite == null:
 		return
 	_sprite.scale = Vector2.ONE * _pet_scale
-	# Keep active ground pets planted on the same authored foot line as they grow.
-	# Airborne, wall-mounted, swallowed and dragged pets retain their current path;
-	# their next state transition will settle them normally.
 	if (
 		_behavior_style != "sleepy_floater"
 		and _behavior in [Behavior.IDLE, Behavior.WALK, Behavior.SLEEP_CLOSING, Behavior.SLEEPING, Behavior.SLEEP_OPENING, Behavior.DOZING]
@@ -447,8 +436,6 @@ func set_battle_mode(enabled: bool) -> void:
 		if _behavior not in [Behavior.GRABBED, Behavior.FALLING]:
 			_start_idle()
 			_sprite.speed_scale = 0.12 if pet_id == "pet5" and not is_evolved else 1.0
-		# Battle placement is part of the gameplay: players may still grab a pet
-		# and drop it beside a priority target.
 		_set_interaction_enabled(true)
 		z_index = 210
 		_battle_facing_direction = -1.0
@@ -672,7 +659,7 @@ func receive_battle_hit(knockback := 14.0) -> void:
 		return
 	var stable_y := position.y
 	position.x = clampf(
-		position.x + maxf(0.0, knockback),
+		position.x + knockback,
 		_get_drag_min_x(),
 		_get_drag_max_x()
 	)
@@ -1463,8 +1450,6 @@ func _choose_air_roam_destination() -> Vector2:
 		_rng.randf_range(y_bounds.x, y_bounds.y)
 	)
 	var best_distance := position.distance_to(best_destination)
-	# A few candidates keep consecutive legs visibly different without making
-	# the route deterministic or biased toward a single height band.
 	for _attempt in 3:
 		var candidate := Vector2(
 			_rng.randf_range(_min_x, _max_x),

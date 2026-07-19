@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Offering cursor input, placement, feeding, buffs, and feedback popups.
-
 func _update_offering_cursor_state() -> void:
 	if not _carried_offering.is_empty():
 		_refresh_offering_cursor()
@@ -140,7 +138,7 @@ func _cancel_carried_offering() -> void:
 	_clear_offering_cursor()
 	var refund = maxi(0, int(cancelled_offering.get("purchase_price", 0)))
 	if refund > 0:
-		_gold_coins += refund
+		_gold_coins = CurrencyDisplay.add_gold(_gold_coins, refund)
 		_show_coin_change_popup(_host._get_window_mouse_position(get_window()), refund)
 		_host._sync_shop_state()
 		_host._refresh_coin_display()
@@ -149,7 +147,7 @@ func _cancel_carried_offering() -> void:
 				"set_purchase_result",
 				String(cancelled_offering.get("id", "")),
 				true,
-				("Placement cancelled. Refunded $%d gold" if _language == "en" else "已取消投放，返还 $%d 金币") % refund
+				("Placement cancelled. Refunded %s" if _language == "en" else "已取消投放，返还 %s") % CurrencyDisplay.format_compact(refund)
 			)
 	call_deferred("_update_offering_input_window")
 	_host._request_save()
@@ -429,7 +427,7 @@ func _show_coin_change_popup(anchor: Vector2, amount: int, coin_type := "") -> v
 				color = Color(1.0, 0.92, 0.24, 1.0)
 	_show_status_popup(
 		anchor,
-		("%s$%d GOLD%s" if _language == "en" else "%s$%d 金币%s") % [prefix, absi(amount), type_hint],
+		("%s%s%s" if _language == "en" else "%s%s%s") % [prefix, CurrencyDisplay.format_compact(absi(amount)), type_hint],
 		color
 	)
 
@@ -464,6 +462,3 @@ func _get_safe_control_position(raw_position: Vector2, size: Vector2, margin: fl
 	raw_position.x = clampf(raw_position.x, margin, maxf(margin, right))
 	raw_position.y = clampf(raw_position.y, margin, maxf(margin, bottom))
 	return raw_position
-
-
-# Upgrade and global commands

@@ -1,8 +1,5 @@
 extends RefCounted
 
-## Followers are a passive result of the current faith economy. They never feed
-## back into faith generation, which keeps the progression loop predictable.
-
 const FOLLOWERS_PER_FAITH_PER_SECOND := 0.05
 
 

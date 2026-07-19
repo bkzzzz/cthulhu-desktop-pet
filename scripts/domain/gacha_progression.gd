@@ -126,9 +126,6 @@ static func make_locked_pool(unlocked_lookup: Dictionary, faith_growth_rate := 0
 	return locked_pool
 
 
-# Batch callers retain the owned set and eligible locked-pet pool between rolls.
-# Eligibility is still checked here so no direct caller, stale batch data, or
-# pity roll can bypass the permanent-production gate.
 static func roll_pet_with_context(
 	unit_roll: float,
 	unlocked_lookup: Dictionary,

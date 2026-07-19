@@ -498,8 +498,6 @@ func _emit_debug_values() -> void:
 		or _debug_game_speed_spin == null
 	):
 		return
-	# Snapshot every control first. The economy receiver refreshes this window and
-	# would otherwise overwrite unsent multiplier fields with their previous values.
 	var faith_points := _debug_faith_spin.value
 	var gold_coins := int(round(_debug_coin_spin.value))
 	var enemy_power_scale := _debug_enemy_power_spin.value
@@ -516,8 +514,6 @@ func _emit_debug_values() -> void:
 func _on_debug_event_pressed(event_type: String) -> void:
 	if event_type not in ["pilgrimage", "battle"]:
 		return
-	# Event buttons are a one-click debug workflow: values currently typed into
-	# the controls must affect the invitation even if Apply was not pressed first.
 	_emit_debug_values()
 	debug_event_requested.emit(event_type)
 	close_window()

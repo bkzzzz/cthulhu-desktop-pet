@@ -17,6 +17,8 @@ void fragment() {
 	COLOR = source;
 }
 """
+const ORPHAN_COAST_SECONDS := 1.35
+const ORPHAN_VIEWPORT_MARGIN := 180.0
 
 var projectile_kind := "arrow"
 var _target: Node2D
@@ -35,6 +37,10 @@ var _swallower: Node2D
 var _swallow_start := Vector2.ZERO
 var _swallow_progress := 0.0
 var _rng := RandomNumberGenerator.new()
+var _last_target_position := Vector2.ZERO
+var _travel_direction := Vector2.RIGHT
+var _coasting := false
+var _coast_elapsed := 0.0
 
 
 func setup(
@@ -51,6 +57,10 @@ func setup(
 	_damage = maxf(0.0, damage)
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id())
 	var initial_target := _get_target_position()
+	_last_target_position = initial_target
+	var initial_direction := initial_target - start_position
+	if initial_direction.length_squared() > 0.001:
+		_travel_direction = initial_direction.normalized()
 	var distance := maxf(1.0, start_position.distance_to(initial_target))
 	if projectile_kind == "arrow":
 		_flight_duration = clampf(distance / 610.0, 0.28, 1.25)
@@ -88,19 +98,21 @@ func _process(delta: float) -> void:
 	if _being_swallowed:
 		_update_swallowed(safe_delta)
 		return
-	if _target == null or not is_instance_valid(_target):
-		_resolved = true
-		queue_free()
+	if not _is_target_available():
+		_begin_coasting()
+		_update_coasting(safe_delta)
 		return
 	_elapsed += safe_delta
 	var progress := minf(1.0, _elapsed / maxf(0.01, _flight_duration))
 	var target_position := _get_target_position()
+	_last_target_position = target_position
 	var next_position := _start_position.lerp(target_position, progress)
 	if projectile_kind == "arrow":
 		next_position.y -= sin(progress * PI) * _arc_height
 	var travel := next_position - position
 	position = next_position
 	if travel.length_squared() > 0.01:
+		_travel_direction = travel.normalized()
 		_sprite.rotation = travel.angle() + (0.0 if projectile_kind == "arrow" else PI)
 	if progress >= 1.0:
 		_resolved = true
@@ -165,10 +177,54 @@ func _create_sprite() -> void:
 
 func _get_target_position() -> Vector2:
 	if _target == null or not is_instance_valid(_target):
-		return position
+		return _last_target_position
 	if _target.has_method("get_battle_hit_position"):
 		return _target.call("get_battle_hit_position")
 	return _target.position + Vector2(0.0, -48.0)
+
+
+func _is_target_available() -> bool:
+	if _target == null or not is_instance_valid(_target) or _target.is_queued_for_deletion():
+		return false
+	return true
+
+
+func get_travel_direction() -> Vector2:
+	return _travel_direction
+
+
+func _begin_coasting() -> void:
+	if _coasting:
+		return
+	_coasting = true
+	_coast_elapsed = 0.0
+	var remaining_direction := _last_target_position - position
+	if remaining_direction.length_squared() > 0.001:
+		_travel_direction = remaining_direction.normalized()
+	if _travel_direction.length_squared() <= 0.001:
+		_travel_direction = Vector2.RIGHT
+	_target = null
+
+
+func _update_coasting(delta: float) -> void:
+	_coast_elapsed += delta
+	position += _travel_direction * _get_coast_speed() * delta
+	if _sprite != null:
+		_sprite.rotation = _travel_direction.angle() + (0.0 if projectile_kind == "arrow" else PI)
+	if _coast_elapsed >= ORPHAN_COAST_SECONDS or _is_outside_padded_viewport():
+		_resolved = true
+		queue_free()
+
+
+func _get_coast_speed() -> float:
+	return maxf(1.0, _start_position.distance_to(_last_target_position) / maxf(0.01, _flight_duration))
+
+
+func _is_outside_padded_viewport() -> bool:
+	if not is_inside_tree():
+		return false
+	var bounds := get_viewport_rect().grow(ORPHAN_VIEWPORT_MARGIN)
+	return not bounds.has_point(position)
 
 
 func _update_swallowed(delta: float) -> void:

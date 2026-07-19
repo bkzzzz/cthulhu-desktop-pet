@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Save/load, migration, sanitization, autosave, and offline progress.
-
 func _load_game() -> void:
 	if not _persistence_enabled:
 		return
@@ -20,7 +18,7 @@ func _load_game() -> void:
 		float(save.get_value("economy", "lifetime_faith", _faith_points))
 	)
 	_follower_count = maxf(0.0, float(save.get_value("economy", "followers", 0.0)))
-	_gold_coins = maxi(0, int(save.get_value("economy", "gold_coins", 0)))
+	_gold_coins = CurrencyDisplay.sanitize_gold(int(save.get_value("economy", "gold_coins", 0)))
 	_total_runtime_seconds = maxf(0.0, float(save.get_value("statistics", "total_runtime_seconds", 0.0)))
 	_campaign_completed = bool(save.get_value("progression", "campaign_completed", false))
 	_campaign_completion_acknowledged = bool(save.get_value(
@@ -29,14 +27,19 @@ func _load_game() -> void:
 		false
 	))
 	_endless_mode = bool(save.get_value("progression", "endless_mode", false))
+	_final_boss_defeated = _get_loaded_final_boss_defeated(
+		loaded_save_version,
+		_campaign_completed,
+		bool(save.get_value("progression", "final_boss_defeated", false)),
+		_endless_mode
+	)
 	if _endless_mode:
 		_campaign_completed = true
 		_campaign_completion_acknowledged = true
+		_final_boss_defeated = true
 	_pet_activity_range = String(save.get_value("settings", "pet_activity_range", "full"))
 	if _pet_activity_range not in ["full", "right", "left"]:
 		_pet_activity_range = "full"
-	# Existing explicit Chinese saves stay Chinese. Saves created before the
-	# language setting existed now inherit the game's English default.
 	_language = resolve_saved_language(save)
 	_selected_pet_id = String(save.get_value("pets", "selected_pet_id", ""))
 	_pet_states = _sanitize_loaded_pet_states(save.get_value("pets", "states", {}))
@@ -77,7 +80,6 @@ func _load_game() -> void:
 		)
 		_gacha_history = _sanitize_gacha_history(save.get_value("gacha", "history", []))
 	else:
-		# Legacy draws granted global buffs, so their count cannot price the new pet pool.
 		_gacha_draw_count = 0
 		_gacha_pity_count = 0
 		_gacha_history.clear()
@@ -133,9 +135,10 @@ func _save_game() -> void:
 	save.set_value("economy", "faith_points", maxf(0.0, _faith_points))
 	save.set_value("economy", "lifetime_faith", maxf(0.0, _lifetime_faith))
 	save.set_value("economy", "followers", maxf(0.0, _follower_count))
-	save.set_value("economy", "gold_coins", maxi(0, _gold_coins))
+	save.set_value("economy", "gold_coins", CurrencyDisplay.sanitize_gold(_gold_coins))
 	save.set_value("statistics", "total_runtime_seconds", maxf(0.0, _total_runtime_seconds))
 	save.set_value("progression", "campaign_completed", _campaign_completed)
+	save.set_value("progression", "final_boss_defeated", _final_boss_defeated)
 	save.set_value(
 		"progression",
 		"completion_acknowledged",
@@ -242,8 +245,6 @@ func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
 		var state = {
 			"upgrade_level": sanitized_level
 		}
-		# Form is derived from the current level. Persisted flags from older saves
-		# must never keep a downgraded debug pet in its evolved art.
 		if sanitized_level >= 100 and PetCatalog.has_evolution(pet_id):
 			state["evolved"] = true
 		var recover_until = maxf(0.0, float(raw_state.get("recover_until", 0.0)))

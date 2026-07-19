@@ -16,6 +16,8 @@ const EXPLOSION_CONFIG := [
 	{"sheet": "res://assets/effects/explosion/electric explosion/spritesheet.png", "frames": 12, "frame_size": Vector2(116.0, 85.0), "fps": 20.0, "scale": 0.82},
 	{"sheet": "res://assets/effects/explosion/Big Explosion/big_explosion-sheet.png", "frames": 11, "frame_size": Vector2(208.0, 164.0), "fps": 16.0, "scale": 0.72}
 ]
+const ORPHAN_COAST_SECONDS := 1.35
+const ORPHAN_VIEWPORT_MARGIN := 180.0
 
 static var _projectile_frame_cache := {}
 static var _explosion_frame_cache := {}
@@ -24,12 +26,20 @@ var _mode := ""
 var _target: Node2D
 var _projectile_speed := 760.0
 var _sprite: AnimatedSprite2D
+var _last_target_position := Vector2.ZERO
+var _travel_direction := Vector2.RIGHT
+var _coasting := false
+var _coast_elapsed := 0.0
 
 
 func setup_projectile(pet_id: String, start_position: Vector2, target: Node2D, visual_power: float) -> void:
 	_mode = "projectile"
 	_target = target
 	position = start_position
+	_last_target_position = _get_target_hit_position()
+	var initial_direction := _last_target_position - position
+	if initial_direction.length_squared() > 0.001:
+		_travel_direction = initial_direction.normalized()
 	z_index = 235
 	var config: Dictionary = PROJECTILE_CONFIG.get(pet_id, PROJECTILE_CONFIG["pet2"])
 	_sprite = AnimatedSprite2D.new()
@@ -56,8 +66,6 @@ func setup_explosion(world_position: Vector2, visual_power: float) -> void:
 	_sprite.sprite_frames = _get_explosion_frames(tier, config)
 	_sprite.centered = true
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	# Tier changes the artwork, while this continuous curve makes late-game pet
-	# growth unmistakable without multiplying particles or effect nodes.
 	var level_scale := clampf(0.72 + pow(maxf(1.0, visual_power), 0.72) * 0.18, 0.90, 1.85)
 	_sprite.scale = Vector2.ONE * float(config.get("scale", 1.0)) * level_scale
 	_sprite.animation_finished.connect(queue_free)
@@ -68,33 +76,82 @@ func setup_explosion(world_position: Vector2, visual_power: float) -> void:
 func _process(delta: float) -> void:
 	if _mode != "projectile":
 		return
-	if _target == null or not is_instance_valid(_target):
-		queue_free()
+	var safe_delta := maxf(0.0, delta)
+	if not _is_target_available():
+		_begin_coasting()
+		_update_coasting(safe_delta)
 		return
 	var target_position := _get_target_hit_position()
+	_last_target_position = target_position
 	var distance := position.distance_to(target_position)
-	var step := _projectile_speed * maxf(0.0, delta)
+	var step := _projectile_speed * safe_delta
 	if distance <= maxf(8.0, step):
 		position = target_position
 		projectile_impacted.emit(self, _target)
 		queue_free()
 		return
+	var previous_position := position
 	position = position.move_toward(target_position, step)
+	var travel := position - previous_position
+	if travel.length_squared() > 0.001:
+		_travel_direction = travel.normalized()
 	_face_travel_direction()
 
 
 func _get_target_hit_position() -> Vector2:
 	if _target != null and is_instance_valid(_target) and _target.has_method("get_battle_hit_position"):
 		return _target.call("get_battle_hit_position")
-	return _target.position + Vector2(0.0, -54.0)
+	if _target != null and is_instance_valid(_target):
+		return _target.position + Vector2(0.0, -54.0)
+	return _last_target_position
 
 
 func _face_travel_direction() -> void:
-	if _sprite == null or _target == null or not is_instance_valid(_target):
+	if _sprite == null:
 		return
-	var direction := _get_target_hit_position() - position
+	var direction := _travel_direction if _coasting else _get_target_hit_position() - position
 	if direction.length_squared() > 0.001:
 		rotation = direction.angle()
+
+
+func get_travel_direction() -> Vector2:
+	return _travel_direction
+
+
+func _is_target_available() -> bool:
+	if _target == null or not is_instance_valid(_target) or _target.is_queued_for_deletion():
+		return false
+	if _target.has_method("is_defeated") and bool(_target.call("is_defeated")):
+		return false
+	return true
+
+
+func _begin_coasting() -> void:
+	if _coasting:
+		return
+	_coasting = true
+	_coast_elapsed = 0.0
+	var remaining_direction := _last_target_position - position
+	if remaining_direction.length_squared() > 0.001:
+		_travel_direction = remaining_direction.normalized()
+	if _travel_direction.length_squared() <= 0.001:
+		_travel_direction = Vector2.RIGHT
+	_target = null
+	_face_travel_direction()
+
+
+func _update_coasting(delta: float) -> void:
+	_coast_elapsed += delta
+	position += _travel_direction * _projectile_speed * delta
+	if _coast_elapsed >= ORPHAN_COAST_SECONDS or _is_outside_padded_viewport():
+		queue_free()
+
+
+func _is_outside_padded_viewport() -> bool:
+	if not is_inside_tree():
+		return false
+	var bounds := get_viewport_rect().grow(ORPHAN_VIEWPORT_MARGIN)
+	return not bounds.has_point(position)
 
 
 static func _get_projectile_frames(pet_id: String, config: Dictionary) -> SpriteFrames:

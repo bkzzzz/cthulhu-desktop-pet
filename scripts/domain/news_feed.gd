@@ -1,8 +1,5 @@
 extends RefCounted
 
-## Deterministic news rules and persistent history. Runtime timing and UI live in
-## main.gd so this class stays headless-testable.
-
 const MAX_HISTORY := 80
 const MAX_HEADLINE_LENGTH := 220
 const RECENT_TEMPLATE_LIMIT := 6
@@ -442,8 +439,6 @@ static func get_follower_tier(followers: float) -> int:
 	return tier
 
 
-# Ambient cadence intentionally accepts no faith-rate input: progression news is
-# handled by milestones, while idle reports stay in the same low-frequency band.
 static func get_ambient_interval(unit_roll: float) -> float:
 	var safe_roll := clampf(unit_roll, 0.0, 1.0) if is_finite(unit_roll) else 0.0
 	return lerpf(AMBIENT_INTERVAL_MIN_SECONDS, AMBIENT_INTERVAL_MAX_SECONDS, safe_roll)
@@ -602,7 +597,6 @@ static func _report_number(base_value: float, unit_roll: float, salt: int) -> in
 	var mixed := fposmod(_safe_unit_roll(unit_roll) * 0.754877666 + float(salt) * 0.569840291, 1.0)
 	var spread := 0.34 if safe_base < 20.0 else 0.22
 	var result := maxi(1, int(round(safe_base * lerpf(1.0 - spread, 1.0 + spread, mixed))))
-	# Avoid the conspicuous template constant surviving most rolls after rounding.
 	if result == int(round(safe_base)) and safe_base >= 3.0:
 		result += -1 if mixed < 0.5 else 1
 	return result

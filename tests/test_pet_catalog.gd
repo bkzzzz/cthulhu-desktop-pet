@@ -112,10 +112,6 @@ static func run() -> Array[String]:
 		failures.append("the expanded desktop roster must retain varied behavior styles")
 	if minimum_scale > 0.7:
 		failures.append("the smallest desktop pet must be visibly small")
-	# Catalogue scale is only meaningful together with each sheet's cell size
-	# (the evolved coins use 256 px cells while several pets use 128 px cells).
-	# Keep variation, but do not force one 128 px pet to be oversized merely to
-	# create a large raw-number spread.
 	if maximum_scale - minimum_scale < 0.45:
 		failures.append("desktop pet sizes must have a clear visual range")
 	for climbing_pet_id in ["pet1", "pet4"]:

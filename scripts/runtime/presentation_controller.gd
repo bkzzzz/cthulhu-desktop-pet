@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Auxiliary windows, HUD synchronization, and cult news presentation.
-
 func _refresh_era_display(force := false) -> void:
 	if _side_drawer == null or not _side_drawer.has_method("refresh_era"):
 		return
@@ -16,8 +14,6 @@ func _refresh_era_display(force := false) -> void:
 			if _inventory_window != null and _inventory_window.visible:
 				_sync_inventory_window()
 
-
-# Coin drops
 
 func _create_news_broadcast() -> void:
 	var layer = CanvasLayer.new()
@@ -322,8 +318,6 @@ func _create_completion_window() -> void:
 	_completion_window.call("setup", _language)
 
 
-# Window clickthrough and hit testing
-
 func _refresh_pet_stats(force := false) -> void:
 	if _side_drawer == null:
 		return
@@ -347,8 +341,6 @@ func _refresh_pet_stats(force := false) -> void:
 		or bool(_side_drawer.call("is_upgrade_ui_visible"))
 	)
 	if not upgrade_ui_visible:
-		# Keep one dirty bit instead of rebuilding ten rich rows while the native
-		# drawer window is closed. drawer_opened performs the authoritative refresh.
 		_pet_upgrade_stats_dirty = true
 		_last_reported_faith_count = faith_count
 		_last_reported_growth_rate = growth_rate

@@ -1,9 +1,5 @@
 extends RefCounted
 
-## Trusted definitions shared by the shop and the desktop drop flow. Offerings
-## are consumables: buying one immediately puts it on the cursor instead of
-## adding it to the shop's persistent owned-count inventory.
-
 const KIND := "offering"
 
 const ENGLISH_COPY := {
@@ -148,9 +144,6 @@ static func normalize_offering(raw: Dictionary) -> Dictionary:
 	if definition.is_empty():
 		return {}
 
-	# Names, textures, prices, and boost values always come from the trusted catalog.
-	# Only the exact price already paid is carried through for cancellation/save
-	# migration; old altar offerings simply normalize with a paid price of zero.
 	var normalized := definition.duplicate(true)
 	if raw.has("purchase_price"):
 		normalized["purchase_price"] = clampi(int(raw.get("purchase_price", 0)), 0, 1000000000)

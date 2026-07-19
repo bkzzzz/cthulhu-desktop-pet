@@ -8,6 +8,7 @@ const TEST_SUITES := [
 	preload("res://tests/test_follower_progression.gd"),
 	preload("res://tests/test_gacha_progression.gd"),
 	preload("res://tests/test_economy_balance.gd"),
+	preload("res://tests/test_currency_display.gd"),
 	preload("res://tests/test_offering_inventory.gd"),
 	preload("res://tests/test_main_progression_integration.gd"),
 	preload("res://tests/test_ui_number_format.gd"),

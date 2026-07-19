@@ -217,9 +217,9 @@ func _open_prompt() -> void:
 	content.add_child(title_label)
 	var description := Label.new()
 	description.text = (
-		("Enemies will attack from the left" if event_type == "battle" else "Enter a short pilgrimage challenge")
+		("Enemies will attack from both sides" if event_type == "battle" else "Enter a short pilgrimage challenge")
 		if _language == "en"
-		else ("敌人将从桌面左侧进攻" if event_type == "battle" else "接受后进入限时朝圣小游戏")
+		else ("敌人将从桌面两侧进攻" if event_type == "battle" else "接受后进入限时朝圣小游戏")
 	)
 	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	description.add_theme_font_size_override("font_size", 16)

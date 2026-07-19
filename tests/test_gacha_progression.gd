@@ -215,8 +215,6 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		failures.append("the pet gacha must use the supplied egg image")
 	var window := GachaWindow.new()
 	window.setup()
-	# This suite verifies the authored Chinese result copy. Default-English
-	# behavior is covered by the localization integration suite.
 	window.set_language("zh")
 	var background := window.get_node_or_null("GachaRoot/GachaBackground") as TextureRect
 	if background == null or background.texture == null:

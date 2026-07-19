@@ -11,7 +11,6 @@ const GACHA_PETS := [
 ]
 const INVENTORY_STARTER_PETS := STARTER_UNLOCKED_PETS
 
-# Hidden authored baselines keep combat balance independent from faith output.
 const BASE_COMBAT_POWER := {
 	"pet1": 12.0, "pet2": 17.0, "pet3": 22.0, "pet4": 28.0,
 	"pet5": 34.0, "pet6": 40.0, "pet7": 45.0, "pet8": 52.0,
@@ -21,9 +20,6 @@ const BASE_COMBAT_POWER := {
 const EVOLUTION_POWER_MULTIPLIER := 1.85
 const EVOLUTION_PRODUCTION_MULTIPLIER := 1.5
 
-# User-facing catalogue copy lives beside the authored definitions without
-# replacing their stable Chinese source data.  All UI code reads through the
-# helpers below so changing language never changes save data or custom names.
 const ENGLISH_METADATA := {
 	"pet1": {
 		"name": "Fungal Kin",
@@ -150,7 +146,6 @@ const DEFINITIONS := {
 		"attack_columns": 4,
 		"attack_rows": 3,
 		"attack_align_to_floor": false,
-		# The newly-authored base walk and attack sheets both face right.
 		"faces_right": true,
 		"attack_faces_right": true
 	},
@@ -203,8 +198,6 @@ const DEFINITIONS := {
 		"power_growth": 1.035,
 		"icon": "res://assets/NewCharacters/pet2/pet2.png",
 		"idle": "res://assets/NewCharacters/pet2/pet2Idle.png",
-		# This floater has one authored motion cycle. Reuse it deliberately for
-		# travel and ranged attacks instead of falling back to a synthetic lunge.
 		"walk": "res://assets/NewCharacters/pet2/pet2Idle.png",
 		"attack": "res://assets/NewCharacters/pet2/pet2Idle.png",
 		"attack_align_to_floor": false,
@@ -318,8 +311,6 @@ const DEFINITIONS := {
 		"age": "19岁",
 		"base_age_years": 19,
 		"personality": "胆大但不吵闹，通常守在任务栏附近，偶尔沿屏幕边缘活动。",
-		# The ball fills nearly the whole 128 px frame. Keep its adult footprint
-		# compact so the level-growth multiplier does not turn it into a wall.
 		"desktop_scale": 0.90,
 		"behavior": "roller",
 		"walk_speed": 27.0,
@@ -429,9 +420,6 @@ const DEFINITIONS := {
 		"rarity_stars": 5,
 		"age": "年代无法考证",
 		"personality": "沉默、稳重，大部分时间原地待着，偶尔沿任务栏滚一段路。",
-		# The base coin uses a 128 px cell and was much smaller than the other pets.
-		# This remains visibly young at low levels while reaching a clear silhouette
-		# near the evolution threshold.
 		"desktop_scale": 0.70,
 		"behavior": "roller",
 		"walk_speed": 55.0,
@@ -561,8 +549,6 @@ const DEFINITIONS := {
 		"rarity_stars": 4,
 		"age": "诞生时间未知",
 		"personality": "好奇且危险，喜欢安静地绕着其他眷族漂游。",
-		# The juvenile singularity is deliberately much smaller than its evolved
-		# form; level growth cannot cross the base-form size ceiling.
 		"desktop_scale": 0.68,
 		"behavior": "sleepy_floater",
 		"walk_speed": 27.0,
@@ -748,8 +734,6 @@ const EVOLUTION_DEFINITIONS := {
 		"attack_rows": 3,
 		"attack_align_to_floor": false,
 		"faces_right": false,
-		# Evolved pet6's idle/walk sheets face left, but its separately-authored
-		# 384 px attack sheet faces right.
 		"attack_faces_right": true,
 		"battle_attack_range": 345.0,
 		"can_wall_crawl": false,
@@ -765,8 +749,6 @@ const EVOLUTION_DEFINITIONS := {
 		"closing_eye": "",
 		"sleep": "",
 		"burrow": "",
-		# Evolved artwork uses a 256 px cell, so it needs a separate scale from the
-		# base coin rather than inheriting the same undersized value.
 		"desktop_scale": 0.54,
 		"frame_center_y": 128.0,
 		"frame_foot_y": 242,

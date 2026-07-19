@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Desktop window, pet actors, pointer safety, and emotion presentation.
-
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 
 func _configure_pet_window() -> bool:
@@ -30,8 +28,6 @@ func _configure_pet_window() -> bool:
 		return false
 	return true
 
-
-# Desktop actors
 
 func _create_desktop_pets() -> void:
 	var min_x = _get_pet_stage_min_x()
@@ -115,8 +111,6 @@ func _get_pet_stage_max_x() -> float:
 func _get_effective_pet_activity_range() -> String:
 	return "full" if _pilgrimage_active or _battle_active else _pet_activity_range
 
-
-# Believers
 
 func _place_pet_window() -> void:
 	var usable_rect = _get_current_screen_usable_rect()
@@ -415,8 +409,6 @@ func _get_emotion_texture_path(emotion_name: String) -> String:
 			return ""
 
 
-# Economy and progression
-
 func _update_pet_emotions() -> void:
 	var now = _get_now_seconds()
 	for pet in _pets:
@@ -443,8 +435,6 @@ func _schedule_next_ambient_emotion(pet_id: String, now := -1.0) -> void:
 	_next_ambient_emotion_at[pet_id] = base_time + _rng.randf_range(interval_min, interval_max)
 
 
-# Shared helpers
-
 func _get_actor_pet_id(actor: Node2D) -> String:
 	if actor != null and "pet_id" in actor:
 		return String(actor.pet_id)
@@ -464,8 +454,6 @@ func _get_current_screen() -> int:
 	return DisplayLayout.get_current_screen(get_window(), false)
 
 
-# Event handlers
-
 func _on_pet_petted(actor: Node2D) -> void:
 	_hovered_pet = actor
 	_pet_the_pet(actor)
@@ -484,12 +472,8 @@ func _on_pet_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
 	if not _battle_active or actor == null or not is_instance_valid(actor):
 		return
 	if grabbed:
-		# Once the player takes command, stop the formation AI from pulling the
-		# pet back. Its dropped position becomes its new battle line.
 		_battle_pet_formed[str(actor.get_instance_id())] = true
 	else:
-		# Give a manually placed pet immediate feedback. Without this, releasing it
-		# can inherit nearly a full random attack cooldown and look unresponsive.
 		_battle_pet_attack_at[str(actor.get_instance_id())] = _get_now_seconds() + 0.06
 
 func _on_pet_notable_action(actor: Node2D, action_id: String) -> void:

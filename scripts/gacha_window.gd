@@ -6,6 +6,7 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
+const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 
 const WINDOW_SIZE := Vector2i(570, 798)
 const CONTENT_WIDTH := 538.0
@@ -146,8 +147,6 @@ func show_results(results: Array, batch_summary: Dictionary = {}) -> void:
 	_pending_results.clear()
 	for result_value in results:
 		if result_value is Dictionary and not (result_value as Dictionary).is_empty():
-			# Main hands this array off after its batch is complete, so retaining the
-			# immutable result dictionaries avoids a 10,000-entry deep-copy spike.
 			_pending_results.append(result_value as Dictionary)
 	_prepared_batch_summary = batch_summary.duplicate(true)
 	_result_index = 0
@@ -503,8 +502,6 @@ func _start_draw_animation() -> void:
 	if _animation_tween != null and is_instance_valid(_animation_tween):
 		_animation_tween.kill()
 	_animation_tween = create_tween()
-	# Coarse beats make the pile exchange places like a capsule machine instead
-	# of smoothly easing each egg a few pixels around its own home position.
 	for motion_step in EGG_MOTION_STEPS:
 		_animation_tween.tween_callback(
 			Callable(self, "_apply_egg_shuffle_step").bind(motion_step)
@@ -532,7 +529,6 @@ func _apply_egg_shuffle_step(motion_step: int) -> void:
 		egg.rotation_degrees = _rng.randf_range(-58.0, 58.0)
 		var squash := _rng.randf_range(0.88, 1.12)
 		egg.scale = Vector2(squash, 2.0 - squash)
-		# Stay above the UI background while the machine foreground remains on top.
 		egg.z_index = 1 + _rng.randi_range(0, 3)
 
 
@@ -628,8 +624,6 @@ func _show_batch_summary() -> void:
 	if not _prepared_batch_summary.is_empty():
 		duplicate_faith_total = maxi(0, int(_prepared_batch_summary.get("duplicate_faith_total", 0)))
 		first_new_pet_id = String(_prepared_batch_summary.get("first_new_pet_id", ""))
-	# Rebuild names from the result IDs every time so an open summary follows a
-	# live language switch while custom pet names remain untouched.
 	var seen_new_ids := {}
 	for result in _pending_results:
 		if _prepared_batch_summary.is_empty():
@@ -725,23 +719,24 @@ func _update_draw_button() -> void:
 		return
 	var draw_amount := _selected_draw_amount()
 	var selected_cost := _selected_draw_cost()
+	var selected_cost_text := CurrencyDisplay.format_compact(int(round(selected_cost)))
 	_draw_button.disabled = floor(_coin_balance) < selected_cost
 	if _draw_button.disabled:
 		_draw_button.text = (
-			"NOT ENOUGH GOLD  ·  $%s" if _language == "en" else "金币不足  ·  $%s"
-		) % _format_number(selected_cost)
+			"NOT ENOUGH GOLD  ·  %s" if _language == "en" else "金币不足  ·  %s"
+		) % selected_cost_text
 	elif draw_amount == 10:
 		_draw_button.text = (
-			"DRAW × 10  ·  $%s GOLD" if _language == "en" else "扭蛋 × 10  ·  $%s 金币"
-		) % _format_number(selected_cost)
+			"DRAW × 10  ·  %s" if _language == "en" else "扭蛋 × 10  ·  %s"
+		) % selected_cost_text
 	else:
 		_draw_button.text = (
-			"DRAW  ·  $%s GOLD" if _language == "en" else "扭蛋  ·  $%s 金币"
-		) % _format_number(selected_cost)
+			"DRAW  ·  %s" if _language == "en" else "扭蛋  ·  %s"
+		) % selected_cost_text
 	if not _draw_button.disabled and draw_amount > 1:
 		_draw_button.text = (
-			"DRAW × %d  ·  $%s GOLD" if _language == "en" else "扭蛋 × %d  ·  $%s 金币"
-		) % [draw_amount, _format_number(selected_cost)]
+			"DRAW × %d  ·  %s" if _language == "en" else "扭蛋 × %d  ·  %s"
+		) % [draw_amount, selected_cost_text]
 
 
 func _make_label(text_value: String, font_size: int, color: Color) -> Label:

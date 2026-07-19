@@ -10,6 +10,9 @@ static func run() -> Array[String]:
 	_test_melee_chases_while_ranged_holds(failures)
 	_test_freed_target_lock_recovers(failures)
 	_test_enemy_entry_cannot_be_camped(failures)
+	_test_waves_enter_from_both_sides(failures)
+	_test_two_sided_knockback(failures)
+	_test_combat_health_bars_and_hit_reaction(failures)
 	_test_pet5_form_specific_rolling(failures)
 	_test_pet5_roll_crushes_each_enemy_once(failures)
 	return failures
@@ -70,8 +73,6 @@ static func _test_melee_chases_while_ranged_holds(failures: Array[String]) -> vo
 	if not is_equal_approx(ranged.position.x, ranged_start_x):
 		failures.append("ranged pets must hold the rear line while melee pets charge")
 
-	# Target locks keep the chosen facing stable even when another enemy briefly
-	# becomes a few pixels nearer on the opposite side.
 	var locked_target := main.call("_get_battle_target_for_pet", melee) as Node2D
 	var second_enemy := EnemyActor.new()
 	second_enemy.setup("villager2", Vector2(melee.position.x + 20.0, 704.0), 704.0, 1.0, melee.position.x + 20.0)
@@ -109,8 +110,6 @@ static func _test_freed_target_lock_recovers(failures: Array[String]) -> void:
 	enemies.append_array([first_enemy, next_enemy])
 	var actor_key := str(pet.get_instance_id())
 	(main.get("_battle_pet_enemy_targets") as Dictionary)[actor_key] = first_enemy
-	# Reproduce the frame boundary that used to freeze combat: the lock keeps an
-	# Object Variant after the target has already left the tree and been freed.
 	enemies.erase(first_enemy)
 	first_enemy.free()
 	var replacement := main.call("_get_battle_target_for_pet", pet) as Node2D
@@ -133,13 +132,98 @@ static func _test_enemy_entry_cannot_be_camped(failures: Array[String]) -> void:
 	enemy.take_damage(999.0)
 	if enemy.get_health() != health_before:
 		failures.append("an offscreen enemy must be protected until it reaches its battlefield entry post")
-	if main.call("_get_battle_target_for_pet", pet) != null:
-		failures.append("pets must not lock enemies while they are still entering from offscreen")
+	if main.call("_get_battle_target_for_pet", pet) != enemy:
+		failures.append("pets must acquire incoming enemies immediately instead of waiting at an empty front line")
 	enemy.call("_process", 3.0)
 	if not bool(enemy.call("has_entered_battlefield")):
 		failures.append("an enemy must become targetable after reaching its entry post")
 	elif main.call("_get_battle_target_for_pet", pet) != enemy:
 		failures.append("pets must immediately acquire an enemy after its protected entry ends")
+	main.free()
+
+
+static func _test_waves_enter_from_both_sides(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_battle_active", true)
+	main.set("_active_battle_difficulty_scale", 1.0)
+	main.set("_pet_window_size", Vector2i(1000, 720))
+	main.call("_spawn_battle_wave", {"types": ["villager1", "soldier2"]}, 0)
+	var enemies: Array = main.get("_battle_enemies")
+	if enemies.size() != 2:
+		failures.append("a two-member wave must spawn both authored enemies")
+		main.free()
+		return
+	var left_enemy := enemies[0] as Node2D
+	var right_enemy := enemies[1] as Node2D
+	if left_enemy.position.x >= 0.0 or right_enemy.position.x <= 1000.0:
+		failures.append("wave members must visibly enter from opposite screen edges")
+	if int(left_enemy.call("get_entry_side")) != -1 or int(right_enemy.call("get_entry_side")) != 1:
+		failures.append("enemy actors must retain their left/right entry side for combat behavior")
+	if bool(right_enemy.call("has_entered_battlefield")):
+		failures.append("a right-side enemy must retain entry protection until reaching its mirrored post")
+	right_enemy.call("_process", 6.0)
+	if not bool(right_enemy.call("has_entered_battlefield")):
+		failures.append("a right-side enemy must become vulnerable after reaching its mirrored post")
+	main.free()
+
+
+static func _test_combat_health_bars_and_hit_reaction(failures: Array[String]) -> void:
+	var enemy := EnemyActor.new()
+	enemy.setup("villager1", Vector2(320.0, 704.0), 704.0, 1.0, 320.0)
+	var enemy_bar := enemy.get_node_or_null("CombatHealthBar") as Node2D
+	if enemy_bar == null:
+		failures.append("every combat enemy must create a visible health bar")
+	else:
+		enemy.take_damage(enemy.max_health * 0.5, 0.0)
+		if not is_equal_approx(float(enemy_bar.call("get_health_ratio")), 0.5):
+			failures.append("enemy health bars must track damage using the actor's exact health ratio")
+		if float(enemy_bar.call("get_display_ratio")) <= 0.5:
+			failures.append("damage bars must retain a trailing animated chip instead of snapping instantly")
+	var enemy_sprite := enemy.get_node_or_null("EnemySprite") as AnimatedSprite2D
+	var resting_scale := Vector2.ONE * float(enemy.get("_visual_scale"))
+	enemy.call("_process", 0.04)
+	if enemy_sprite == null or enemy_sprite.scale.is_equal_approx(resting_scale):
+		failures.append("enemy hits must produce a brief squash reaction alongside the damage flash")
+	enemy.free()
+
+	var main := Main.new()
+	main.set("_battle_active", true)
+	var pet := Main.DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1000, 720), 0.0, 1000.0, 700.0, 704.0, false)
+	main.add_child(pet)
+	(main.get("_pets") as Array).append(pet)
+	var pet_key := str(pet.get_instance_id())
+	(main.get("_battle_pet_health") as Dictionary)[pet_key] = 20.0
+	(main.get("_battle_pet_max_health") as Dictionary)[pet_key] = 20.0
+	main.call("_attach_battle_health_bar", pet, 20.0, 20.0)
+	main.call("_damage_battle_pet", pet, 5.0, 0.0)
+	var pet_bar := pet.get_node_or_null("CombatHealthBar") as Node2D
+	if pet_bar == null or not is_equal_approx(float(pet_bar.call("get_health_ratio")), 0.75):
+		failures.append("pet health bars must synchronize with controller-owned combat health")
+	main.free()
+
+
+static func _test_two_sided_knockback(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_battle_active", true)
+	var pet := Main.DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1000, 720), 0.0, 1000.0, 500.0, 704.0, false)
+	pet.set_battle_mode(true)
+	main.add_child(pet)
+	var pet_key := str(pet.get_instance_id())
+	(main.get("_battle_pet_health") as Dictionary)[pet_key] = 100.0
+	(main.get("_battle_pet_max_health") as Dictionary)[pet_key] = 100.0
+	var enemy := Node2D.new()
+	main.add_child(enemy)
+	enemy.position = Vector2(300.0, 704.0)
+	main.call("_on_enemy_attack_landed", enemy, pet, 1.0)
+	if pet.position.x <= 500.0:
+		failures.append("left-side enemies must knock pets away toward the right")
+	pet.position.x = 500.0
+	enemy.position.x = 700.0
+	main.call("_on_enemy_attack_landed", enemy, pet, 1.0)
+	if pet.position.x >= 500.0:
+		failures.append("right-side enemies must knock pets away toward the left")
 	main.free()
 
 

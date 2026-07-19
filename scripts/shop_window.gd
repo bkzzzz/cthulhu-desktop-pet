@@ -5,6 +5,7 @@ signal purchase_requested(good_id: String)
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
+const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 
 const WINDOW_SIZE := Vector2i(1117, 1034)
 const SHOP_TEXTURE := "res://assets/ui/shop/商店ui.png"
@@ -25,6 +26,7 @@ const SHOP_SLOT_RECTS := [
 
 var _root: Control
 var _page_label: Label
+var _coin_balance_icon: TextureRect
 var _coin_balance_label: Label
 var _result_label: Label
 var _info_panel: PanelContainer
@@ -78,7 +80,6 @@ func set_coin_balance(coin_balance: int) -> void:
 
 
 func set_faith_points(legacy_balance: int) -> void:
-	# Kept as a compatibility alias for older callers; the shop economy is gold-only.
 	set_coin_balance(legacy_balance)
 
 
@@ -301,6 +302,16 @@ func _create_result_label() -> void:
 
 
 func _create_coin_balance() -> void:
+	_coin_balance_icon = TextureRect.new()
+	_coin_balance_icon.name = "ShopCurrencyIcon"
+	_coin_balance_icon.position = Vector2(610.0, 177.0)
+	_coin_balance_icon.size = Vector2(36.0, 36.0)
+	_coin_balance_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_coin_balance_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_coin_balance_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_coin_balance_icon.mouse_filter = Control.MOUSE_FILTER_PASS
+	_root.add_child(_coin_balance_icon)
+
 	_coin_balance_label = Label.new()
 	_coin_balance_label.name = "ShopGoldBalance"
 	_coin_balance_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -398,7 +409,11 @@ func _refresh_page() -> void:
 			else "第 %d / %d 页" % [_page + 1, page_count]
 		)
 	if _coin_balance_label != null:
-		_coin_balance_label.text = "$ %s" % _format_compact_number(float(_coin_balance))
+		_coin_balance_label.text = CurrencyDisplay.format_compact(_coin_balance)
+		_coin_balance_label.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_balance, _language)
+	if _coin_balance_icon != null:
+		_coin_balance_icon.texture = CurrencyDisplay.make_icon_texture(_coin_balance)
+		_coin_balance_icon.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_balance, _language)
 
 	var page_start := _page * GOODS_PER_PAGE
 	for slot_index in _slot_controls.size():
@@ -428,7 +443,7 @@ func _refresh_page() -> void:
 		icon.texture = load(String(good.get("texture", ""))) as Texture2D
 		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
 		name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
-		price_label.text = ("PRICE  $%d" if _language == "en" else "价格 $%d 金币") % price
+		price_label.text = ("PRICE  %s" if _language == "en" else "价格 %s") % CurrencyDisplay.format_compact(price)
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
 		owned_label.text = (
 			("%ds · ×%s" if _language == "en" else "%d秒 · ×%s") % [
@@ -475,14 +490,14 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	_info_name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
 	_info_desc_label.text = String(display_good.get("description", ""))
 	if OfferingCatalog.is_offering(good):
-		_info_price_label.text = ("PRICE: $%d GOLD    BOOST: %ds ×%s" if _language == "en" else "价格：$%d 金币    加速：%d秒 ×%s") % [
-			int(good.get("price", 0)),
+		_info_price_label.text = ("PRICE: %s    BOOST: %ds ×%s" if _language == "en" else "价格：%s    加速：%d秒 ×%s") % [
+			CurrencyDisplay.format_compact(int(good.get("price", 0))),
 			int(round(float(good.get("duration_seconds", 60.0)))),
 			_format_multiplier(float(good.get("multiplier", 1.0)))
 		]
 	else:
-		_info_price_label.text = ("PRICE: $%d GOLD    OWNED: %d" if _language == "en" else "价格：$%d 金币    已拥有：%d") % [
-			int(good.get("price", 0)),
+		_info_price_label.text = ("PRICE: %s    OWNED: %d" if _language == "en" else "价格：%s    已拥有：%d") % [
+			CurrencyDisplay.format_compact(int(good.get("price", 0))),
 			int(_owned_counts.get(String(good.get("id", "")), 0))
 		]
 	_info_panel.position = Vector2(

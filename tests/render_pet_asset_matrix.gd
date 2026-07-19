@@ -1,9 +1,5 @@
 extends SceneTree
 
-## Visual QA harness for the runtime pet catalogue.  It deliberately builds the
-## same DesktopPetActor used by the game instead of drawing source PNGs directly,
-## so scale, floor offsets, animation slicing, and authored-direction flags are
-## all represented in the screenshots.
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
@@ -111,9 +107,6 @@ func _render_matrix(evolved: bool, animation_name: String) -> String:
 		actor.set_battle_mode(true)
 		actor.face_battle_target(-1.0)
 		actor.call("_set_interaction_enabled", false)
-		# Sleepy floaters normally start at a randomized roaming height.  Pin the
-		# QA pose to its configured rest/contact height so base/evolved scale and
-		# ground offsets remain directly comparable from run to run.
 		if String(actor.pet_data.get("behavior", "")) == "sleepy_floater":
 			var stable_rest_y := float(actor.call("_get_rest_y"))
 			actor.set("_float_anchor_y", stable_rest_y)
@@ -160,8 +153,6 @@ func _pose_actor(
 		return -1
 	if animation_name == "attack":
 		if pet_id == "pet5" and not evolved:
-			# Base pet5's real battle attack is its rolling walk sequence rather than
-			# the ordinary lunge helper used by the other melee pets.
 			actor.begin_battle_roll_attack(start_x - 92.0)
 			actor.call("_update_battle_roll_attack", 0.045)
 		else:

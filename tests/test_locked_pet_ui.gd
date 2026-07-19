@@ -15,15 +15,11 @@ static func run() -> Array[String]:
 	if pet1_icon == null or pet1_icon.modulate != Color.WHITE:
 		failures.append("an unlocked menu pet must retain its normal full-color portrait")
 
-	# Renames are fed through a separate UI path. They must never reveal a pet
-	# absent from the authoritative unlocked-entry snapshot.
 	drawer.call("set_pet_name", "pet2", "Leaked Name")
 	var pet2_name := (drawer.get("_upgrade_name_labels") as Dictionary).get("pet2") as Label
 	if pet2_name == null or pet2_name.text != SideDrawer.LOCKED_PET_TEXT:
 		failures.append("renaming a locked pet must not reveal its name")
 
-	# Verify both directions so a gacha unlock restores the real row and a full
-	# game reset hides it again without rebuilding the drawer.
 	drawer.set("_drawer_open", true)
 	drawer.call("refresh_pet_upgrades", [
 		_make_entry("pet1", "Unlocked One"),

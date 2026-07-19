@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Ambient currency drops, capacity, and collection rewards.
-
 func _schedule_next_ambient_coin_drop(now: float) -> void:
 	for pet in _pets:
 		if is_instance_valid(pet):
@@ -142,12 +140,11 @@ func _on_coin_collected(actor: Node2D, coin_type: String, value: int) -> void:
 	var safe_value = maxi(0, value)
 	if safe_value <= 0:
 		return
-	_gold_coins += safe_value
+	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, safe_value)
 	_host._refresh_coin_display()
 	_host._show_coin_change_popup(popup_position, safe_value, coin_type)
 
 func _on_believer_scared_away(_actor: Node2D, _drop_position: Vector2) -> void:
-	# Flight is the no-reward outcome. Only a completed prayer creates coins.
 	pass
 
 func _on_believer_prayed(_actor: Node2D, drop_position: Vector2, coin_count: int) -> void:
@@ -159,6 +156,3 @@ func _on_believer_prayed(_actor: Node2D, drop_position: Vector2, coin_count: int
 			_rng.randf_range(-12.0, 8.0)
 		)
 		_spawn_coin("D", coin_position)
-
-
-# UI windows

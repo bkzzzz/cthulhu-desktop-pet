@@ -119,9 +119,9 @@ func _refresh_copy() -> void:
 		return
 	_title_label.text = "ALL PETS ASCENDED" if _language == "en" else "全员升格 · 游戏通关"
 	_body_label.text = (
-		"Every pet has reached Lv.100. The campaign is complete.\nKeep this final sanctuary, or enter Endless Mode where enemies grow with your pets."
+		"Every pet reached Lv.100 and the Final Orrery has fallen. The campaign is complete.\nKeep this final sanctuary, or enter Endless Mode where enemies grow with your pets."
 		if _language == "en"
-		else "所有宠物均已达到 Lv.100，主线成长已经完成。\n你可以留在终局，也可以进入无尽模式；敌人将继续随宠物等级同步增强。"
+		else "所有宠物均已达到 Lv.100，终焉星械也已被击败，主线正式完成。\n你可以留在终局，也可以进入无尽模式；敌人将继续随宠物等级同步增强。"
 	)
 	var hours := _total_runtime_seconds / 3600.0
 	_time_label.text = (

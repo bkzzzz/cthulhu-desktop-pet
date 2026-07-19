@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Believer spawning, invitations, and pilgrimage event flow.
-
 const ENCOUNTER_REWARD_KEY := "_encounter_reward_budget"
 const ENCOUNTER_DIFFICULTY_KEY := "_encounter_difficulty_scale"
 
@@ -89,9 +87,6 @@ func _update_pilgrimage() -> void:
 		_schedule_next_pilgrimage(now, true)
 		return
 	if now >= _next_pilgrimage_at:
-		# A battle that just ended reserves the single invitation slot for its short
-		# follow-up window. Pilgrimages can still appear after a battle letter is
-		# discarded, whose cooldown is deliberately much longer.
 		if (
 			_next_battle_at > 0.0
 			and _next_battle_at <= now + BATTLE_INTERVAL_MAX_SECONDS
@@ -114,6 +109,14 @@ func _schedule_declined_battle(now: float) -> void:
 		BATTLE_DECLINED_DELAY_MIN_SECONDS,
 		BATTLE_DECLINED_DELAY_MAX_SECONDS
 	)
+
+
+func _queue_final_boss_invitation() -> void:
+	if _battle_active or _pilgrimage_active:
+		return
+	var now: float = float(_host._get_now_seconds())
+	if _next_battle_at <= 0.0 or _next_battle_at > now + 1.0:
+		_next_battle_at = now
 
 func _update_event_invitations() -> void:
 	_host._refresh_era_display()
@@ -145,12 +148,14 @@ func _spawn_event_invitation(event_type: String) -> void:
 	var difficulty_text_en = ""
 	var difficulty_text_zh = ""
 	if event_type == "battle":
-		# Invitations can remain indefinitely. Snapshot the complete encounter now
-		# so an era change or pet upgrade cannot make the letter disagree with battle.
-		_battle_wave_schedule = BattleBalance.build_wave_schedule(
-			EraProgression.get_wave_schedule(_total_runtime_seconds),
-			EconomyBalance.average_level(_deployed_pet_ids, _pet_states),
-			_host._is_endless_mode()
+		_battle_wave_schedule = (
+			BattleBalance.build_final_boss_schedule()
+			if _host._should_offer_final_boss()
+			else BattleBalance.build_wave_schedule(
+				EraProgression.get_wave_schedule(_total_runtime_seconds),
+				EconomyBalance.average_level(_deployed_pet_ids, _pet_states),
+				_host._is_endless_mode()
+			)
 		)
 		_pending_battle_difficulty_scale = _host._roll_battle_difficulty_scale()
 		var reward_budget: Dictionary = _host._get_battle_reward_budget(
@@ -220,7 +225,10 @@ func _on_event_invitation_expired(event_type: String) -> void:
 func _reschedule_declined_event(event_type: String) -> void:
 	var now = _host._get_now_seconds()
 	if event_type == "battle":
-		_schedule_declined_battle(now)
+		if _host._should_offer_final_boss():
+			_schedule_next_battle(now)
+		else:
+			_schedule_declined_battle(now)
 	else:
 		_schedule_next_pilgrimage(now)
 
@@ -439,6 +447,3 @@ func _set_pet_autonomy_paused(paused: bool) -> void:
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("set_autonomy_paused"):
 			pet.call("set_autonomy_paused", paused)
-
-
-# Battle event

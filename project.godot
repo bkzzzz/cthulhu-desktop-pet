@@ -34,12 +34,7 @@ window/size/borderless=true
 window/size/transparent=true
 window/subwindows/embed_subwindows=false
 window/stretch/aspect="ignore"
-window/dpi/allow_hidpi=true
 window/per_pixel_transparency/allowed=true
-
-[internationalization]
-
-locale/fallback="en"
 
 [rendering]
 

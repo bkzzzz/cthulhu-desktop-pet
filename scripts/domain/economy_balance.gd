@@ -1,23 +1,12 @@
 extends RefCounted
 
-## Shared long-term economy rules. Runtime systems use the same potential income
-## model so shop prices, battle rewards, and campaign completion cannot drift
-## away from pet progression again.
-
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 
 const CAMPAIGN_LEVEL_TARGET := 100
 const BASELINE_COIN_RATE_PER_MINUTE := 10.0
-# Active play (battles, taps, and sustainable food use together) is budgeted to
-# progress about 1.7x as fast as passive play. Runtime rewards can use this same
-# target without duplicating a second campaign estimate.
 const EXPECTED_ACTIVE_FAITH_MULTIPLIER := 1.70
 
-# A one-minute food is priced by the extra production it grants. At the
-# strongest campaign pet's roster share, 1.10 minutes of total roster coin
-# income per extra multiplier keeps sustainable feeding near a 25% account-wide
-# gain. The authored catalog price remains the opening floor.
 const OFFERING_PRICE_MINUTES_PER_BONUS := 1.10
 
 

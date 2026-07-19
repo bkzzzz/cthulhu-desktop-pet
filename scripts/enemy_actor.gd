@@ -1,5 +1,7 @@
 extends Node2D
 
+const CombatHealthBar = preload("res://scripts/combat_health_bar.gd")
+
 signal attack_landed(actor: Node2D, target: Node2D, damage: float)
 signal projectile_requested(actor: Node2D, target: Node2D, damage: float, projectile_kind: String, power_scale: float)
 signal defeated(actor: Node2D, reward_count: int)
@@ -115,6 +117,21 @@ const DEFINITIONS := {
 		"flying": true, "flight_height": 182.0, "projectiles_per_attack": 9,
 		"projectile_spread": 21.0, "attack_windup": 0.34, "attack_duration": 0.96,
 		"attack_cooldown_min": 1.32, "attack_cooldown_max": 1.52
+	},
+	"final_boss": {
+		"move": "res://assets/enemyCharacter/finalBoss1/finalBossAnimation.png",
+		"attack": "res://assets/enemyCharacter/finalBoss1/finalBossAnimation.png",
+		"hp": 185.0, "damage": 0.42, "speed": 95.0, "reward": 250, "ranged": true,
+		"projectile": "modern_orb", "run_columns": 4, "run_rows": 3,
+		"attack_columns": 4, "attack_rows": 3, "visual_scale": 1.12,
+		"attack_visual_scale": 1.035, "run_animation_speed": 7.5,
+		"attack_animation_speed": 8.5, "run_bob": 3.8, "run_tilt": 0.008,
+		"flying": true, "flight_height": 178.0, "projectiles_per_attack": 3,
+		"projectile_spread": 34.0, "projectile_height": 104.0,
+		"attack_windup": 0.48, "attack_duration": 1.36,
+		"attack_cooldown_min": 1.48, "attack_cooldown_max": 1.72,
+		"swallow_resistant": true, "boss": true, "health_bar_width": 190.0,
+		"health_bar_y": -154.0, "hit_height": 0.0
 	}
 }
 
@@ -122,7 +139,8 @@ const COMBAT_POWER := {
 	"villager1": 10.0, "villager2": 12.0, "soldier1": 18.0, "soldier2": 22.0,
 	"victorian1": 30.0, "victorian2": 34.0, "victorian_boss": 50.0,
 	"modern2": 65.0, "modern3": 78.0,
-	"outerspace1": 120.0, "outerspace2": 150.0, "outerspace3": 190.0
+	"outerspace1": 120.0, "outerspace2": 150.0, "outerspace3": 190.0,
+	"final_boss": 420.0
 }
 
 const MELEE_STOP_DISTANCE := 68.0
@@ -130,6 +148,7 @@ const MELEE_HIT_RANGE := 92.0
 const FOOT_TASKBAR_OVERLAP := 0.0
 const CHROMA_TOLERANCE := 0.24
 const SWALLOW_ROTATIONS := 0.85
+const HIT_REACTION_SECONDS := 0.16
 
 static var _frames_cache := {}
 static var _alignment_cache := {}
@@ -147,6 +166,7 @@ var _projectile_kind := ""
 var _swallow_resistant := false
 var _target: Node2D
 var _sprite: AnimatedSprite2D
+var _health_bar: Node2D
 var _attack_cooldown := 0.0
 var _attack_windup := 0.0
 var _attack_pending := false
@@ -154,6 +174,7 @@ var _attack_animation_remaining := 0.0
 var _dead := false
 var _entered := false
 var _entry_x := 120.0
+var _entry_side := -1
 var _ground_y := 0.0
 var _visual_scale := 0.84
 var _attack_visual_scale := 1.0
@@ -185,6 +206,11 @@ var _swallow_arc_height := 72.0
 var _launched := false
 var _launch_velocity := Vector2.ZERO
 var _launch_spin := 0.0
+var _hit_reaction_remaining := 0.0
+var _hit_reaction_direction := -1.0
+var _is_boss := false
+var _boss_phase := 1
+var _hit_height := 52.0
 
 
 func setup(
@@ -207,6 +233,8 @@ func setup(
 	is_ranged = bool(data.get("ranged", false))
 	_projectile_kind = String(data.get("projectile", ""))
 	_swallow_resistant = bool(data.get("swallow_resistant", false))
+	_is_boss = bool(data.get("boss", false))
+	_hit_height = maxf(0.0, float(data.get("hit_height", 52.0)))
 	_run_bob_amount = float(data.get("run_bob", 2.2))
 	_run_tilt_amount = float(data.get("run_tilt", 0.018))
 	_flying = bool(data.get("flying", false))
@@ -215,10 +243,12 @@ func setup(
 	_projectile_spread = maxf(0.0, float(data.get("projectile_spread", 0.0)))
 	_ground_y = ground_y
 	_entry_x = entry_x
+	_entry_side = 1 if spawn_position.x > entry_x else -1
 	position = spawn_position
 	position.y = _ground_y - _flight_height
 	_rng.seed = int(Time.get_ticks_usec()) ^ int(get_instance_id())
 	_create_sprite(data)
+	_create_health_bar(data)
 
 
 func _process(delta: float) -> void:
@@ -238,6 +268,7 @@ func _process(delta: float) -> void:
 	_attack_cooldown = maxf(0.0, _attack_cooldown - safe_delta)
 	if _attack_animation_remaining > 0.0:
 		_attack_animation_remaining = maxf(0.0, _attack_animation_remaining - safe_delta)
+	_hit_reaction_remaining = maxf(0.0, _hit_reaction_remaining - safe_delta)
 	if _attack_pending:
 		_attack_windup -= safe_delta
 		if _attack_windup <= 0.0:
@@ -295,13 +326,28 @@ func set_target(target: Node2D) -> void:
 	_target = target
 
 
-func take_damage(amount: float, knockback := 12.0, launch_velocity := Vector2.ZERO) -> void:
+func take_damage(
+	amount: float,
+	knockback := 12.0,
+	launch_velocity := Vector2.ZERO,
+	knockback_direction := -1.0
+) -> void:
 	if _dead or not has_entered_battlefield():
 		return
 	health -= maxf(0.0, amount)
 	var battlefield_width := _get_battlefield_width()
-	position.x = clampf(position.x - maxf(0.0, knockback), -20.0, battlefield_width + 20.0)
+	var safe_knockback_direction := -1.0 if knockback_direction < 0.0 else 1.0
+	_hit_reaction_remaining = HIT_REACTION_SECONDS
+	_hit_reaction_direction = safe_knockback_direction
+	position.x = clampf(
+		position.x + safe_knockback_direction * maxf(0.0, knockback),
+		-20.0,
+		battlefield_width + 20.0
+	)
 	_flash_red()
+	if _health_bar != null and is_instance_valid(_health_bar):
+		_health_bar.call("set_health", health, max_health)
+	_update_boss_phase()
 	if health <= 0.0:
 		if launch_velocity.length_squared() > 1.0:
 			launch_offscreen(launch_velocity)
@@ -331,6 +377,8 @@ func start_swallowed_by(swallower: Node2D) -> bool:
 	if swallower == null or not is_instance_valid(swallower) or not can_be_swallowed():
 		return false
 	_being_swallowed = true
+	if _health_bar != null:
+		_health_bar.visible = false
 	_swallower = swallower
 	_swallow_start_position = position
 	_swallow_start_sprite_position = _sprite.position if _sprite != null else Vector2.ZERO
@@ -361,6 +409,8 @@ func launch_offscreen(velocity: Vector2) -> void:
 	health = 0.0
 	_dead = true
 	_launched = true
+	if _health_bar != null:
+		_health_bar.visible = false
 	_launch_velocity = velocity if velocity.length_squared() > 1.0 else Vector2(-720.0, -210.0)
 	_launch_spin = _rng.randf_range(-8.0, 8.0)
 	_attack_pending = false
@@ -377,10 +427,18 @@ func is_defeated() -> bool:
 	return _dead or _being_swallowed
 
 
+func is_targetable() -> bool:
+	return not _dead and not _being_swallowed and not _launched
+
+
 func has_entered_battlefield() -> bool:
 	# Test-spawned and restored enemies may begin exactly at their entry post.
-	# Real waves start offscreen to the left and remain protected until reaching it.
-	return _entered or position.x >= _entry_x - 0.5
+	# Real waves can enter from either edge and remain protected until reaching it.
+	return _entered or absf(position.x - _entry_x) <= 0.5
+
+
+func get_entry_side() -> int:
+	return _entry_side
 
 
 func get_battle_state() -> String:
@@ -388,7 +446,11 @@ func get_battle_state() -> String:
 
 
 func get_battle_hit_position() -> Vector2:
-	return position + Vector2(0.0, -52.0)
+	return position + Vector2(0.0, -_hit_height)
+
+
+func get_boss_phase() -> int:
+	return _boss_phase
 
 
 func get_projectile_origin() -> Vector2:
@@ -440,6 +502,20 @@ func _create_sprite(data: Dictionary) -> void:
 	_update_sprite_pose(0.0)
 
 
+func _create_health_bar(data: Dictionary) -> void:
+	_health_bar = CombatHealthBar.new()
+	_health_bar.name = "CombatHealthBar"
+	var is_boss := bool(data.get("boss", false))
+	var bar_width := float(data.get("health_bar_width", 190.0 if is_boss else 76.0))
+	_health_bar.call("setup", true, is_boss, bar_width)
+	_health_bar.call("set_health", health, max_health, true)
+	_health_bar.position = Vector2(
+		0.0,
+		float(data.get("health_bar_y", -82.0 if _flying else -142.0))
+	)
+	add_child(_health_bar)
+
+
 static func _get_chroma_shader() -> Shader:
 	if _chroma_shader == null:
 		_chroma_shader = Shader.new()
@@ -459,7 +535,8 @@ static func _get_or_build_frames(cache_key: String, data: Dictionary) -> SpriteF
 	)
 	_add_atlas_animation(
 		frames, "attack", String(data.get("attack", "")),
-		int(data.get("attack_columns", 4)), int(data.get("attack_rows", 4)), 12.0, false
+		int(data.get("attack_columns", 4)), int(data.get("attack_rows", 4)),
+		float(data.get("attack_animation_speed", 12.0)), false
 	)
 	_frames_cache[cache_key] = frames
 	return frames
@@ -519,7 +596,6 @@ func _is_target_in_attack_range() -> bool:
 func _face_target(distance_x: float) -> void:
 	if _sprite == null or is_zero_approx(distance_x):
 		return
-	# All current sheets are authored facing right.
 	_sprite.flip_h = distance_x < 0.0
 
 
@@ -529,11 +605,25 @@ func _update_sprite_pose(delta: float) -> void:
 	if _run_motion_active and _sprite.animation == "run":
 		_run_phase += maxf(0.0, delta) * 11.0
 	var animation_scale := _attack_visual_scale if _sprite.animation == "attack" else 1.0
-	_sprite.scale = Vector2.ONE * _visual_scale * animation_scale
+	var hit_strength := sin(
+		clampf(_hit_reaction_remaining / HIT_REACTION_SECONDS, 0.0, 1.0) * PI
+	)
+	var pose_scale := Vector2(1.0 + hit_strength * 0.08, 1.0 - hit_strength * 0.06)
+	_sprite.scale = Vector2.ONE * _visual_scale * animation_scale * pose_scale
 	var base_position := _get_animation_alignment(String(_sprite.animation), animation_scale)
+	if _sprite.animation == "attack" and _attack_duration_seconds > 0.0:
+		var attack_progress := clampf(
+			1.0 - _attack_animation_remaining / _attack_duration_seconds,
+			0.0,
+			1.0
+		)
+		var attack_direction := -1.0 if _sprite.flip_h else 1.0
+		var attack_motion := sin(attack_progress * PI)
+		base_position.x += attack_direction * attack_motion * (5.0 if is_ranged else 11.0)
 	var run_bob := sin(_run_phase) * _run_bob_amount if _run_motion_active and _sprite.animation == "run" else 0.0
-	_sprite.position = base_position + Vector2(0.0, run_bob)
-	_sprite.rotation = sin(_run_phase * 0.5) * _run_tilt_amount if _run_motion_active and _sprite.animation == "run" else 0.0
+	_sprite.position = base_position + Vector2(_hit_reaction_direction * hit_strength * 4.0, run_bob)
+	var run_rotation := sin(_run_phase * 0.5) * _run_tilt_amount if _run_motion_active and _sprite.animation == "run" else 0.0
+	_sprite.rotation = run_rotation + _hit_reaction_direction * hit_strength * 0.025
 
 
 func _get_animation_alignment(animation_name: String, animation_scale := 1.0) -> Vector2:
@@ -616,10 +706,26 @@ func _flash_red() -> void:
 	tween.tween_property(_sprite, "modulate", Color.WHITE, 0.14)
 
 
+func _update_boss_phase() -> void:
+	if not _is_boss or _boss_phase >= 2 or health > max_health * 0.5:
+		return
+	_boss_phase = 2
+	_move_speed *= 1.12
+	_attack_cooldown_min *= 0.72
+	_attack_cooldown_max *= 0.72
+	_projectiles_per_attack += 2
+	if _health_bar != null:
+		var phase_tween := create_tween()
+		phase_tween.tween_property(_health_bar, "modulate", Color(1.0, 0.42, 0.28), 0.08)
+		phase_tween.tween_property(_health_bar, "modulate", Color.WHITE, 0.24)
+
+
 func _update_swallowed(delta: float) -> void:
 	if _swallower == null or not is_instance_valid(_swallower):
 		_being_swallowed = false
 		_swallower = null
+		if _health_bar != null:
+			_health_bar.visible = true
 		_sprite.scale = Vector2.ONE * _visual_scale
 		_sprite.position = _swallow_start_sprite_position
 		_sprite.rotation = _swallow_start_sprite_rotation
@@ -640,8 +746,6 @@ func _update_swallowed(delta: float) -> void:
 		desired_visual_position += (
 			path_normal * sin(travel_progress * PI) * _swallow_arc_height
 		)
-	# Rotation and shrink start on the first suction frame and continue steadily
-	# until the visible center reaches the vortex.
 	var shrink_progress := smoothstep(0.0, 1.0, _swallow_progress)
 	# Enemy roots sit at their feet during combat, while the sprite has a negative
 	# alignment offset. Cancelling that offset throughout the squeeze makes the

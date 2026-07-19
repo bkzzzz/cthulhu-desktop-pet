@@ -2,7 +2,6 @@ extends RefCounted
 
 const NewsFeed = preload("res://scripts/domain/news_feed.gd")
 
-# Mutable session data. Runtime controllers share one instance owned by main.gd.
 var _pets: Array[Node2D] = []
 var _believers: Array[Node2D] = []
 var _coin_drops: Array[Node2D] = []
@@ -119,5 +118,6 @@ var _background_faith_growth_cache_active := false
 var _background_faith_growth_cache := 0.0
 var _campaign_completed := false
 var _campaign_completion_acknowledged := false
+var _final_boss_defeated := false
 var _endless_mode := false
 var _reset_in_progress := false

@@ -8,6 +8,8 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_exact_campaign_goal(failures)
 	_test_campaign_level_cap_and_endless_unlock(failures)
+	_test_final_boss_definition_and_schedule(failures)
+	_test_final_boss_balance_window(failures)
 	_test_completion_window_copy_and_signals(failures)
 	return failures
 
@@ -51,13 +53,17 @@ static func _test_exact_campaign_goal(failures: Array[String]) -> void:
 	var main := _make_main()
 	main.set("_unlocked_pet_ids", all_pet_ids)
 	main.set("_pet_states", complete_states)
-	if not bool(main.call("_check_campaign_completion")):
-		failures.append("the runtime campaign controller must recognize the exact completed roster")
+	if bool(main.call("_check_campaign_completion")) or bool(main.get("_campaign_completed")):
+		failures.append("a Lv.100 roster must unlock the final boss instead of skipping directly to completion")
+	if not bool(main.call("_should_offer_final_boss")):
+		failures.append("the final boss encounter must become pending as soon as the exact roster goal is reached")
+	main.call("_on_final_boss_defeated")
 	if (
-		not bool(main.get("_campaign_completed"))
+		not bool(main.call("_check_campaign_completion"))
+		or not bool(main.get("_campaign_completed"))
 		or bool(main.get("_campaign_completion_acknowledged"))
 	):
-		failures.append("first completion must persist the milestone without auto-acknowledging its choice")
+		failures.append("defeating the final boss must persist completion without auto-acknowledging its choice")
 	main.free()
 
 
@@ -75,7 +81,6 @@ static func _test_campaign_level_cap_and_endless_unlock(failures: Array[String])
 	if int(main.call("_get_campaign_level_cap")) != Main.EconomyBalance.CAMPAIGN_LEVEL_TARGET:
 		failures.append("the normal campaign must expose Lv.100 as its effective cap")
 
-	# A hidden/stale UI signal must not bypass the all-pet completion rule.
 	main.call("_on_completion_continue_requested")
 	if (
 		bool(main.get("_campaign_completed"))
@@ -93,6 +98,10 @@ static func _test_campaign_level_cap_and_endless_unlock(failures: Array[String])
 	main.set("_pet_states", _make_complete_roster())
 	main.call("_check_campaign_completion")
 	main.call("_on_endless_mode_requested")
+	if bool(main.get("_endless_mode")):
+		failures.append("Endless Mode must remain locked until the final boss is defeated")
+	main.call("_on_final_boss_defeated")
+	main.call("_on_endless_mode_requested")
 	if not bool(main.get("_endless_mode")):
 		failures.append("choosing Endless Mode after completion must persistently unlock it")
 	if int(main.call("_get_campaign_level_cap")) != Main.PetProgression.MAX_LEVEL:
@@ -104,6 +113,82 @@ static func _test_campaign_level_cap_and_endless_unlock(failures: Array[String])
 	main.call("_on_pet_upgrade_requested", "pet1")
 	if int(endless_pet_state.get("upgrade_level", 0)) != 101:
 		failures.append("a completed roster must be able to advance beyond Lv.100 in Endless Mode")
+	main.free()
+
+
+static func _test_final_boss_definition_and_schedule(failures: Array[String]) -> void:
+	if not Main._get_loaded_final_boss_defeated(12, true, false, false):
+		failures.append("pre-final-boss completed saves must migrate as boss-defeated")
+	if Main._get_loaded_final_boss_defeated(Main.SAVE_VERSION, false, false, false):
+		failures.append("new incomplete saves must not inherit a final-boss victory")
+	var schedule := Main.BattleBalance.build_final_boss_schedule()
+	if not Main.BattleBalance.is_final_boss_schedule(schedule):
+		failures.append("the campaign finale must expose a dedicated marked encounter schedule")
+	elif schedule.is_empty() or not (schedule.back() as Dictionary).get("types", []).has("final_boss"):
+		failures.append("the dedicated finale schedule must culminate in the imported final boss")
+	var definition: Dictionary = Main.EnemyActor.DEFINITIONS.get("final_boss", {})
+	var animation_path := String(definition.get("move", ""))
+	if definition.is_empty() or not ResourceLoader.exists(animation_path):
+		failures.append("the final boss must use its imported animation sheet")
+		return
+	var boss := Main.EnemyActor.new()
+	boss.setup("final_boss", Vector2(700.0, 704.0), 704.0, 1.0, 700.0)
+	var sprite := boss.get_node_or_null("EnemySprite") as AnimatedSprite2D
+	var health_bar := boss.get_node_or_null("CombatHealthBar") as Node2D
+	if sprite == null or sprite.sprite_frames.get_frame_count("run") != 12:
+		failures.append("the final boss must animate all twelve imported frames")
+	if health_bar == null or float(health_bar.get("_bar_size").x) < 180.0:
+		failures.append("the final boss must use a prominent segmented boss health bar")
+	if boss.can_be_swallowed():
+		failures.append("the final boss must resist instant swallow defeat mechanics")
+	var opening_projectiles := int(boss.get("_projectiles_per_attack"))
+	boss.take_damage(boss.max_health * 0.51, 0.0)
+	if boss.get_boss_phase() != 2 or int(boss.get("_projectiles_per_attack")) <= opening_projectiles:
+		failures.append("the final boss must enter a faster multi-projectile second phase below half health")
+	boss.free()
+
+
+static func _test_final_boss_balance_window(failures: Array[String]) -> void:
+	var roster_power := 0.0
+	var estimated_damage_per_second := 0.0
+	for pet_id_value in Main.PetCatalog.ACTIVE_DESKTOP_PETS:
+		var pet_id := String(pet_id_value)
+		var pet_data := Main.PetCatalog.get_definition(pet_id)
+		var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
+		var pet_power := Main.PetCatalog.get_combat_power(pet_id, 100, true)
+		roster_power += pet_power
+		var damage_power_scale := clampf(pow(pet_power / 20.0, 0.35), 0.80, 2.5)
+		var damage := (1.05 + float(rarity) * 0.24 + sqrt(100.0) * 0.055) * damage_power_scale
+		estimated_damage_per_second += damage / 1.15
+	var schedule := Main.BattleBalance.build_final_boss_schedule()
+	var difficulty := Main.BattleBalance.recommended_difficulty_scale(
+		roster_power,
+		schedule,
+		100.0,
+		false,
+		1.0,
+		0.0
+	)
+	var boss := Main.EnemyActor.new()
+	boss.setup("final_boss", Vector2(700.0, 704.0), 704.0, difficulty * 1.075, 700.0)
+	var estimated_clear_seconds := boss.max_health / maxf(0.001, estimated_damage_per_second)
+	if estimated_clear_seconds < 10.0 or estimated_clear_seconds > 24.0:
+		failures.append(
+			"the final boss must occupy a meaningful but clearable 10-24 second window, estimated %.1fs"
+			% estimated_clear_seconds
+		)
+	boss.free()
+
+	var main := _make_main()
+	main.set("_battle_wave_schedule", Main.BattleBalance.build_final_boss_schedule())
+	var final_rewards: Dictionary = main.call("_get_battle_reward_budget", 1.0)
+	main.set("_battle_wave_schedule", Main.EraProgression.get_wave_schedule(0.0))
+	var regular_rewards: Dictionary = main.call("_get_battle_reward_budget", 1.0)
+	if (
+		int(final_rewards.get("gold", 0)) < int(regular_rewards.get("gold", 0)) * 3
+		or int(final_rewards.get("faith", 0)) < int(regular_rewards.get("faith", 0)) * 2
+	):
+		failures.append("the one-time final boss must award a clearly premium gold and faith payout")
 	main.free()
 
 
@@ -133,6 +218,7 @@ static func _test_completion_window_copy_and_signals(failures: Array[String]) ->
 		or not title_label.text.contains("游戏通关")
 		or body_label == null
 		or not body_label.text.contains("Lv.100")
+		or not body_label.text.contains("终焉星械")
 		or time_label == null
 		or not time_label.text.contains("200.0")
 	):
@@ -153,7 +239,8 @@ static func _test_completion_window_copy_and_signals(failures: Array[String]) ->
 		title_label == null
 		or title_label.text != "ALL PETS ASCENDED"
 		or body_label == null
-		or not body_label.text.contains("Every pet has reached Lv.100")
+		or not body_label.text.contains("Every pet reached Lv.100")
+		or not body_label.text.contains("Final Orrery")
 		or time_label == null
 		or not time_label.text.contains("TOTAL PLAY TIME  200.0 HOURS")
 		or endless_button == null

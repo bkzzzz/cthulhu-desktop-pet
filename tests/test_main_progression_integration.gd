@@ -213,8 +213,6 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	if int(main.get("_gacha_draw_count")) != count_after_chunked:
 		failures.append("a stale deferred chunk must not mutate a completed batch")
 
-	# Even a defensive empty-result completion refunds its reservation and clears
-	# the wait state rather than leaving the gacha button permanently disabled.
 	var gold_before_empty := int(main.get("_gold_coins"))
 	main.call("_on_gacha_draw_requested", 10)
 	var empty_token := int(main.get("_gacha_batch_token"))
@@ -321,8 +319,6 @@ static func _test_explicit_level_migration(failures: Array[String]) -> void:
 
 static func _test_single_level_upgrade(failures: Array[String]) -> void:
 	var main := _make_main()
-	# Post-campaign levels are intentionally available only after the player
-	# chooses Endless Mode on the completion screen.
 	main.set("_endless_mode", true)
 	var unlocked: Array = main.get("_unlocked_pet_ids")
 	unlocked.append("pet2")

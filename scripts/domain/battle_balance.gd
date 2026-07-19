@@ -1,14 +1,7 @@
 extends RefCounted
 
-## Adaptive encounter and reward rules. Enemy pressure follows the deployed pet
-## roster, while rewards follow the same faith and coin rates used elsewhere.
-
 const EnemyActor = preload("res://scripts/enemy_actor.gd")
 
-## Encounters should become denser gradually, not begin as a screen full of
-## enemies. The authored schedules already contain two or three enemies per
-## wave, which is the right opening pace. One reinforcement is added at each
-## campaign milestone and endless mode keeps extending that curve.
 const CAMPAIGN_LEVELS_PER_REINFORCEMENT := 30.0
 const ENDLESS_LEVELS_PER_REINFORCEMENT := 45.0
 const CAMPAIGN_MAX_ENEMIES_PER_WAVE := 6
@@ -16,6 +9,27 @@ const ENDLESS_MAX_ENEMIES_PER_WAVE := 10
 const MAX_REWARD_VALUE := 9_000_000_000_000_000_000.0
 const HIGH_POWER_CARRY_THRESHOLD := 32.0
 const HIGH_POWER_CARRY_PRESSURE := 0.65
+const FINAL_BOSS_ENCOUNTER_KEY := "final_boss_encounter"
+
+
+static func build_final_boss_schedule() -> Array[Dictionary]:
+	return [
+		{
+			"time": 0.0,
+			"types": ["outerspace1", "outerspace2"],
+			FINAL_BOSS_ENCOUNTER_KEY: true
+		},
+		{"time": 6.0, "types": ["outerspace3", "modern3"]},
+		{"time": 13.0, "types": ["outerspace2", "outerspace3", "modern3"]},
+		{"time": 21.0, "types": ["final_boss"]}
+	]
+
+
+static func is_final_boss_schedule(schedule: Array[Dictionary]) -> bool:
+	return (
+		not schedule.is_empty()
+		and bool(schedule[0].get(FINAL_BOSS_ENCOUNTER_KEY, false))
+	)
 
 
 static func build_wave_schedule(
@@ -68,9 +82,6 @@ static func recommended_difficulty_scale(
 	if debug_multiplier <= 0.0:
 		return 0.0
 	var wave_power := strongest_wave_power(schedule)
-	# Burst attacks and lane control make one advanced pet worth more than the
-	# same power spread over several ordinary pets. Charge that excess into the
-	# adaptive budget so a lucky high-tier unlock cannot trivialise encounters.
 	var carry_pressure := maxf(
 		0.0,
 		maxf(0.0, peak_pet_power) - HIGH_POWER_CARRY_THRESHOLD
@@ -118,9 +129,6 @@ static func reward_budget(
 		* 75.0
 		* maxf(1.0, reward_factor)
 	)
-	# Upgrade cost is only a gentle relevance floor. It is capped by the same
-	# thirty-second production budget so a victory cannot skip whole late-game
-	# tiers or destabilise the fruit economy.
 	var upgrade_floor := minf(
 		float(maxi(0, next_upgrade_cost)) * 0.0025 * reward_factor,
 		maxf(0.0, faith_rate_per_second) * 30.0

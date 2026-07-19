@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Pet progression, economy, gacha, evolution, settings, and commands.
-
 func _is_pet_unlocked(pet_id: String) -> bool:
 	return not pet_id.is_empty() and _unlocked_pet_ids.has(pet_id)
 
@@ -73,9 +71,6 @@ func _ensure_pet_state(pet_id: String) -> void:
 	_pet_states[pet_id] = state
 
 func _get_pet_state(pet_id: String) -> Dictionary:
-	# Loaded and externally supplied states are sanitized at their mutation
-	# boundaries. Re-sanitizing on every economy read used to walk and rewrite the
-	# same dictionary dozens of times per background tick.
 	if not _pet_states.has(pet_id) or not _pet_states[pet_id] is Dictionary:
 		_ensure_pet_state(pet_id)
 	return _pet_states[pet_id]
@@ -360,9 +355,6 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 	if _gacha_window == null:
 		return
 	if _gacha_batch_active:
-		# A stale/direct second signal must not mutate the active batch or reserve
-		# another copy of its gold. In particular, do not mark a newly-replaced
-		# window busy for a result owned by the original request window.
 		return
 	var safe_draw_amount = clampi(draw_amount, 1, GachaProgression.MAX_BATCH_DRAWS)
 	var reserved_cost = int(round(GachaProgression.draw_cost_total(
@@ -375,8 +367,6 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 		return
 
 	var owned_lookup = GachaProgression.make_unlocked_lookup(_unlocked_pet_ids)
-	# Gacha stages use permanent production only. A short offering buff cannot
-	# temporarily open a late-game pet and skip the intended growth curve.
 	var faith_growth_rate := maxf(0.0, _get_baseline_faith_growth_rate())
 	var locked_pool = GachaProgression.make_locked_pool(
 		owned_lookup,
@@ -392,7 +382,7 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 
 	_gacha_batch_token += 1
 	_gacha_batch_active = true
-	_gold_coins -= reserved_cost
+	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, -reserved_cost)
 	_gacha_batch_state = {
 		"token": _gacha_batch_token,
 		"remaining": safe_draw_amount,
@@ -416,7 +406,6 @@ func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
 		"window_ref": weakref(_gacha_window)
 	}
 	_set_gacha_request_pending(_gacha_window, true)
-	# Reflect the reserved balance immediately without rebuilding other UI.
 	_host._sync_gacha_state()
 	if is_inside_tree():
 		call_deferred("_process_gacha_draw_batch", _gacha_batch_token)
@@ -549,7 +538,7 @@ func _finish_gacha_draw_batch(batch_token: int) -> void:
 
 	var reserved_cost = maxi(0, int(completed_state.get("reserved_cost", 0)))
 	var spent_cost = clampi(int(completed_state.get("spent_cost", 0)), 0, reserved_cost)
-	_gold_coins += reserved_cost - spent_cost
+	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, reserved_cost - spent_cost)
 	var results: Array = completed_state.get("results", [])
 	var request_window_ref = completed_state.get("window_ref") as WeakRef
 	var request_window: Variant = request_window_ref.get_ref() if request_window_ref != null else null
@@ -563,8 +552,6 @@ func _finish_gacha_draw_batch(batch_token: int) -> void:
 		_unlocked_pet_ids,
 		PetCatalog.ACTIVE_DESKTOP_PETS
 	)
-	# Newly summoned pets arrive on the desktop immediately. Storage is reserved
-	# for pets the player explicitly recalls later.
 	for new_pet_id_value in completed_state.get("new_pet_ids", []):
 		var new_pet_id := String(new_pet_id_value)
 		if new_pet_id.is_empty() or not _is_pet_unlocked(new_pet_id) or _deployed_pet_ids.has(new_pet_id):
@@ -586,8 +573,6 @@ func _finish_gacha_draw_batch(batch_token: int) -> void:
 	_set_gacha_request_pending(request_window, false)
 	if bool(completed_state.get("inventory_changed", false)):
 		_host._sync_inventory_window()
-	# Debug levels can be set before a pet is owned. If that pet is later drawn at
-	# Lv.100, acquisition is also a threshold event and must evolve it immediately.
 	_apply_automatic_evolution_thresholds()
 	var news_item_name = String(completed_state.get("news_item_name", ""))
 	if not news_item_name.is_empty():
@@ -633,7 +618,7 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 		if carried.is_empty():
 			_shop_window.call("set_purchase_result", good_id, false, "Invalid offering data" if _language == "en" else "贡品数据无效")
 			return
-		_gold_coins -= price
+		_gold_coins = CurrencyDisplay.add_gold(_gold_coins, -price)
 		carried["purchase_price"] = price
 		_carried_offering = carried
 		_host._set_offering_cursor(String(_carried_offering.get("texture", "")))
@@ -655,7 +640,7 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 		_host._request_save()
 		return
 
-	_gold_coins -= price
+	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, -price)
 	_host._show_coin_change_popup(_host._get_window_mouse_position(get_window()), -price)
 	_shop_owned_counts[good_id] = int(_shop_owned_counts.get(good_id, 0)) + 1
 	_host._sync_shop_state()
@@ -695,8 +680,6 @@ func _on_inventory_pet_rename_requested(pet_id: String, custom_name: String) -> 
 	_set_pet_custom_name(pet_id, custom_name)
 
 func _on_inventory_pet_evolution_requested(pet_id: String) -> void:
-	# Kept for compatibility with an already-open legacy inventory window. Level
-	# thresholds are processed globally; there is no manual evolution choice.
 	_apply_automatic_evolution_thresholds()
 
 func _apply_automatic_evolution_thresholds() -> bool:
@@ -782,11 +765,14 @@ func _replace_deployed_pet_form(pet_id: String) -> void:
 			var new_actor_key = str(evolved_pet.get_instance_id())
 			_battle_pet_health[new_actor_key] = battle_health
 			_battle_pet_max_health[new_actor_key] = battle_max_health
+			_host._attach_battle_health_bar(
+				evolved_pet,
+				float(battle_health),
+				float(battle_max_health)
+			)
 			_battle_pet_attack_at[new_actor_key] = battle_attack_at
 			_battle_pet_target_x[new_actor_key] = battle_target_x
 			_battle_pet_formed[new_actor_key] = battle_formed
-			# Evolution can replace an actor on the same frame its enemy disappears.
-			# Never copy a freed target lock into the replacement actor.
 			if is_instance_valid(battle_enemy_target):
 				var battle_enemy_target_node = battle_enemy_target as Node2D
 				if not battle_enemy_target_node.is_queued_for_deletion():
@@ -809,8 +795,6 @@ func _on_pet_detail_rename_requested(pet_id: String, custom_name: String) -> voi
 	_set_pet_custom_name(pet_id, custom_name)
 	_host._request_save()
 
-
-# Offerings
 
 func _on_pet_upgrade_requested(pet_id: String) -> void:
 	if pet_id.is_empty() or not _is_pet_unlocked(pet_id):

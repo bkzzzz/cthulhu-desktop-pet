@@ -239,8 +239,6 @@ static func _test_hide_then_pop(failures: Array[String]) -> void:
 
 
 static func _test_ground_alignment(failures: Array[String]) -> void:
-	# Floating pets deliberately hover above the taskbar. Pixel-exact foot checks
-	# only apply to creatures whose authored locomotion is ground-bound.
 	for pet_id in ["pet1", "pet3", "pet4", "pet5"]:
 		var actor := DesktopPetActor.new()
 		actor.setup(pet_id, Vector2i(1200, 720), 72.0, 1100.0, 600.0)

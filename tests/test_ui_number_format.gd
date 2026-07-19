@@ -19,8 +19,6 @@ static func run() -> Array[String]:
 	if FileAccess.file_exists("res://scripts/windows_clickthrough_helper.ps1"):
 		failures.append("desktop input must not depend on an asynchronous clickthrough helper")
 	var formatter := SideDrawer.new()
-	# Keep the legacy Chinese-copy assertions explicit now that fresh games
-	# correctly start in English.
 	formatter.call("set_language", "zh")
 	_check(failures, formatter.call("_format_number", 1250.0, false, true), "1.25K")
 	_check(failures, formatter.call("_format_number", 18400.0, false, true), "18.4K")

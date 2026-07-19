@@ -126,8 +126,6 @@ static func _test_crystal_progression_gates(failures: Array[String]) -> void:
 	pet10.setup("pet10", Vector2i(1200, 720), 0.0, 1200.0, 500.0, 704.0, false)
 	main.add_child(pet10)
 	(main.get("_pets") as Array).append(pet10)
-	# Use a deliberately accumulated interval so the pile has enough value to
-	# pay for the crystal tier unlocked by this high-level pet.
 	main.call("_spawn_pet_coin_pile", pet10, 600.0)
 	var found_crystal := false
 	for drop in main.get("_coin_drops") as Array:

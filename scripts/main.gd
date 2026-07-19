@@ -1,6 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-# Thin composition root: lifecycle orchestration and compatibility delegation only.
 const DesktopController = preload("res://scripts/runtime/desktop_controller.gd")
 const EventsController = preload("res://scripts/runtime/events_controller.gd")
 const BattleController = preload("res://scripts/runtime/battle_controller.gd")
@@ -53,10 +52,7 @@ func _init() -> void:
 	_campaign_controller.share_context(_state, self)
 	add_child(_campaign_controller)
 
-# Lifecycle
 func _ready() -> void:
-	# Pet dragging samples the global cursor every render frame, so dispatching
-	# every raw OS mouse packet only floods UI input without improving accuracy.
 	Input.use_accumulated_input = true
 	_rng.randomize()
 	_simulation_now_seconds = Time.get_unix_time_from_system()
@@ -116,9 +112,6 @@ func _process(delta: float) -> void:
 	_session_runtime_seconds += safe_delta
 	_total_runtime_seconds += safe_delta
 	_display_layout_poll_elapsed += safe_delta
-	# Formation is visual movement and must run at render cadence. It used to be
-	# buried in the 10 Hz background simulation, making a healthy frame rate look
-	# like severe stutter whenever several pets crossed the desktop together.
 	_update_battle_pet_formation(safe_delta)
 	if _position_retry_frames > 0:
 		_position_retry_frames -= 1
@@ -150,9 +143,6 @@ func _process(delta: float) -> void:
 	_background_logic_time = 0.0
 	_update_pet_offering_buffs()
 	_update_recovery_states(logic_delta)
-	# Faith, follower and news updates ask for the same aggregate several times in
-	# one background tick. Compute it once, then leave event-driven calls outside
-	# this small scope fully live.
 	_background_faith_growth_cache = _calculate_faith_growth_rate()
 	_background_faith_growth_cache_active = true
 	_update_faith(logic_delta)
@@ -178,7 +168,6 @@ func _notification(what: int) -> void:
 		Engine.time_scale = 1.0
 		_save_game()
 		get_tree().quit()
-# Window setup
 
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0
@@ -187,9 +176,7 @@ func _exit_tree() -> void:
 	_clear_offering_cursor()
 
 
-# Petting, cursors, and emotion effects
 
-# Compatibility delegation
 func _configure_pet_window() -> bool:
 	return _desktop_controller._configure_pet_window()
 
@@ -240,6 +227,9 @@ func _update_event_invitations() -> void:
 
 func _spawn_event_invitation(event_type: String) -> void:
 	_events_controller._spawn_event_invitation(event_type)
+
+func _queue_final_boss_invitation() -> void:
+	_events_controller._queue_final_boss_invitation()
 
 func _get_base_battle_difficulty_scale() -> float:
 	return _battle_controller._get_base_battle_difficulty_scale()
@@ -386,6 +376,9 @@ func _cleanup_battle_enemies() -> void:
 
 func _get_alive_battle_pets() -> Array[Node2D]:
 	return _battle_controller._get_alive_battle_pets()
+
+func _attach_battle_health_bar(actor: Node2D, current_health: float, maximum_health: float) -> Node2D:
+	return _battle_controller._attach_battle_health_bar(actor, current_health, maximum_health)
 
 func _get_nearest_battle_pet(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
 	return _battle_controller._get_nearest_battle_pet(enemy, candidates)
@@ -993,6 +986,9 @@ func _get_campaign_level_cap() -> int:
 func _is_endless_mode() -> bool:
 	return _campaign_controller._is_endless_mode()
 
+func _should_offer_final_boss() -> bool:
+	return _campaign_controller._should_offer_final_boss()
+
 func _get_potential_coin_rate() -> float:
 	return _campaign_controller._get_potential_coin_rate()
 
@@ -1001,6 +997,9 @@ func _get_dynamic_shop_goods() -> Array[Dictionary]:
 
 func _check_campaign_completion() -> bool:
 	return _campaign_controller._check_campaign_completion()
+
+func _on_final_boss_defeated() -> void:
+	_campaign_controller._on_final_boss_defeated()
 
 func _on_completion_continue_requested() -> void:
 	_campaign_controller._on_completion_continue_requested()

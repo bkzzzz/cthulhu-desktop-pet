@@ -12,12 +12,11 @@ signal faith_add_requested(amount: int)
 signal menu_handle_moved(anchor: float)
 signal drawer_opened
 
-# Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 
-# Window and drawer layout
 const DESKTOP_MARGIN_X := 24
 const DRAWER_BOOKMARK_WIDTH := 226
 const DRAWER_PANEL_WIDTH := 548
@@ -42,7 +41,6 @@ enum TaskbarEdge {
 	RIGHT
 }
 
-# UI assets
 const QUIT_BUTTON_TEXTURE := "res://assets/ui/testElements/Quit.png"
 const MENU_ICON_TEXTURE := "res://assets/ui/newElements/菜单栏呼出.png"
 const DRAWER_BACKGROUND_TEXTURE := "res://assets/ui/newElements/菜单栏2.png"
@@ -54,7 +52,6 @@ const UPGRADE_TEXTURE := "res://assets/ui/testElements/upgrade.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
 const COIN_TEXTURE := "res://assets/ui/coins/MonedaD.png"
 
-# Core UI sizing
 const MENU_ICON_SIZE := Vector2(218.0, 140.0)
 const ADDER_STAGE_HEIGHT := 484.0
 const ADDER_SIZE := Vector2(244.0, 296.0)
@@ -74,7 +71,6 @@ const UPGRADE_SCROLL_MAX_HEIGHT := 760.0
 const LOCKED_PET_TEXT := "??????"
 const LOCKED_PET_LEVEL_TEXT := "????\n????"
 const LOCKED_PET_SILHOUETTE_COLOR := Color(0.025, 0.025, 0.035, 1.0)
-# Particle data
 const SYMBOL_EFFECT_TEXTURES := [
 	"res://assets/ui/newElements/符号特效1.png",
 	"res://assets/ui/newElements/符号特效2.png",
@@ -106,7 +102,6 @@ const BOOKMARK_SAFE_INSET_X := 8.0
 const BOOKMARK_LABEL_POSITION := Vector2(84.0, 0.0)
 const BOOKMARK_LABEL_SIZE := Vector2(124.0, 82.0)
 
-# Window controls and drawer state
 var _menu_window: Window
 var _menu_button: TextureButton
 var _menu_hint: Label
@@ -154,10 +149,10 @@ var _menu_drag_suppress_click := false
 var _menu_drag_start_pointer := Vector2.ZERO
 var _menu_drag_pointer_offset := Vector2.ZERO
 
-# Faith and upgrade state
 var _faith_value_label: Label
 var _faith_title_label: Label
 var _faith_growth_value_label: Label
+var _coin_icon: TextureRect
 var _coin_value_label: Label
 var _faith_count := 0.0
 var _coin_count := 0
@@ -185,7 +180,6 @@ var _drawer_symbol_update_time := 0.0
 var _display_layout_poll_time := 0.0
 
 
-# Lifecycle
 func setup() -> void:
 	_rng.randomize()
 	_create_toggle_button()
@@ -221,7 +215,6 @@ func _process(delta: float) -> void:
 		_drawer_symbol_update_time = 0.0
 
 
-# Public refresh API
 func refresh_faith(faith_count: float, growth_rate: float) -> void:
 	_faith_count = faith_count
 	_faith_growth_rate = growth_rate
@@ -253,8 +246,6 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		if not entry_pet_id.is_empty():
 			entries_by_id[entry_pet_id] = entry_copy
 	_upgrade_entries = next_entries
-	# The drawer spends most of its life closed. Keep the data current without
-	# invalidating dozens of labels, textures and controls that cannot be seen.
 	if _drawer_window != null and not _drawer_window.visible and not _drawer_open:
 		return
 
@@ -367,9 +358,13 @@ func refresh_followers(follower_count: int, growth_rate: float) -> void:
 
 func refresh_coins(coin_count: int) -> void:
 	_coin_count = maxi(0, coin_count)
+	if _coin_icon != null:
+		_coin_icon.texture = CurrencyDisplay.make_icon_texture(_coin_count)
+		_coin_icon.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_count, _language)
 	if _coin_value_label == null:
 		return
-	var next_text := "$ %s" % _format_number(float(_coin_count), false, true)
+	var next_text := CurrencyDisplay.format_compact(_coin_count)
+	_coin_value_label.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_count, _language)
 	if _coin_value_label.text == next_text:
 		return
 	_coin_value_label.text = next_text
@@ -380,6 +375,7 @@ func refresh_coins(coin_count: int) -> void:
 func set_language(language_code: String) -> void:
 	_language = LanguageSettings.sanitize(language_code)
 	_apply_language_theme()
+	refresh_coins(_coin_count)
 	if _menu_window != null:
 		_menu_window.title = "Menu" if _language == "en" else "菜单栏"
 	if _menu_hint != null:
@@ -433,7 +429,6 @@ func is_upgrade_ui_visible() -> bool:
 	return _drawer_open or (_drawer_window != null and _drawer_window.visible)
 
 
-# Menu and drawer windows
 func _create_toggle_button() -> void:
 	_menu_window = Window.new()
 	_menu_window.name = "MenuHandleWindow"
@@ -690,7 +685,6 @@ func _reset_drawer_symbol(symbol: TextureRect, scatter_y: bool) -> void:
 	symbol.set_meta("phase", _rng.randf_range(0.0, TAU))
 
 
-# Upgrade panel UI
 func _create_upgrade_detail_panel() -> void:
 	_upgrade_detail_window = Window.new()
 	_upgrade_detail_window.name = "UpgradeDetailWindow"
@@ -897,25 +891,27 @@ func _make_faith_adder_stage() -> Control:
 	coin_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	coin_center.add_child(coin_row)
 
-	var coin_icon := TextureRect.new()
-	coin_icon.name = "GoldIcon"
-	coin_icon.texture = _make_coin_icon_texture()
-	coin_icon.custom_minimum_size = Vector2(36.0, 36.0)
-	coin_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	coin_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	coin_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	coin_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	coin_row.add_child(coin_icon)
+	_coin_icon = TextureRect.new()
+	_coin_icon.name = "GoldIcon"
+	_coin_icon.texture = _make_coin_icon_texture()
+	_coin_icon.custom_minimum_size = Vector2(36.0, 36.0)
+	_coin_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_coin_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_coin_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_coin_icon.mouse_filter = Control.MOUSE_FILTER_PASS
+	_coin_icon.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_count, _language)
+	coin_row.add_child(_coin_icon)
 
 	_coin_value_label = Label.new()
 	_coin_value_label.name = "GoldValue"
-	_coin_value_label.text = "$ %s" % _format_number(float(_coin_count), false, true)
+	_coin_value_label.text = CurrencyDisplay.format_compact(_coin_count)
 	_coin_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_coin_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_coin_value_label.custom_minimum_size = Vector2(1.0, 44.0)
 	_coin_value_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_coin_value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_coin_value_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_coin_value_label.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_count, _language)
 	_coin_value_label.add_theme_font_size_override("font_size", 34)
 	_coin_value_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.38, 1.0))
 	_coin_value_label.add_theme_color_override("font_outline_color", Color(0.03, 0.025, 0.01, 1.0))
@@ -925,13 +921,7 @@ func _make_faith_adder_stage() -> Control:
 
 
 func _make_coin_icon_texture() -> Texture2D:
-	var texture := load(COIN_TEXTURE) as Texture2D
-	if texture == null:
-		return null
-	var atlas := AtlasTexture.new()
-	atlas.atlas = texture
-	atlas.region = Rect2(0.0, 0.0, float(texture.get_width()) / 5.0, float(texture.get_height()))
-	return atlas
+	return CurrencyDisplay.make_icon_texture(_coin_count)
 
 
 func _make_faith_adder_button() -> TextureButton:
@@ -953,7 +943,6 @@ func _make_faith_adder_button() -> TextureButton:
 	return button
 
 
-# Upgrade list rows
 func _make_upgrade_scroller() -> ScrollContainer:
 	var scroller := ScrollContainer.new()
 	_upgrade_scroller = scroller
@@ -976,8 +965,6 @@ func _make_upgrade_scroller() -> ScrollContainer:
 
 
 func _get_upgrade_scroll_height() -> float:
-	# Everything outside the scroller: panel margins, faith stage, era strip,
-	# spacer, footer, and the four ten-pixel VBox gaps between five children.
 	var fixed_height := (
 		DRAWER_CONTENT_TOP_MARGIN
 		+ 20.0
@@ -1202,7 +1189,6 @@ func _make_upgrade_profile_box_style() -> StyleBoxFlat:
 	return style
 
 
-# Formatting and style helpers
 func _set_fitted_label_text(
 	label: Label,
 	next_text: String,
@@ -1308,8 +1294,6 @@ func _apply_language_theme() -> void:
 		_upgrade_detail_window.theme = language_theme
 	var display_font := LanguageSettings.get_display_font(_language)
 	var numeric_display_font := LanguageSettings.get_numeric_display_font()
-	# Keep the pixel face as an accent only. Names, descriptions, costs, tooltips,
-	# buttons, and editable text continue to inherit the readable body font.
 	for display_label in [_menu_hint, _era_label]:
 		if display_label != null:
 			display_label.add_theme_font_override("font", display_font)
@@ -1455,7 +1439,6 @@ func _set_upgrade_row_locked_state(pet_id: String, locked: bool) -> void:
 	_upgrade_affordables[pet_id] = false
 
 
-# Upgrade hover detail
 func _on_upgrade_row_hovered(pet_id: String, button: Control, hovered: bool) -> void:
 	if not _has_upgrade_entry(pet_id):
 		if _hovered_upgrade_pet_id == pet_id:
@@ -1856,7 +1839,6 @@ func _animate_control_press(control: Control) -> void:
 	tween.tween_property(control, "scale", Vector2.ONE, 0.08)
 
 
-# Cursor, effects, and hit masks
 func _on_interactive_control_hovered(control: Control, hovered: bool) -> void:
 	_animate_control_hover(control, hovered)
 
@@ -2057,7 +2039,6 @@ func _apply_texture_click_mask(button: TextureButton) -> void:
 	button.texture_click_mask = bitmap
 
 
-# Window placement and drawer motion
 func _place_menu_window() -> void:
 	if _menu_window == null:
 		return
@@ -2180,8 +2161,6 @@ func _toggle_drawer() -> void:
 	_drawer_target_x = _drawer_screen_position.x if _drawer_open else _drawer_closed_x
 
 	if _drawer_open:
-		# Data can change while the window is hidden; paint the cached snapshot once
-		# on open instead of continuously touching invisible controls.
 		refresh_pet_upgrades(_upgrade_entries)
 		if not _drawer_window.visible or _drawer_window.position.x < _drawer_screen_position.x or _drawer_window.position.x >= _drawer_closed_x:
 			_drawer_window.position = Vector2i(_drawer_closed_x, _drawer_screen_position.y)
@@ -2348,7 +2327,6 @@ func _on_menu_button_hovered(hovered: bool) -> void:
 		_menu_hint.visible = hovered
 
 
-# Button signal handlers
 func _on_pet_upgrade_pressed(pet_id: String, button: Control) -> void:
 	var affordable: bool = _upgrade_affordables.get(pet_id, false) == true
 	pet_upgrade_requested.emit(pet_id)

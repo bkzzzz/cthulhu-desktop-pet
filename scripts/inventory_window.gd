@@ -88,8 +88,6 @@ func add_pet(pet_id: String, custom_name := "") -> void:
 		_refresh_page()
 		_visuals_dirty = false
 	else:
-		# Gacha batches can unlock several pets while this large 48-slot window is
-		# hidden. Keep the data current and redraw once when the book is opened.
 		_visuals_dirty = true
 
 

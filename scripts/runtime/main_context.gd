@@ -1,7 +1,6 @@
 extends Node2D
 
 const GameState = preload("res://scripts/runtime/game_state.gd")
-# Dependencies
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 const FollowerProgression = preload("res://scripts/domain/follower_progression.gd")
@@ -11,11 +10,13 @@ const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 const EraProgression = preload("res://scripts/domain/era_progression.gd")
 const EconomyBalance = preload("res://scripts/domain/economy_balance.gd")
 const BattleBalance = preload("res://scripts/domain/battle_balance.gd")
+const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
 const EnemyActor = preload("res://scripts/enemy_actor.gd")
 const EnemyProjectileActor = preload("res://scripts/enemy_projectile_actor.gd")
 const BattleEffectActor = preload("res://scripts/battle_effect_actor.gd")
+const CombatHealthBar = preload("res://scripts/combat_health_bar.gd")
 const EventInvitation = preload("res://scripts/event_invitation.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
 const EvolutionWindowScript = preload("res://scripts/evolution_window.gd")
@@ -29,7 +30,6 @@ const NativeVisualClickthrough = preload("res://scripts/native_visual_clickthrou
 const CoinDrop = preload("res://scripts/coin_drop.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 
-# Window and actor layout
 const PET_WINDOW_BASE_SIZE := Vector2i(820, 420)
 # The desktop window already ends exactly at the Windows usable-work-area edge.
 # Its local bottom is therefore the taskbar contact line; subtracting an inset
@@ -42,7 +42,6 @@ const POSITION_RETRY_FRAMES := 12
 const BACKGROUND_LOGIC_INTERVAL := 0.10
 const POINTER_HOVER_INTERVAL := 1.0 / 15.0
 
-# Pet interaction and offering tuning
 const OFFERING_CURSOR_SIZE := Vector2i(52, 52)
 const OFFERING_DROP_SCALE := 0.36
 const OFFERING_FEED_TIMEOUT_SECONDS := 12.0
@@ -55,7 +54,6 @@ const EMOTION_SLEEPY_TEXTURE := "res://assets/ui/emotions/sleepy.png"
 const EMOTION_SUPRISED_TEXTURE := "res://assets/ui/emotions/suprised.png"
 const EMOTION_SCALE := 0.28
 
-# Simulation and refresh cadence
 const EMOTION_MIN_INTERVAL_SECONDS := 2.8
 const EMOTION_HOLD_SECONDS := 3.2
 const GLOBAL_FAITH_MULTIPLIER := 1.0
@@ -97,9 +95,10 @@ const GACHA_BATCH_MAX_DRAWS_PER_FRAME := 128
 const GACHA_BATCH_FRAME_BUDGET_USEC := 1800
 const GACHA_BATCH_BUDGET_CHECK_INTERVAL := 16
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 12
+const SAVE_VERSION := 13
 const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
+const FINAL_BOSS_SAVE_VERSION := 13
 const AUTOSAVE_INTERVAL_SECONDS := 30.0
 const SAVE_DEBOUNCE_SECONDS := 0.45
 const OFFLINE_PROGRESS_MAX_SECONDS := 12.0 * 60.0 * 60.0
@@ -142,9 +141,7 @@ const PET5_ROLL_OVERSHOOT := 82.0
 const PET5_ROLL_HIT_RADIUS := 48.0
 const PET5_ROLL_SPEED := 760.0
 
-# Runtime actors and input state
 
-# Shared runtime context
 var _state: GameState = GameState.new()
 var _host: Variant = self
 
@@ -152,7 +149,6 @@ func share_context(state_value: GameState, host_value: Variant) -> void:
 	_state = state_value
 	_host = host_value
 
-# Compatibility properties keep the existing Main API stable while state lives in GameState.
 var _pets: Array[Node2D]:
 	get: return _state._pets
 	set(value): _state._pets = value
@@ -371,7 +367,7 @@ var _lifetime_faith: float:
 	set(value): _state._lifetime_faith = value
 var _gold_coins: int:
 	get: return _state._gold_coins
-	set(value): _state._gold_coins = value
+	set(value): _state._gold_coins = CurrencyDisplay.sanitize_gold(value)
 var _gacha_draw_count: int:
 	get: return _state._gacha_draw_count
 	set(value): _state._gacha_draw_count = value
@@ -501,6 +497,9 @@ var _campaign_completed: bool:
 var _campaign_completion_acknowledged: bool:
 	get: return _state._campaign_completion_acknowledged
 	set(value): _state._campaign_completion_acknowledged = value
+var _final_boss_defeated: bool:
+	get: return _state._final_boss_defeated
+	set(value): _state._final_boss_defeated = value
 var _endless_mode: bool:
 	get: return _state._endless_mode
 	set(value): _state._endless_mode = value
@@ -508,9 +507,20 @@ var _reset_in_progress: bool:
 	get: return _state._reset_in_progress
 	set(value): _state._reset_in_progress = value
 
-# Small deterministic helpers remain inherited for source and test compatibility.
 static func _get_enemy_launch_direction() -> float:
 	return -1.0
+
+static func _get_loaded_final_boss_defeated(
+	save_version: int,
+	campaign_completed: bool,
+	saved_final_boss_defeated: bool,
+	endless_mode: bool
+) -> bool:
+	if endless_mode:
+		return true
+	if save_version < FINAL_BOSS_SAVE_VERSION:
+		return campaign_completed
+	return saved_final_boss_defeated
 
 static func _choose_crystal_drop_type(
 	pet_data: Dictionary,

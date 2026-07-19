@@ -132,8 +132,6 @@ static func _test_form_specific_authored_facing(failures: Array[String]) -> void
 	evolved_pet6.setup("pet6", Vector2i(1000, 720), 0.0, 1000.0, 600.0, 704.0, false, true, 100)
 	evolved_pet6.set_battle_mode(true)
 	var pet6_sprite := evolved_pet6.get_node_or_null("pet6Sprite") as AnimatedSprite2D
-	# Its left-authored idle and right-authored attack require opposite flip_h
-	# values while watching the exact same target on the left.
 	if pet6_sprite == null or pet6_sprite.flip_h:
 		failures.append("evolved pet6 idle must remain unflipped while watching a left-side enemy")
 	evolved_pet6.play_battle_attack_toward(-1.0)
@@ -231,7 +229,6 @@ static func _test_evolution_state_and_power(failures: Array[String]) -> void:
 		failures.append("every pet must receive automatic evolution state at level 100")
 	main.free()
 
-	# Debug level edits must swap an already deployed actor in both directions.
 	var runtime_main := Main.new()
 	runtime_main.set("_persistence_enabled", false)
 	runtime_main.set("_pet_window_size", Vector2i(1000, 720))

@@ -1,17 +1,11 @@
 extends RefCounted
 
-# One progression tick is five minutes of simulation time. Godot scales process
-# delta with Engine.time_scale, so the debug game-speed multiplier advances this
-# clock, the displayed calendar, and pet ages together.
 const SECONDS_PER_YEAR := 300.0
 const SOLDIER_ERA_START_YEAR := 3
 const VICTORIAN_ERA_START_YEAR := 6
 const MODERN_ERA_START_YEAR := 10
 const OUTER_SPACE_ERA_START_YEAR := 14
 
-# The compact game timeline uses recognizable real-world dates instead of a
-# fictional "Year 1" calendar. Early/late medieval chapters move by centuries;
-# once the Victorian era begins the calendar proceeds one year per tick.
 const MEDIEVAL_START_CALENDAR_YEAR := 1066
 const SOLDIER_ERA_START_CALENDAR_YEAR := 1300
 const VICTORIAN_ERA_START_CALENDAR_YEAR := 1837

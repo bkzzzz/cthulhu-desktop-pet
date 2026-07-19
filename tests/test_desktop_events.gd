@@ -15,6 +15,7 @@ static func run() -> Array[String]:
 	_test_era_progression(failures)
 	_test_enemy_roles_and_frames(failures)
 	_test_enemy_projectiles_and_special_defeats(failures)
+	_test_projectiles_coast_after_target_loss(failures)
 	_test_pet_combat_assets(failures)
 	_test_pet6_dragged_combat(failures)
 	_test_era_age_and_difficulty(failures)
@@ -201,6 +202,32 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 		failures.append("launched enemies must visibly fly instead of disappearing immediately")
 	enemy.free()
 	target.free()
+
+
+static func _test_projectiles_coast_after_target_loss(failures: Array[String]) -> void:
+	var pet_target := Node2D.new()
+	pet_target.position = Vector2(520.0, 300.0)
+	var pet_projectile := BattleEffectActor.new()
+	pet_projectile.setup_projectile("pet10", Vector2(80.0, 260.0), pet_target, 5.0)
+	pet_projectile.call("_process", 0.08)
+	var pet_position_before_loss := pet_projectile.position
+	pet_target.free()
+	pet_projectile.call("_process", 0.08)
+	if not bool(pet_projectile.get("_coasting")) or pet_projectile.position == pet_position_before_loss:
+		failures.append("pet projectiles must continue on their last trajectory after a target dies")
+	pet_projectile.free()
+
+	var pet_target_for_enemy := Node2D.new()
+	pet_target_for_enemy.position = Vector2(520.0, 300.0)
+	var enemy_projectile := EnemyProjectileActor.new()
+	enemy_projectile.setup("victorian_bullet", Vector2(80.0, 260.0), pet_target_for_enemy, 1.0, 1.0)
+	enemy_projectile.call("_process", 0.08)
+	var enemy_position_before_loss := enemy_projectile.position
+	pet_target_for_enemy.free()
+	enemy_projectile.call("_process", 0.08)
+	if not bool(enemy_projectile.get("_coasting")) or enemy_projectile.position == enemy_position_before_loss:
+		failures.append("enemy projectiles must continue on their last trajectory after a pet dies")
+	enemy_projectile.free()
 
 
 static func _test_era_age_and_difficulty(failures: Array[String]) -> void:
@@ -490,8 +517,6 @@ static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
 	main.set("_battle_next_wave_index", 0)
 	var pet6 := Main.DesktopPetActor.new()
 	pet6.setup("pet6", Vector2i(1000, 720), 0.0, 1000.0, 720.0, 704.0, false)
-	# The long attack art is visibly beside the enemy at this spacing, while the
-	# old hard-coded 155px origin check incorrectly rejected it.
 	pet6.position.x = 820.0
 	pet6.set_battle_mode(true)
 	main.add_child(pet6)
@@ -500,9 +525,6 @@ static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
 	var actor_key := str(pet6.get_instance_id())
 	(main.get("_battle_pet_health") as Dictionary)[actor_key] = 10.0
 	(main.get("_battle_pet_max_health") as Dictionary)[actor_key] = 10.0
-	# Exercise the same state transitions as a real mouse drag. The previous bug
-	# left ordinary pets permanently marked FALLING after their feet reached the
-	# taskbar, so is_battle_ready() rejected every future attack.
 	pet6.set("_pointer_held", true)
 	pet6.set("_pointer_hold_time", 0.4)
 	pet6.call("_begin_grab")
@@ -639,10 +661,9 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	var invitation_text := String(invitation.get("_difficulty_text")) if invitation != null else ""
 	var pending_budget: Dictionary = main.call("_get_battle_reward_budget", pending_difficulty)
 	var advertised_schedule: Array = (main.get("_battle_wave_schedule") as Array).duplicate(true)
-	if pending_difficulty < 0.0 or invitation == null or not invitation_text.contains("%d 金币 + %d 信仰" % [int(pending_budget.get("gold", 0)), int(pending_budget.get("faith", 0))]):
+	var pending_gold_text := Main.CurrencyDisplay.format_compact(int(pending_budget.get("gold", 0)))
+	if pending_difficulty < 0.0 or invitation == null or not invitation_text.contains("%s + %d 信仰" % [pending_gold_text, int(pending_budget.get("faith", 0))]):
 		failures.append("battle invitations must display the reward budget for the exact randomly rolled encounter")
-	# Cross every authored era while the untouched letter remains on the desktop.
-	# Accepting it must still use exactly the encounter that the letter advertised.
 	main.set("_total_runtime_seconds", EraProgression.SECONDS_PER_YEAR * 20.0)
 	var pre_battle_pet_x := pet.position.x
 	main.call("_on_event_invitation_accepted", "battle")
@@ -697,8 +718,9 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 		failures.append("expanded enemy barrages must respect the shared battle-effect soft limit")
 	var formation_start_x := pet.position.x
 	main.call("_update_battle_pet_formation", 1.0 / 60.0)
-	if not is_equal_approx(pet.position.x, formation_start_x):
-		failures.append("melee pets must not camp or chase enemies before their entry protection ends")
+	var early_formation_step := absf(pet.position.x - formation_start_x)
+	if early_formation_step <= 0.0 or early_formation_step > 5.0:
+		failures.append("melee pets must begin a smooth intercept as soon as incoming enemies appear")
 	projectile_source.call("_process", 4.0)
 	formation_start_x = pet.position.x
 	main.call("_update_battle_pet_formation", 1.0 / 60.0)

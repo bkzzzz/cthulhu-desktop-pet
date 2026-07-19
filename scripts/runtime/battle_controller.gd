@@ -1,7 +1,5 @@
 extends "res://scripts/runtime/main_context.gd"
 
-## Battle scheduling, formation, combat resolution, and battle effects.
-
 const ENCOUNTER_REWARD_KEY := "_encounter_reward_budget"
 const ENCOUNTER_DIFFICULTY_KEY := "_encounter_difficulty_scale"
 const BATTLE_GOLD_REWARD_MINUTES := 0.48
@@ -13,6 +11,8 @@ const BATTLE_FAITH_REWARD_MAX_SECONDS := 30.0
 const BATTLE_FAITH_REWARD_MANUAL_CLICKS := 75.0
 const BATTLE_REWARD_VISUAL_DROP_LIMIT := 8
 const MAX_BATTLE_REWARD_VALUE := 9_000_000_000_000_000_000
+const FINAL_BOSS_GOLD_REWARD_MULTIPLIER := 3.0
+const FINAL_BOSS_FAITH_REWARD_MULTIPLIER := 2.0
 
 var _battle_visual_reward_drops := 0
 
@@ -22,6 +22,8 @@ func _get_battle_average_pet_level() -> float:
 
 
 func _build_battle_wave_schedule() -> Array[Dictionary]:
+	if _host._should_offer_final_boss():
+		return BattleBalance.build_final_boss_schedule()
 	return BattleBalance.build_wave_schedule(
 		EraProgression.get_wave_schedule(_total_runtime_seconds),
 		_get_battle_average_pet_level(),
@@ -114,11 +116,12 @@ func _get_battle_difficulty_text(difficulty_override := -1.0, language_override 
 		var enemy_id = String(enemy_id_value)
 		parts.append("%s×%d" % [_get_enemy_display_name(enemy_id, display_language), int(counts[enemy_id])])
 	var rewards = _get_battle_reward_budget(difficulty)
+	var reward_gold_text := CurrencyDisplay.format_compact(int(rewards["gold"]))
 	return (
-		"ENEMIES: %s\nREWARD BUDGET: %d GOLD + %d FAITH"
+		"ENEMIES: %s\nREWARD BUDGET: %s + %d FAITH"
 		if display_language == "en"
-		else "敌军编成：%s\n奖励预算：%d 金币 + %d 信仰"
-	) % [(" · " if display_language == "en" else "、").join(parts), int(rewards["gold"]), int(rewards["faith"])]
+		else "敌军编成：%s\n奖励预算：%s + %d 信仰"
+	) % [(" · " if display_language == "en" else "、").join(parts), reward_gold_text, int(rewards["faith"])]
 
 func _get_enemy_display_name(enemy_id: String, language_override := "") -> String:
 	var display_language := (
@@ -130,13 +133,13 @@ func _get_enemy_display_name(enemy_id: String, language_override := "") -> Strin
 		"villager1": "村民", "villager2": "持械村民", "soldier1": "步兵", "soldier2": "弓兵",
 		"victorian1": "维多利亚枪手", "victorian2": "维多利亚卫兵", "victorian_boss": "维多利亚统领",
 		"modern2": "现代炮兵", "modern3": "现代术士", "outerspace1": "星际侦察兵",
-		"outerspace2": "星际轰炸者", "outerspace3": "星际主宰"
+		"outerspace2": "星际轰炸者", "outerspace3": "星际主宰", "final_boss": "终焉星械"
 	}
 	var names_en = {
 		"villager1": "Villager", "villager2": "Armed Villager", "soldier1": "Infantry", "soldier2": "Archer",
 		"victorian1": "Victorian Gunner", "victorian2": "Victorian Guard", "victorian_boss": "Victorian Commander",
 		"modern2": "Modern Artillery", "modern3": "Modern Adept", "outerspace1": "Star Scout",
-		"outerspace2": "Star Bomber", "outerspace3": "Star Overlord"
+		"outerspace2": "Star Bomber", "outerspace3": "Star Overlord", "final_boss": "Final Orrery"
 	}
 	return String((names_en if display_language == "en" else names_zh).get(enemy_id, enemy_id))
 
@@ -172,9 +175,6 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 		_host._is_endless_mode(),
 		manual_click_gain
 	)
-	# A victory is worth roughly half a minute of the potential coin economy.
-	# That makes active play tangible while dynamic fruit prices remain relevant;
-	# enemy count never multiplies this settlement.
 	var difficulty_factor := clampf(
 		pow(maxf(0.20, difficulty), 0.12),
 		0.80,
@@ -194,10 +194,6 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 	reward_budget["enemy_gold"] = 0
 	reward_budget["victory_gold"] = victory_gold
 
-	# The Adder is the active-play baseline. Every victory is guaranteed to beat
-	# seventy-five real clicks and also grants 22-30 seconds of current baseline
-	# production. At the normal battle cadence this is about one third of total
-	# faith growth, rather than an ignorable cosmetic reward.
 	var faith_seconds := clampf(
 		BATTLE_FAITH_REWARD_BASE_SECONDS * difficulty_factor,
 		BATTLE_FAITH_REWARD_MIN_SECONDS,
@@ -216,6 +212,15 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 		opening_faith_floor,
 		maxi(manual_faith_floor, production_faith_floor)
 	)
+	if BattleBalance.is_final_boss_schedule(schedule):
+		var final_gold := _safe_battle_reward_int(
+			float(reward_budget["gold"]) * FINAL_BOSS_GOLD_REWARD_MULTIPLIER
+		)
+		reward_budget["gold"] = final_gold
+		reward_budget["victory_gold"] = final_gold
+		reward_budget["faith"] = _safe_battle_reward_int(
+			float(reward_budget["faith"]) * FINAL_BOSS_FAITH_REWARD_MULTIPLIER
+		)
 	return reward_budget
 
 
@@ -282,6 +287,7 @@ func _start_battle() -> void:
 		_battle_pet_target_x[actor_key] = pet.position.x
 		if pet.has_method("set_battle_mode"):
 			pet.call("set_battle_mode", true)
+		_attach_battle_health_bar(pet, max_health, max_health)
 
 	_host._show_pilgrimage_broadcast(
 		"BATTLE EVENT" if _language == "en" else "战斗事件",
@@ -354,8 +360,6 @@ func _update_battle(delta: float) -> void:
 		var attack_direction = enemy_target.position.x - pet.position.x
 		if is_zero_approx(attack_direction):
 			attack_direction = -1.0
-		# pet5's attack is the movement itself. It barrels through every enemy on
-		# the swept path; damage is applied by the per-frame sweep callback below.
 		if (
 			pet_id == "pet5"
 			and pet.has_method("uses_battle_roll_attack")
@@ -395,18 +399,17 @@ func _update_battle(delta: float) -> void:
 			var visual_power = _get_battle_visual_power(rarity, level)
 			var current_health = float(enemy_target.call("get_health")) if enemy_target.has_method("get_health") else INF
 			var launch_defeat = current_health <= damage and _roll_melee_launch(rarity, level)
+			var hit_direction := -1.0 if enemy_target.position.x < pet.position.x else 1.0
 			if launch_defeat:
-				# Invaders always retreat toward the side they entered from, even when the
-				# player drags a pet behind their line.
-				var launch_direction = _get_enemy_launch_direction()
+				var launch_direction = hit_direction
 				var launch_velocity = Vector2(
 					launch_direction * (720.0 + visual_power * 58.0),
 					-190.0 - visual_power * 16.0
 				)
-				enemy_target.call("take_damage", damage, knockback, launch_velocity)
+				enemy_target.call("take_damage", damage, knockback, launch_velocity, hit_direction)
 				_try_launch_enemy_group(pet, enemy_target, visual_power, launch_direction)
 			else:
-				enemy_target.call("take_damage", damage, knockback)
+				enemy_target.call("take_damage", damage, knockback, Vector2.ZERO, hit_direction)
 		var next_attack_delay = _rng.randf_range(0.95, 1.35)
 		if pet.has_method("get_battle_attack_duration"):
 			next_attack_delay = maxf(
@@ -436,8 +439,6 @@ func _update_battle_pet_formation(delta: float) -> void:
 			var formation_x = float(_battle_pet_target_x.get(actor_key, float(_pet_window_size.x) * 0.78))
 			var reached_formation = true
 			if pet.has_method("battle_move_toward"):
-				# Enemies enter from the left. Pets keep watching that side while
-				# shifting into formation instead of flipping right for one frame.
 				reached_formation = bool(pet.call(
 					"battle_move_toward",
 					formation_x,
@@ -489,31 +490,41 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 	var enemy_types: Array = wave.get("types", [])
 	for enemy_index in enemy_types.size():
 		var enemy_id = String(enemy_types[enemy_index])
+		var spawn_from_right := (enemy_index + wave_index) % 2 == 1
 		var formation_weight := (
 			0.5
 			if enemy_types.size() <= 1
 			else float(enemy_index) / float(enemy_types.size() - 1)
 		)
 		var spawn_position = Vector2(
-			-82.0 - float(enemy_index) * 52.0,
+			(
+				float(_pet_window_size.x) + 82.0 + float(enemy_index) * 52.0
+				if spawn_from_right
+				else -82.0 - float(enemy_index) * 52.0
+			),
 			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
 		)
 		var enemy: Node2D = EnemyActor.new()
 		enemy.set_meta("battle_runtime", true)
 		var era_scale = _get_battle_difficulty_scale()
 		var wave_scale = 1.0 + float(wave_index) * 0.025
-		var entry_x = (
+		var left_entry_x: float = (
 			lerpf(
 				float(_pet_window_size.x) * 0.12,
 				float(_pet_window_size.x) * 0.42,
 				formation_weight
 			)
-			if enemy_id in ["soldier2", "victorian1", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]
+			if enemy_id in ["soldier2", "victorian1", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3", "final_boss"]
 			else lerpf(
 				float(_pet_window_size.x) * 0.06,
 				float(_pet_window_size.x) * 0.25,
 				formation_weight
 			)
+		)
+		var entry_x: float = (
+			float(_pet_window_size.x) - left_entry_x
+			if spawn_from_right
+			else left_entry_x
 		)
 		enemy.call(
 			"setup",
@@ -541,9 +552,6 @@ func _on_enemy_projectile_requested(
 		return
 	if target == null or not is_instance_valid(target):
 		return
-	# Expanded late-game waves can request dozens of barrage bolts on the same
-	# frame. Preserve the authored volleys up to the shared visual budget, then
-	# shed overflow until older projectiles exit instead of growing unbounded.
 	if _battle_effects.size() >= BATTLE_EFFECT_LIMIT:
 		return
 	var start_position = enemy.position + Vector2(38.0, -68.0)
@@ -558,7 +566,7 @@ func _on_enemy_projectile_requested(
 	_battle_effects.append(projectile)
 
 func _on_enemy_projectile_impacted(
-	_projectile: Node2D,
+	projectile: Node2D,
 	target: Node2D,
 	damage: float,
 	splash_radius: float,
@@ -569,8 +577,13 @@ func _on_enemy_projectile_impacted(
 	var impact_position = target.position + Vector2(0.0, -48.0)
 	if target.has_method("get_battle_hit_position"):
 		impact_position = target.call("get_battle_hit_position")
+	var projectile_direction := 1.0
+	if projectile != null and is_instance_valid(projectile) and projectile.has_method("get_travel_direction"):
+		var travel_direction: Vector2 = projectile.call("get_travel_direction")
+		if not is_zero_approx(travel_direction.x):
+			projectile_direction = signf(travel_direction.x)
 	if splash_radius <= 0.0:
-		_damage_battle_pet(target, damage, knockback)
+		_damage_battle_pet(target, damage, projectile_direction * knockback)
 		return
 	_spawn_battle_explosion(impact_position, clampf(splash_radius / 32.0, 3.0, 7.5))
 	for pet in _get_alive_battle_pets():
@@ -581,7 +594,10 @@ func _on_enemy_projectile_impacted(
 		if distance > splash_radius:
 			continue
 		var falloff = lerpf(1.0, 0.45, distance / maxf(1.0, splash_radius))
-		_damage_battle_pet(pet, damage * falloff, knockback * falloff)
+		var splash_direction := projectile_direction
+		if not is_zero_approx(hit_position.x - impact_position.x):
+			splash_direction = signf(hit_position.x - impact_position.x)
+		_damage_battle_pet(pet, damage * falloff, splash_direction * knockback * falloff)
 
 func _get_battle_visual_power(rarity: int, level: int) -> float:
 	return clampf(float(rarity) + log(float(maxi(1, level))) / log(10.0) * 0.72, 1.0, 7.5)
@@ -660,7 +676,12 @@ func _on_pet_projectile_impacted(
 		impact_position = target.call("get_battle_hit_position")
 	_spawn_battle_explosion(impact_position, visual_power)
 	if target.has_method("take_damage"):
-		target.call("take_damage", damage, knockback)
+		var hit_direction := -1.0
+		if _effect != null and is_instance_valid(_effect) and _effect.has_method("get_travel_direction"):
+			var travel_direction: Vector2 = _effect.call("get_travel_direction")
+			if not is_zero_approx(travel_direction.x):
+				hit_direction = signf(travel_direction.x)
+		target.call("take_damage", damage, knockback, Vector2.ZERO, hit_direction)
 
 func _spawn_battle_explosion(world_position: Vector2, visual_power: float) -> void:
 	if _battle_effects.size() >= BATTLE_EFFECT_LIMIT:
@@ -689,6 +710,37 @@ func _get_alive_battle_pets() -> Array[Node2D]:
 			alive.append(pet)
 	return alive
 
+
+func _attach_battle_health_bar(
+	actor: Node2D,
+	current_health: float,
+	maximum_health: float
+) -> Node2D:
+	if actor == null or not is_instance_valid(actor):
+		return null
+	var existing := actor.get_node_or_null("CombatHealthBar") as Node2D
+	var health_bar := existing
+	if health_bar == null:
+		health_bar = CombatHealthBar.new()
+		health_bar.name = "CombatHealthBar"
+		health_bar.set_meta("battle_runtime", true)
+		health_bar.call("setup", false, false, 76.0)
+		actor.add_child(health_bar)
+	var hit_position := actor.position + Vector2(0.0, -64.0)
+	if actor.has_method("get_battle_hit_position"):
+		hit_position = actor.call("get_battle_hit_position")
+	health_bar.position = actor.to_local(hit_position) + Vector2(0.0, -34.0)
+	health_bar.call("set_health", current_health, maximum_health, existing == null)
+	return health_bar
+
+
+func _remove_battle_health_bar(actor: Node2D) -> void:
+	if actor == null or not is_instance_valid(actor):
+		return
+	var health_bar := actor.get_node_or_null("CombatHealthBar")
+	if health_bar != null:
+		health_bar.queue_free()
+
 func _get_nearest_battle_pet(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
 	var nearest: Node2D
 	var nearest_distance = INF
@@ -705,12 +757,7 @@ func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 	for enemy in _battle_enemies:
 		if not is_instance_valid(enemy):
 			continue
-		if enemy.has_method("is_defeated") and bool(enemy.call("is_defeated")):
-			continue
-		if (
-			enemy.has_method("has_entered_battlefield")
-			and not bool(enemy.call("has_entered_battlefield"))
-		):
+		if not _is_battle_enemy_targetable(enemy):
 			continue
 		var distance = absf(pet.position.x - enemy.position.x)
 		if distance < nearest_distance:
@@ -718,14 +765,21 @@ func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 			nearest = enemy
 	return nearest
 
+
+func _is_battle_enemy_targetable(enemy: Node2D) -> bool:
+	if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
+		return false
+	if enemy.has_method("is_targetable"):
+		return bool(enemy.call("is_targetable"))
+	if enemy.has_method("is_defeated"):
+		return not bool(enemy.call("is_defeated"))
+	return true
+
 func _get_battle_target_for_pet(pet: Node2D) -> Node2D:
 	if pet == null or not is_instance_valid(pet):
 		return null
 	var actor_key = str(pet.get_instance_id())
-	# A defeated/launched enemy can leave a freed Object Variant in the lock map
-	# until the next target-selection pass. Casting that Variant first throws every
-	# frame and aborts both formation and combat updates, which looks like a frozen
-	# battle. Validate the raw Variant before performing any typed cast.
+	# Validate stale Object variants before casting cached targets.
 	var current_target_value: Variant = _battle_pet_enemy_targets.get(actor_key, null)
 	if is_instance_valid(current_target_value):
 		var current_target = current_target_value as Node2D
@@ -733,14 +787,7 @@ func _get_battle_target_for_pet(pet: Node2D) -> Node2D:
 			current_target != null
 			and not current_target.is_queued_for_deletion()
 			and _battle_enemies.has(current_target)
-			and (
-				not current_target.has_method("has_entered_battlefield")
-				or bool(current_target.call("has_entered_battlefield"))
-			)
-			and (
-				not current_target.has_method("is_defeated")
-				or not bool(current_target.call("is_defeated"))
-			)
+			and _is_battle_enemy_targetable(current_target)
 		):
 			return current_target
 	_battle_pet_enemy_targets.erase(actor_key)
@@ -780,7 +827,9 @@ func _on_pet5_battle_roll_swept(actor: Node2D, from_x: float, to_x: float) -> vo
 			enemy.call(
 				"take_damage",
 				float(roll_data.get("damage", 0.0)),
-				float(roll_data.get("knockback", 0.0))
+				float(roll_data.get("knockback", 0.0)),
+				Vector2.ZERO,
+				(-1.0 if to_x < from_x else 1.0)
 			)
 	roll_data["hit_ids"] = hit_ids
 	_battle_pet5_rolls[actor_key] = roll_data
@@ -790,8 +839,11 @@ func _on_pet5_battle_roll_finished(actor: Node2D) -> void:
 		return
 	_battle_pet5_rolls.erase(str(actor.get_instance_id()))
 
-func _on_enemy_attack_landed(_enemy: Node2D, target: Node2D, damage: float) -> void:
-	_damage_battle_pet(target, damage, 13.0)
+func _on_enemy_attack_landed(enemy: Node2D, target: Node2D, damage: float) -> void:
+	var knockback_direction := 1.0
+	if enemy != null and is_instance_valid(enemy) and target != null and is_instance_valid(target):
+		knockback_direction = -1.0 if target.position.x < enemy.position.x else 1.0
+	_damage_battle_pet(target, damage, knockback_direction * 13.0)
 
 func _damage_battle_pet(target: Node2D, damage: float, knockback: float) -> void:
 	if not _battle_active or target == null or not is_instance_valid(target):
@@ -801,8 +853,13 @@ func _damage_battle_pet(target: Node2D, damage: float, knockback: float) -> void
 		return
 	var next_health = float(_battle_pet_health[actor_key]) - maxf(0.0, damage)
 	_battle_pet_health[actor_key] = next_health
+	_attach_battle_health_bar(
+		target,
+		next_health,
+		float(_battle_pet_max_health.get(actor_key, maxf(0.000001, next_health)))
+	)
 	if target.has_method("receive_battle_hit"):
-		target.call("receive_battle_hit", maxf(0.0, knockback))
+		target.call("receive_battle_hit", knockback)
 	if next_health <= 0.0:
 		_defeat_battle_pet(target)
 
@@ -850,8 +907,6 @@ func _spawn_battle_reward(drop_position: Vector2, reward_count: int) -> void:
 		)
 	)
 	if visual_coin != null and is_instance_valid(visual_coin):
-		# Gold is credited exactly once by victory settlement. These few coins keep
-		# the tactile loot burst without making pickup/capacity alter the budget.
 		visual_coin.set("value", 0)
 		visual_coin.set_meta("battle_reward_visual", true)
 		_battle_visual_reward_drops += 1
@@ -904,13 +959,12 @@ func _set_pet_recovery(pet_id: String) -> void:
 func _finish_battle(victory: bool) -> void:
 	if not _battle_active:
 		return
+	var was_final_boss_encounter := BattleBalance.is_final_boss_schedule(_battle_wave_schedule)
 	var settlement = _get_battle_reward_budget(_get_battle_difficulty_scale())
 	var settlement_gold = int(settlement.get("gold", 0))
 	var settlement_faith = int(settlement.get("faith", 0))
 	if victory:
-		# Settlement is authoritative; battlefield coins are zero-value visuals so
-		# pickup timing and the desktop node cap cannot reduce or duplicate rewards.
-		_gold_coins += settlement_gold
+		_gold_coins = CurrencyDisplay.add_gold(_gold_coins, settlement_gold)
 		_faith_points += float(settlement_faith)
 		_lifetime_faith += float(settlement_faith)
 	_battle_active = false
@@ -929,8 +983,10 @@ func _finish_battle(victory: bool) -> void:
 	_battle_effects.clear()
 	_clear_battle_runtime_nodes()
 	for pet in _pets:
-		if is_instance_valid(pet) and pet.has_method("set_battle_mode"):
-			pet.call("set_battle_mode", false)
+		if is_instance_valid(pet):
+			_remove_battle_health_bar(pet)
+			if pet.has_method("set_battle_mode"):
+				pet.call("set_battle_mode", false)
 	_battle_pet_health.clear()
 	_battle_pet_max_health.clear()
 	_battle_pet_attack_at.clear()
@@ -946,23 +1002,24 @@ func _finish_battle(victory: bool) -> void:
 	_last_believer_spawn_at = now
 	_host._schedule_next_believer_spawn(now)
 	var title = "BATTLE WON" if victory and _language == "en" else "BATTLE ENDED" if _language == "en" else "战斗胜利" if victory else "防线失守"
+	var settlement_gold_text := CurrencyDisplay.format_compact(settlement_gold)
 	var subtitle = (
-		"LOOT: %d GOLD + %d FAITH · %d ENEMIES DEFEATED" % [settlement_gold, settlement_faith, _battle_defeated_enemies]
+		"LOOT: %s + %d FAITH · %d ENEMIES DEFEATED" % [settlement_gold_text, settlement_faith, _battle_defeated_enemies]
 		if victory and _language == "en"
-		else "战利品结算：%d 金币 + %d 信仰 · 击退 %d 名敌人" % [settlement_gold, settlement_faith, _battle_defeated_enemies]
+		else "战利品结算：%s + %d 信仰 · 击退 %d 名敌人" % [settlement_gold_text, settlement_faith, _battle_defeated_enemies]
 		if victory
 		else "Surviving pets have left the field" if _language == "en" else "受伤宠物已返回仓库休整"
 	)
 	_host._show_pilgrimage_broadcast(title, subtitle, {
 		"title_en": "BATTLE WON" if victory else "BATTLE ENDED",
 		"subtitle_en": (
-			"LOOT: %d GOLD + %d FAITH · %d ENEMIES DEFEATED" % [settlement_gold, settlement_faith, _battle_defeated_enemies]
+			"LOOT: %s + %d FAITH · %d ENEMIES DEFEATED" % [settlement_gold_text, settlement_faith, _battle_defeated_enemies]
 			if victory
 			else "Surviving pets have left the field"
 		),
 		"title_zh": "战斗胜利" if victory else "防线失守",
 		"subtitle_zh": (
-			"战利品结算：%d 金币 + %d 信仰 · 击退 %d 名敌人" % [settlement_gold, settlement_faith, _battle_defeated_enemies]
+			"战利品结算：%s + %d 信仰 · 击退 %d 名敌人" % [settlement_gold_text, settlement_faith, _battle_defeated_enemies]
 			if victory
 			else "受伤宠物已返回仓库休整"
 		)
@@ -977,6 +1034,8 @@ func _finish_battle(victory: bool) -> void:
 	if victory or _battle_save_pending:
 		_host._request_save()
 	_battle_save_pending = false
+	if victory and was_final_boss_encounter:
+		_host._on_final_boss_defeated()
 
 func _clear_battle_runtime_nodes() -> void:
 	for child in get_children():

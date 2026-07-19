@@ -1,7 +1,5 @@
 extends RefCounted
 
-## Single source of truth for supported locales and their UI fonts.
-
 const DEFAULT_LANGUAGE := "en"
 const ENGLISH := "en"
 const CHINESE := "zh"
@@ -15,8 +13,6 @@ static var _chinese_display_font: Font
 
 
 static func sanitize(language_code: String) -> String:
-	# Only an explicit Chinese selection opts into Chinese. Fresh installs,
-	# language-less legacy saves, and malformed values all remain English.
 	return CHINESE if language_code.strip_edges().to_lower() == CHINESE else ENGLISH
 
 
@@ -36,8 +32,6 @@ static func get_ui_font(language_code: String) -> Font:
 			_chinese_font = system_font
 		return _chinese_font
 
-	# Body copy needs normal word spacing and readable glyphs at 14-18 px. The
-	# authored bitmap-like face is intentionally reserved for a few display labels.
 	if _english_body_font == null:
 		var system_font := SystemFont.new()
 		system_font.font_names = PackedStringArray([
@@ -72,8 +66,6 @@ static func get_display_font(language_code: String) -> Font:
 
 
 static func get_numeric_display_font() -> Font:
-	# The counter strings contain digits and compact suffixes only, so the
-	# authored pixel face remains safe and visually consistent in both locales.
 	return get_display_font(ENGLISH)
 
 

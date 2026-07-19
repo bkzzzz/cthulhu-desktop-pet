@@ -1,8 +1,5 @@
 extends RefCounted
 
-## Pure progression rules. This layer deliberately has no scene, window, or input
-## dependencies so gameplay balancing can be tested without starting the UI.
-
 const MAX_UPGRADE_COST := 8_000_000_000_000_000_000
 const MAX_FAITH_PER_SECOND := 1.0e300
 const MAX_MONEY_VALUE_PER_MINUTE := 2500.0
@@ -11,29 +8,17 @@ const CAMPAIGN_TARGET_HOURS := 50.0
 const CAMPAIGN_PASSIVE_TARGET_HOURS := 90.0
 const CAMPAIGN_PET_LEVEL_TARGET := 100
 
-# Authored base_fps values are intentionally tiny, so the campaign-wide
-# multiplier makes a fresh pet visibly productive instead of requiring several
-# minutes for its first point. The additional opening boost starts at 13x and
-# eases out gradually by Lv.50; this puts the first visible point inside ten
-# seconds and avoids a production trough while momentum takes over.
 const CAMPAIGN_BASE_PRODUCTION_MULTIPLIER := 3.25
 const OPENING_EXTRA_PRODUCTION_MULTIPLIER := 12.0
 const OPENING_BOOST_END_LEVEL := 50.0
 
-# Momentum begins while the opening boost is easing out. That long overlap
-# avoids a dead zone while preserving the much larger mid/late gains.
 const MOMENTUM_START_LEVEL := 12.0
 const MOMENTUM_TARGET_LEVEL := float(CAMPAIGN_PET_LEVEL_TARGET)
 const MOMENTUM_EXTRA_POWER_LEVELS := 111.0
-# Endless production keeps growing, but its exponential component saturates.
-# The explicit level multiplier in faith_per_second still provides unbounded
-# linear growth without turning high-level upgrades into instant purchases.
 const POST_TARGET_EXTRA_POWER_LEVELS := 300.0
 const POST_TARGET_MOMENTUM_SPAN := 300.0
 const ENDLESS_BASE_RATE_PAYBACK_SECONDS := 78_000.0
 
-# Upgrade prices retain their full exponential growth through level 100. Later
-# price exponents soften toward 160 so the accelerating output remains playable.
 const FULL_GROWTH_LEVEL := 100.0
 const SOFT_GROWTH_EXTRA_LEVELS := 60.0
 const SOFT_GROWTH_SPAN := 300.0
@@ -87,8 +72,6 @@ static func upgrade_cost(pet_data: Dictionary, state: Dictionary) -> int:
 	var level := progression_level(state)
 	var raw_cost := base_cost * pow(growth, _softened_growth_level(level))
 	if level >= CAMPAIGN_PET_LEVEL_TARGET:
-		# At Lv.100 this nearly matches the authored 1.18^level curve. Beyond
-		# that point, the evolved pet keeps a roughly 14.4-hour self-payback.
 		raw_cost = maxf(
 			raw_cost,
 			faith_per_second(pet_data, level) * ENDLESS_BASE_RATE_PAYBACK_SECONDS
