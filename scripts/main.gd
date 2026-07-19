@@ -482,9 +482,18 @@ func _create_pilgrimage_broadcast() -> void:
 func _show_pilgrimage_broadcast(
 	title_text: String,
 	subtitle_text: String,
-	localized_copy: Dictionary = {}
+	localized_copy: Dictionary = {},
+	victory_loot_gold := 0
 ) -> void:
-	_presentation_controller._show_pilgrimage_broadcast(title_text, subtitle_text, localized_copy)
+	_presentation_controller._show_pilgrimage_broadcast(
+		title_text,
+		subtitle_text,
+		localized_copy,
+		victory_loot_gold
+	)
+
+func _spawn_victory_loot_burst(gold_amount: int) -> void:
+	_presentation_controller._spawn_victory_loot_burst(gold_amount)
 
 func _refresh_pilgrimage_broadcast_language() -> void:
 	_presentation_controller._refresh_pilgrimage_broadcast_language()

@@ -1023,7 +1023,7 @@ func _finish_battle(victory: bool) -> void:
 			if victory
 			else "受伤宠物已返回仓库休整"
 		)
-	})
+	}, settlement_gold if victory else 0)
 	_host._publish_news({
 		"category": "公告",
 		"headline": "战斗结束。被击倒的宠物已返回仓库休整。",

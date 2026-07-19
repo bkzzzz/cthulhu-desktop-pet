@@ -20,6 +20,7 @@ static func run() -> Array[String]:
 	_test_pet6_dragged_combat(failures)
 	_test_era_age_and_difficulty(failures)
 	_test_adaptive_encounter_and_rewards(failures)
+	_test_victory_loot_burst(failures)
 	_test_invitation_retention_and_singleton(failures)
 	_test_battle_invitation_cooldowns(failures)
 	_test_recovery_pauses_production(failures)
@@ -28,6 +29,32 @@ static func run() -> Array[String]:
 	_test_battle_starts_first_wave(failures)
 	_test_battle_timeout_is_defeat(failures)
 	return failures
+
+
+static func _test_victory_loot_burst(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	main.call("_spawn_victory_loot_burst", 2_500_000)
+	var presentation: Node = main.get("_presentation_controller")
+	var drops: Array = presentation.get("_victory_loot_drops")
+	if drops.size() < 9 or drops.size() > 16:
+		failures.append("victory loot must create a rich but bounded celebration burst")
+	if not (main.get("_coin_drops") as Array).is_empty():
+		failures.append("victory celebration drops must not evict or join collectible desktop currency")
+	var found_crystal := false
+	for drop_value in drops:
+		var drop := drop_value as Node2D
+		if int(drop.get("value")) != 0 or not bool(drop.get_meta("victory_loot_visual", false)):
+			failures.append("victory loot visuals must never duplicate the settled gold reward")
+			break
+		if String(drop.get("coin_type")) in ["C", "S", "G"]:
+			found_crystal = true
+	if not found_crystal:
+		failures.append("high-value victory loot must use the imported crystal denominations")
+	if Main.PresentationController.VICTORY_LOOT_DELAY_SECONDS <= 0.0:
+		failures.append("victory loot must wait until after the notification panel entrance")
+	main.free()
 
 
 static func _test_event_assets(failures: Array[String]) -> void:

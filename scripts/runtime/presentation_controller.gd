@@ -1,5 +1,12 @@
 extends "res://scripts/runtime/main_context.gd"
 
+const VICTORY_LOOT_DELAY_SECONDS := 0.12
+const VICTORY_LOOT_MIN_DROPS := 9
+const VICTORY_LOOT_MAX_DROPS := 16
+const VICTORY_LOOT_HOLD_SECONDS := 4.1
+
+var _victory_loot_drops: Array[Node2D] = []
+
 func _refresh_era_display(force := false) -> void:
 	if _side_drawer == null or not _side_drawer.has_method("refresh_era"):
 		return
@@ -160,7 +167,8 @@ func _create_pilgrimage_broadcast() -> void:
 func _show_pilgrimage_broadcast(
 	title_text: String,
 	subtitle_text: String,
-	localized_copy: Dictionary = {}
+	localized_copy: Dictionary = {},
+	victory_loot_gold := 0
 ) -> void:
 	if (
 		_pilgrimage_broadcast_panel == null
@@ -185,7 +193,14 @@ func _show_pilgrimage_broadcast(
 	_pilgrimage_broadcast_tween.set_ease(Tween.EASE_OUT)
 	_pilgrimage_broadcast_tween.tween_property(_pilgrimage_broadcast_panel, "modulate", Color.WHITE, 0.24)
 	_pilgrimage_broadcast_tween.parallel().tween_property(_pilgrimage_broadcast_panel, "scale", Vector2.ONE, 0.30)
-	_pilgrimage_broadcast_tween.tween_interval(4.4)
+	if victory_loot_gold > 0:
+		_pilgrimage_broadcast_tween.tween_interval(VICTORY_LOOT_DELAY_SECONDS)
+		_pilgrimage_broadcast_tween.tween_callback(
+			_spawn_victory_loot_burst.bind(victory_loot_gold)
+		)
+		_pilgrimage_broadcast_tween.tween_interval(VICTORY_LOOT_HOLD_SECONDS)
+	else:
+		_pilgrimage_broadcast_tween.tween_interval(4.4)
 	_pilgrimage_broadcast_tween.set_trans(Tween.TRANS_SINE)
 	_pilgrimage_broadcast_tween.tween_property(
 		_pilgrimage_broadcast_panel,
@@ -194,6 +209,85 @@ func _show_pilgrimage_broadcast(
 		0.48
 	)
 	_pilgrimage_broadcast_tween.tween_callback(_hide_pilgrimage_broadcast)
+
+
+func _spawn_victory_loot_burst(gold_amount: int) -> void:
+	if gold_amount <= 0:
+		return
+	_prune_victory_loot_drops()
+	var drop_count := _get_victory_loot_drop_count(gold_amount)
+	var origin := _get_victory_loot_origin()
+	for drop_index in drop_count:
+		var fan := (
+			0.0
+			if drop_count <= 1
+			else remap(float(drop_index), 0.0, float(drop_count - 1), -1.0, 1.0)
+		)
+		var coin := CoinDrop.new()
+		coin.setup(
+			_get_victory_loot_type(gold_amount, drop_index),
+			origin + Vector2(_rng.randf_range(-22.0, 22.0), _rng.randf_range(-3.0, 5.0)),
+			_pet_window_size,
+			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+		)
+		var launch_velocity := Vector2(
+			fan * _rng.randf_range(245.0, 345.0) + _rng.randf_range(-52.0, 52.0),
+			_rng.randf_range(-155.0, -62.0) + absf(fan) * 42.0
+		)
+		coin.configure_celebration(launch_velocity)
+		coin.tree_exited.connect(_on_victory_loot_drop_exited.bind(coin))
+		add_child(coin)
+		_victory_loot_drops.append(coin)
+
+
+func _get_victory_loot_drop_count(gold_amount: int) -> int:
+	var magnitude := log(maxf(1.0, float(gold_amount))) / log(10.0)
+	return clampi(
+		VICTORY_LOOT_MIN_DROPS + int(floor(magnitude)),
+		VICTORY_LOOT_MIN_DROPS,
+		VICTORY_LOOT_MAX_DROPS
+	)
+
+
+func _get_victory_loot_origin() -> Vector2:
+	if _pilgrimage_broadcast_panel != null:
+		var panel_size := _pilgrimage_broadcast_panel.size
+		if panel_size.x <= 0.0 or panel_size.y <= 0.0:
+			panel_size = PILGRIMAGE_BROADCAST_SIZE
+		var panel_origin := _pilgrimage_broadcast_panel.global_position
+		return panel_origin + Vector2(panel_size.x * 0.5, panel_size.y - 5.0)
+	return Vector2(float(_pet_window_size.x) * 0.5, 185.0)
+
+
+func _get_victory_loot_type(gold_amount: int, drop_index: int) -> String:
+	var primary_kind := String(CurrencyDisplay.get_primary_display(gold_amount).get(
+		"kind",
+		CurrencyDisplay.GOLD_KIND
+	))
+	match primary_kind:
+		CurrencyDisplay.GRAY_CRYSTAL_KIND:
+			return "S" if drop_index % 3 != 1 else "G"
+		CurrencyDisplay.YELLOW_CRYSTAL_KIND:
+			return "G" if drop_index % 3 != 1 else "C"
+		CurrencyDisplay.RED_CRYSTAL_KIND:
+			return "C" if drop_index % 3 != 1 else "D"
+		_:
+			if gold_amount >= 50:
+				return "D" if drop_index % 4 != 1 else "P"
+			if gold_amount >= 5:
+				return "P" if drop_index % 3 != 1 else "R"
+			return "R"
+
+
+func _prune_victory_loot_drops() -> void:
+	for drop_index in range(_victory_loot_drops.size() - 1, -1, -1):
+		var drop := _victory_loot_drops[drop_index]
+		if not is_instance_valid(drop) or drop.is_queued_for_deletion():
+			_victory_loot_drops.remove_at(drop_index)
+
+
+func _on_victory_loot_drop_exited(drop: Node2D) -> void:
+	_victory_loot_drops.erase(drop)
 
 
 func _refresh_pilgrimage_broadcast_language() -> void:

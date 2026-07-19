@@ -32,6 +32,7 @@ const COLLECT_DISTANCE := 15.0
 const MAGNET_CHECK_INTERVAL_SECONDS := 0.14
 const MAX_LIFETIME_SECONDS := 120.0
 const EXPIRE_FADE_SECONDS := 0.24
+const CELEBRATION_LIFETIME_SECONDS := 4.6
 
 var coin_type := "R"
 var value := 1
@@ -45,6 +46,8 @@ var _settled_age := 0.0
 var _age := 0.0
 var _magnet_check_time := 0.0
 var _expiring := false
+var _pickup_enabled := true
+var _max_lifetime_seconds := MAX_LIFETIME_SECONDS
 var _rng := RandomNumberGenerator.new()
 var _sprite: AnimatedSprite2D
 static var _frames_cache := {}
@@ -92,16 +95,28 @@ func set_window_bounds(window_size: Vector2i, ground_y: float) -> void:
 		position.y = _get_rest_y()
 
 
+func configure_celebration(launch_velocity: Vector2) -> void:
+	# Victory loot is already credited during battle settlement. These drops are
+	# deliberately visual-only so they can never duplicate that reward.
+	value = 0
+	_velocity = launch_velocity
+	_pickup_enabled = false
+	_max_lifetime_seconds = CELEBRATION_LIFETIME_SECONDS
+	set_meta("victory_loot_visual", true)
+	if _sprite != null:
+		_sprite.speed_scale = _rng.randf_range(1.08, 1.42)
+
+
 func _process(delta: float) -> void:
 	if _expiring:
 		return
 	var safe_delta := maxf(0.0, delta)
 	_age += safe_delta
-	if _age >= MAX_LIFETIME_SECONDS:
+	if _age >= _max_lifetime_seconds:
 		expire()
 		return
 
-	if _settled:
+	if _settled and _pickup_enabled:
 		_settled_age += safe_delta
 
 	if _magnetized:
@@ -202,6 +217,8 @@ func _update_fall(delta: float) -> void:
 
 func _can_start_magnet(pointer: Vector2) -> bool:
 	return (
+		_pickup_enabled
+		and
 		_settled
 		and _settled_age >= PICKUP_ARM_DELAY_SECONDS
 		and position.distance_to(pointer) <= MAGNET_RADIUS
