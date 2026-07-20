@@ -1,42 +1,88 @@
-# Cthulhu Pet
+# Cthulhu Desktop Pet
 
-Cthulhu Pet is a Godot 4 desktop idle game for Windows. Pets live above the taskbar, generate faith and gold, react to the pointer, accept offerings, and fight era-based enemy waves.
+<img width="1535" height="1024" alt="thumbNail" src="https://github.com/user-attachments/assets/5c19f2e7-81bb-4918-98df-47ea5af27b8d" />
 
-## Requirements
+> *"The Old Ones are watching..."*
 
-- Windows 10 or 11
+Cthulhu Desktop Pet is a Lovecraft-inspired desktop pet idle game.
+
+Raise mysterious creatures that live on your desktop, grow your cult, attract devoted followers, and defend your desktop against waves of enemies.
+
+The more followers you gather, the stronger your cult becomes.
+
+**Can your cult conquer the universe... starting from your desktop?**
+
+---
+
+## Features
+- 👾 Collect creepy desktop pets
+- ⚔️ Defend your desktop in real-time battles
+- 🙏 Gather Faith and attract devoted followers
+- 🥚 Unlock new pets through progression and gacha
+- 🖥️ Native Windows desktop pet experience
+
+---
+
+## Running the Project
+
+Requirements:
+
+- Windows 10 / 11
 - Godot 4.x
-- The Godot editor executable in the parent directory of this repository
 
-## Run and test
-
-From the repository root:
+Run the game:
 
 ```powershell
-# Run the game
 .\run_game.cmd
+```
 
-# Open the project in the editor
+Open in the Godot editor:
+
+```powershell
 .\run_game.cmd -Editor
+```
 
-# Run all headless tests
+Run automated tests:
+
+```powershell
 .\run_tests.cmd
 ```
 
-The launch scripts resolve the project directory and Godot executable from their own locations, so they work from any current directory. VS Code tasks named `Godot: Run Game` and `Godot: Run Tests` provide the same workflows.
+---
 
-## Project layout
+## Project Structure
 
-- `scenes/`: Godot scenes
-- `scripts/`: gameplay, UI, runtime controllers, and pure domain rules
-- `assets/`: character, interface, audio, and effect assets
-- `tests/`: headless regression tests and visual QA harnesses
-- `builds/windows/`: Windows export output
+```
+assets/      Art, UI, audio, visual effects
+scenes/      Godot scenes
+scripts/     Gameplay and game logic
+tests/       Headless regression tests
+builds/      Exported Windows builds
+```
 
-The main scene is `res://scenes/Main.tscn`. Runtime features are split into focused controllers under `scripts/runtime/`, while deterministic progression and balance rules live under `scripts/domain/`.
+The main entry scene is:
 
-The desktop layer follows the active monitor's usable Windows work area and responds to resolution, DPI, monitor, and taskbar changes. English is the default language; Chinese can be selected in Settings.
+```
+res://scenes/Main.tscn
+```
 
-## Windows export
+---
 
-The repository includes a Windows export preset. Replace or update project assets as needed, export the executable into `builds/windows/`, and use that output for distribution.
+## Built During OpenAI Build Week
+
+During Build Week, Codex and GPT-5.6 were used throughout development to help:
+
+- implement gameplay systems
+- improve combat logic
+- balance progression
+- debug Godot scripts
+- refactor code
+- generate documentation
+
+The final game combines AI-assisted development with hand-built gameplay, art direction, balancing, and design.
+
+---
+
+## License
+
+This repository is provided for Build Week demonstration purposes.
