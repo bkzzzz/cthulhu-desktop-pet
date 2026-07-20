@@ -18,10 +18,10 @@ static func run() -> Array[String]:
 
 static func _check_draw_costs(failures: Array[String]) -> void:
 	var checkpoints := {
-		0: 50,
-		1: 60,
-		5: 300,
-		10: 1050,
+		0: 10,
+		1: 12,
+		5: 68,
+		10: 358,
 		20: 4050,
 		40: 16050
 	}
@@ -29,7 +29,7 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 		var draw_count := int(draw_count_value)
 		_check_equal(
 			failures,
-			"quadratic draw price at count %d" % draw_count,
+			"opening-tapered draw price at count %d" % draw_count,
 			GachaProgression.draw_cost(draw_count),
 			int(checkpoints[draw_count])
 		)
@@ -42,15 +42,15 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 	)
 	_check_equal(
 		failures,
-		"ten opening draws use the exact quadratic total",
+		"ten opening draws use the exact discounted total",
 		GachaProgression.draw_cost_total(0, 10),
-		3350.0
+		878.0
 	)
 	_check_equal(
 		failures,
 		"one thousand draws use the full batch instead of clamping to ten",
 		GachaProgression.draw_cost_total(0, 1000),
-		425_225_440.0
+		425_215_184.0
 	)
 
 	var previous_cost := GachaProgression.draw_cost(0)
@@ -275,11 +275,31 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 	window.set_language("en")
 	window.refresh_state(1000.0, 0, GachaProgression.draw_cost(0), ["pet1", "pet2"], 0, [], 0.0)
 	var progress_label := window.get("_progress_label") as Label
-	if progress_label == null or not progress_label.text.contains("PERMANENT FAITH"):
-		failures.append("the gacha UI must explain the permanent faith requirement for the next pet")
+	if (
+		progress_label == null
+		or progress_label.text != "Next Pet: Pet 3\nRequired Faith Growth: 8 / s"
+	):
+		failures.append("the gacha UI must show the next pet and its minimum Faith Growth")
 	window.refresh_state(1000.0, 0, GachaProgression.draw_cost(0), ["pet1", "pet2"], 0, [], 20.0)
-	if progress_label == null or not progress_label.text.contains("PET 3 AVAILABLE"):
-		failures.append("the gacha UI must announce when the next faith-gated tier enters the pool")
+	if progress_label == null or not progress_label.text.contains("Required Faith Growth: 8 / s"):
+		failures.append("meeting a gate must keep its minimum requirement visible until the pet is owned")
+	window.refresh_state(1000.0, 0, GachaProgression.draw_cost(0), ["pet1", "pet2", "pet3"], 0, [], 20.0)
+	if progress_label == null or progress_label.text != "Next Pet: Pet 4\nRequired Faith Growth: 80 / s":
+		failures.append("the gacha requirement must advance automatically with pet ownership")
+	window.refresh_state(1000.0, 0, GachaProgression.draw_cost(0), ["pet1", "pet2", "pet3", "pet4", "pet5"], 0, [], 20.0)
+	if progress_label == null or progress_label.text != "Next Pet: Pet 6\nRequired Faith Growth: 6.5K / s":
+		failures.append("large Faith Growth requirements must remain compact and currency-free")
+	window.refresh_state(
+		1000.0,
+		0,
+		GachaProgression.draw_cost(0),
+		PetCatalog.ACTIVE_DESKTOP_PETS,
+		0,
+		[],
+		1_000_000.0
+	)
+	if progress_label == null or progress_label.text != "All Pets Unlocked":
+		failures.append("a complete roster must replace the next-pet requirement")
 	window.set_language("zh")
 	var background := window.get_node_or_null("GachaRoot/GachaBackground") as TextureRect
 	if background == null or background.texture == null:

@@ -260,8 +260,9 @@ func _create_content() -> void:
 	button_center.add_child(_draw_button)
 	_progress_label = _make_label("", 14, Color(0.72, 0.78, 0.60))
 	_progress_label.name = "GachaFaithProgress"
-	_progress_label.custom_minimum_size = Vector2(CONTENT_WIDTH, 25.0)
+	_progress_label.custom_minimum_size = Vector2(CONTENT_WIDTH, 42.0)
 	_progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_progress_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_progress_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	content.add_child(_progress_label)
 
@@ -760,37 +761,47 @@ func _update_progress_label() -> void:
 	var next_entry := GachaProgression.get_next_progression_entry(owned_lookup)
 	if next_entry.is_empty():
 		_progress_label.text = (
-			"ALL PET TIERS UNLOCKED"
+			"All Pets Unlocked"
 			if _language == "en"
-			else "鎵€鏈夊疇鐗╅樁绾у凡瑙ｉ攣"
+			else "\u6240\u6709\u5ba0\u7269\u5747\u5df2\u89e3\u9501"
 		)
 		return
 	var pet_id := String(next_entry.get("pet_id", "pet"))
 	var pet_tier := int(pet_id.trim_prefix("pet"))
 	var required_rate := maxf(0.0, float(next_entry.get("min_faith_rate", 0.0)))
-	if _faith_growth_rate + 0.000001 >= required_rate:
-		_progress_label.text = (
-			"PET %d AVAILABLE  ·  FAITH GATE OPEN" % pet_tier
-			if _language == "en"
-			else "\u5ba0\u7269 %d \u5df2\u8fdb\u5165\u5361\u6c60  ·  \u4fe1\u4ef0\u95e8\u69db\u5df2\u5f00\u542f" % pet_tier
-		)
-		return
 	_progress_label.text = (
-		"NEXT PET %d  ·  PERMANENT FAITH %s / %s per sec"
+		"Next Pet: Pet %d\nRequired Faith Growth: %s / s"
 		if _language == "en"
-		else "涓嬩竴瀹犵墿 %d  路  姘镐箙淇′话 %s / %s 姣忕"
+		else "\u4e0b\u4e00\u53ea\u5ba0\u7269\uff1a\u5ba0\u7269 %d\n\u6240\u9700\u4fe1\u4ef0\u589e\u957f\uff1a%s / \u79d2"
 	) % [
 		pet_tier,
-		_format_faith_rate(_faith_growth_rate),
 		_format_faith_rate(required_rate)
 	]
 
 
 func _format_faith_rate(value: float) -> String:
 	var safe_value := maxf(0.0, value)
-	if safe_value < 10.0:
+	if safe_value < 1_000.0:
+		if is_equal_approx(safe_value, round(safe_value)):
+			return str(int(round(safe_value)))
 		return "%.2f" % safe_value
-	return CurrencyDisplay.format_compact(int(round(safe_value)))
+	var divisor := 1_000.0
+	var suffix := "K"
+	if safe_value >= 1_000_000_000_000.0:
+		divisor = 1_000_000_000_000.0
+		suffix = "T"
+	elif safe_value >= 1_000_000_000.0:
+		divisor = 1_000_000_000.0
+		suffix = "B"
+	elif safe_value >= 1_000_000.0:
+		divisor = 1_000_000.0
+		suffix = "M"
+	var scaled := safe_value / divisor
+	if is_equal_approx(scaled, round(scaled)):
+		return "%d%s" % [int(round(scaled)), suffix]
+	if is_equal_approx(scaled * 10.0, round(scaled * 10.0)):
+		return "%.1f%s" % [scaled, suffix]
+	return "%.2f%s" % [scaled, suffix]
 
 
 func _make_label(text_value: String, font_size: int, color: Color) -> Label:

@@ -148,7 +148,7 @@ const DEFINITIONS := {
 		"attack_columns": 4,
 		"attack_rows": 3,
 		"attack_align_to_floor": false,
-		"faces_right": true,
+		"faces_right": false,
 		"attack_faces_right": true
 	},
 	"pet2": {

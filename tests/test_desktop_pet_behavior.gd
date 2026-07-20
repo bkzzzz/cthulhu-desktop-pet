@@ -8,6 +8,7 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_click_waits_for_drag_threshold(failures)
 	_test_catalog_movement_tuning(failures)
+	_test_pet1_walk_orientation(failures)
 	_test_sleep_transition(failures)
 	_test_generic_doze(failures)
 	_test_battle_blocks_sleep(failures)
@@ -79,6 +80,27 @@ static func _test_catalog_movement_tuning(failures: Array[String]) -> void:
 	if int(pet2.get("_air_roam_legs_max")) != int(pet2_definition.get("air_roam_legs_max", 1)):
 		failures.append("pet2 must read its maximum air-roam legs from the catalog")
 	pet2.free()
+
+
+static func _test_pet1_walk_orientation(failures: Array[String]) -> void:
+	var actor := DesktopPetActor.new()
+	actor.setup("pet1", Vector2i(1200, 720), 72.0, 1128.0, 600.0, 704.0)
+	var sprite := actor.get_node_or_null("pet1Sprite") as AnimatedSprite2D
+	if sprite == null:
+		failures.append("pet1 walk-orientation test must create its sprite")
+		actor.free()
+		return
+	actor.set("_target_x", 760.0)
+	actor.call("_begin_walk_to_selected_target")
+	actor.call("_update_walking", 0.1)
+	if not sprite.flip_h:
+		failures.append("pet1 must flip its left-authored walk while moving right")
+	actor.set("_target_x", 440.0)
+	actor.call("_begin_walk_to_selected_target")
+	actor.call("_update_walking", 0.1)
+	if sprite.flip_h:
+		failures.append("pet1 must keep its left-authored walk unflipped while moving left")
+	actor.free()
 
 
 static func _test_sleep_transition(failures: Array[String]) -> void:

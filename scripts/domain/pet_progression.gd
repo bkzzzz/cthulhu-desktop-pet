@@ -12,6 +12,11 @@ const MONEY_LEVEL_GROWTH := 1.010
 const CAMPAIGN_BASE_PRODUCTION_MULTIPLIER := 3.25
 const OPENING_EXTRA_PRODUCTION_MULTIPLIER := 12.0
 const OPENING_BOOST_END_LEVEL := 50.0
+const OPENING_MONEY_BOOST_END_LEVEL := 30.0
+const OPENING_MONEY_EFFECTIVE_LEVEL_FRACTION := 0.80
+const OPENING_UPGRADE_DISCOUNT := 0.35
+const OPENING_UPGRADE_DISCOUNT_END_LEVEL := 20.0
+const OPENING_UPGRADE_PET_IDS := ["pet1", "pet2", "pet3", "pet4", "pet5"]
 
 const MOMENTUM_START_LEVEL := 12.0
 const MOMENTUM_TARGET_LEVEL := float(CAMPAIGN_PET_LEVEL_TARGET)
@@ -61,6 +66,13 @@ static func money_drop_value_per_minute(pet_data: Dictionary, level: int) -> flo
 	var effective_levels := minf(excess_levels, 200.0)
 	if excess_levels > 200.0:
 		effective_levels += sqrt(excess_levels - 200.0) * 4.0
+	# Credit most of the remaining opening levels up front. Because each real
+	# level replaces only part of that credit, coin output still rises on every
+	# upgrade and joins the authored curve exactly at the taper endpoint.
+	effective_levels += (
+		maxf(0.0, OPENING_MONEY_BOOST_END_LEVEL - float(level))
+		* OPENING_MONEY_EFFECTIVE_LEVEL_FRACTION
+	)
 	var result := base_rate * pow(MONEY_LEVEL_GROWTH, effective_levels)
 	if not is_finite(result):
 		return MAX_MONEY_VALUE_PER_MINUTE
@@ -71,7 +83,11 @@ static func upgrade_cost(pet_data: Dictionary, state: Dictionary) -> int:
 	var base_cost := maxf(1.0, float(pet_data.get("upgrade_cost_base", 10)))
 	var growth := maxf(0.0, float(pet_data.get("upgrade_cost_growth", 1.3)))
 	var level := progression_level(state)
-	var raw_cost := base_cost * pow(growth, _softened_growth_level(level))
+	var raw_cost := (
+		base_cost
+		* pow(growth, _softened_growth_level(level))
+		* _opening_upgrade_cost_multiplier(pet_data, level)
+	)
 	if level >= CAMPAIGN_PET_LEVEL_TARGET:
 		raw_cost = maxf(
 			raw_cost,
@@ -121,6 +137,25 @@ static func _opening_production_multiplier(level: int) -> float:
 	)
 	return 1.0 + (
 		OPENING_EXTRA_PRODUCTION_MULTIPLIER
+		* opening_progress
+		* opening_progress
+	)
+
+
+static func _opening_upgrade_cost_multiplier(
+	pet_data: Dictionary,
+	level: int
+) -> float:
+	if not OPENING_UPGRADE_PET_IDS.has(String(pet_data.get("id", ""))):
+		return 1.0
+	var opening_progress := clampf(
+		(OPENING_UPGRADE_DISCOUNT_END_LEVEL - float(maxi(1, level)))
+		/ (OPENING_UPGRADE_DISCOUNT_END_LEVEL - 1.0),
+		0.0,
+		1.0
+	)
+	return 1.0 - (
+		OPENING_UPGRADE_DISCOUNT
 		* opening_progress
 		* opening_progress
 	)

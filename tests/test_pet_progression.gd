@@ -29,7 +29,17 @@ static func run() -> Array[String]:
 	_check_equal(failures, "faith production is finite for hostile data", is_finite(PetProgression.faith_per_second({"base_fps": 2.0, "power_growth": 1000.0}, 100_000)), true)
 	var money_at_one := PetProgression.money_drop_value_per_minute({"base_money_rate": 10.0}, 1)
 	var money_at_two := PetProgression.money_drop_value_per_minute({"base_money_rate": 10.0}, 2)
-	_check_close(failures, "level one uses the authored dropped-money rate", money_at_one, 10.0)
+	var expected_opening_money := 10.0 * pow(
+		PetProgression.MONEY_LEVEL_GROWTH,
+		(PetProgression.OPENING_MONEY_BOOST_END_LEVEL - 1.0)
+		* PetProgression.OPENING_MONEY_EFFECTIVE_LEVEL_FRACTION
+	)
+	_check_close(
+		failures,
+		"level one receives the monotonic opening dropped-money boost",
+		money_at_one,
+		expected_opening_money
+	)
 	if money_at_two <= money_at_one:
 		failures.append("pet upgrades must increase collectible dropped-money production")
 	if PetProgression.money_drop_value_per_minute({"base_money_rate": 1.0e300}, 100_000) > PetProgression.MAX_MONEY_VALUE_PER_MINUTE:

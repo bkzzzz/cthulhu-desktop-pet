@@ -4,6 +4,9 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
 const BASE_DRAW_COST := 50
 const DRAW_COST_QUADRATIC_STEP := 10
+const OPENING_DRAW_COST_MULTIPLIER := 0.20
+const OPENING_DRAW_DISCOUNT_END_COUNT := 20.0
+const OPENING_DRAW_DISCOUNT_POWER := 2.5
 const MAX_DRAW_COST := 500_000
 const MAX_DUPLICATE_FAITH_REWARD := 9_000_000_000_000_000_000
 const NEW_PET_PITY_DRAWS := 5
@@ -24,42 +27,42 @@ const PET_POOL := [
 	{
 		"pet_id": "pet3",
 		"weight": 18.0,
-		"min_faith_rate": 20.0
+		"min_faith_rate": 8.0
 	},
 	{
 		"pet_id": "pet4",
 		"weight": 10.0,
-		"min_faith_rate": 200.0
+		"min_faith_rate": 80.0
 	},
 	{
 		"pet_id": "pet5",
 		"weight": 5.333333,
-		"min_faith_rate": 1_000.0
+		"min_faith_rate": 400.0
 	},
 	{
 		"pet_id": "pet6",
 		"weight": 3.333333,
-		"min_faith_rate": 5_000.0
+		"min_faith_rate": 6_500.0
 	},
 	{
 		"pet_id": "pet7",
 		"weight": 2.0,
-		"min_faith_rate": 20_000.0
+		"min_faith_rate": 26_000.0
 	},
 	{
 		"pet_id": "pet8",
 		"weight": 1.333333,
-		"min_faith_rate": 75_000.0
+		"min_faith_rate": 85_000.0
 	},
 	{
 		"pet_id": "pet9",
 		"weight": 0.833333,
-		"min_faith_rate": 225_000.0
+		"min_faith_rate": 260_000.0
 	},
 	{
 		"pet_id": "pet10",
 		"weight": 0.5,
-		"min_faith_rate": 500_000.0
+		"min_faith_rate": 540_000.0
 	}
 ]
 
@@ -69,6 +72,18 @@ static func draw_cost(draw_count: int) -> int:
 	var raw_cost := float(BASE_DRAW_COST) + (
 		float(DRAW_COST_QUADRATIC_STEP) * pow(float(safe_count), 2.0)
 	)
+	if float(safe_count) < OPENING_DRAW_DISCOUNT_END_COUNT:
+		var opening_progress := clampf(
+			float(safe_count) / OPENING_DRAW_DISCOUNT_END_COUNT,
+			0.0,
+			1.0
+		)
+		var opening_multiplier := lerpf(
+			OPENING_DRAW_COST_MULTIPLIER,
+			1.0,
+			pow(opening_progress, OPENING_DRAW_DISCOUNT_POWER)
+		)
+		raw_cost *= opening_multiplier
 	if not is_finite(raw_cost) or raw_cost >= float(MAX_DRAW_COST):
 		return MAX_DRAW_COST
 	return mini(int(round(raw_cost)), MAX_DRAW_COST)
