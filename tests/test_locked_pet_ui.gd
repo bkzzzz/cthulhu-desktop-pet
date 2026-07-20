@@ -9,6 +9,7 @@ static func run() -> Array[String]:
 	var drawer := SideDrawer.new()
 	drawer.set("_upgrade_entries", [_make_entry("pet1", "Unlocked One")])
 	drawer.call("_create_drawer_window")
+	_assert_single_quit_footer(failures, drawer)
 
 	_assert_locked_row(failures, drawer, "pet2")
 	var pet1_icon := (drawer.get("_upgrade_icons") as Dictionary).get("pet1") as TextureRect
@@ -41,6 +42,20 @@ static func run() -> Array[String]:
 	_assert_short_screen_layout(failures, drawer)
 	drawer.free()
 	return failures
+
+
+static func _assert_single_quit_footer(failures: Array[String], drawer: Node) -> void:
+	var quit_button := drawer.get("_quit_button") as Button
+	if quit_button == null:
+		failures.append("the menu footer must retain one Quit button")
+		return
+	var footer := quit_button.get_parent()
+	if footer == null or footer.get_child_count() != 1:
+		failures.append("the menu footer must not include a redundant Close Menu button")
+	if quit_button.custom_minimum_size.x < 180.0 or quit_button.custom_minimum_size.y < 34.0:
+		failures.append("the single Quit button must use the menu's full footer-button proportions")
+	if quit_button.get_theme_stylebox("normal") is not StyleBoxFlat:
+		failures.append("the Quit button must use the drawer's styled panel treatment")
 
 
 static func _make_entry(pet_id: String, display_name: String) -> Dictionary:

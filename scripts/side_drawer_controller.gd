@@ -41,7 +41,6 @@ enum TaskbarEdge {
 	RIGHT
 }
 
-const QUIT_BUTTON_TEXTURE := "res://assets/ui/testElements/Quit.png"
 const MENU_ICON_TEXTURE := "res://assets/ui/newElements/菜单栏呼出.png"
 const DRAWER_BACKGROUND_TEXTURE := "res://assets/ui/newElements/菜单栏2.png"
 const DRAWER_BACKGROUND_BOTTOM_CROP := 570.0
@@ -134,8 +133,7 @@ var _adder_glow: Sprite2D
 var _adder_button: TextureButton
 var _adder_stage: Control
 var _upgrade_scroller: ScrollContainer
-var _drawer_close_button: Button
-var _quit_fallback_label: Label
+var _quit_button: Button
 var _drawer_open := false
 var _drawer_target_x := 0
 var _drawer_closed_x := 0
@@ -375,6 +373,8 @@ func refresh_coins(coin_count: int) -> void:
 func set_language(language_code: String) -> void:
 	_language = LanguageSettings.sanitize(language_code)
 	_apply_language_theme()
+	if _quit_button != null:
+		_quit_button.text = "QUIT" if _language == "en" else "退出"
 	refresh_coins(_coin_count)
 	if _menu_window != null:
 		_menu_window.title = "Menu" if _language == "en" else "菜单栏"
@@ -391,10 +391,6 @@ func set_language(language_code: String) -> void:
 		)
 	if _faith_title_label != null:
 		_faith_title_label.text = "FAITH" if _language == "en" else "信仰点数"
-	if _drawer_close_button != null:
-		_drawer_close_button.text = "CLOSE MENU" if _language == "en" else "收起菜单"
-	if _quit_fallback_label != null:
-		_quit_fallback_label.text = "QUIT" if _language == "en" else "退出"
 	var labels := {
 		"inventory": "INVENTORY" if _language == "en" else "仓库",
 		"shop": "SHOP" if _language == "en" else "商店",
@@ -570,12 +566,13 @@ func _create_drawer_window() -> void:
 	content.add_child(upgrade_offset)
 	content.add_child(_make_upgrade_scroller())
 
-	var footer := HBoxContainer.new()
-	footer.add_theme_constant_override("separation", 8)
+	var footer := CenterContainer.new()
+	footer.name = "MenuFooter"
+	footer.custom_minimum_size = Vector2(1.0, 42.0)
+	footer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(footer)
-	_drawer_close_button = _make_text_button("CLOSE MENU", _on_drawer_button_pressed)
-	footer.add_child(_drawer_close_button)
-	footer.add_child(_make_texture_button("Quit", QUIT_BUTTON_TEXTURE, _on_quit_pressed))
+	_quit_button = _make_quit_button()
+	footer.add_child(_quit_button)
 
 	set_language(_language)
 	_refresh_drawer_geometry(false)
@@ -1778,29 +1775,43 @@ func _get_upgrade_row_texture() -> Texture2D:
 	return _upgrade_row_texture
 
 
-func _make_texture_button(button_name: String, texture_path: String, callback: Callable) -> TextureButton:
-	var button := TextureButton.new()
-	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.name = button_name
-	button.texture_normal = load(texture_path) as Texture2D if ResourceLoader.exists(texture_path) else null
-	button.texture_hover = button.texture_normal
-	button.texture_pressed = button.texture_normal
-	button.ignore_texture_size = true
-	button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	button.custom_minimum_size = Vector2(86, 26)
-	button.pressed.connect(callback)
-	if button.texture_normal == null:
-		var fallback_label := Label.new()
-		fallback_label.text = "QUIT" if _language == "en" else "退出"
-		_quit_fallback_label = fallback_label
-		fallback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		fallback_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		fallback_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		fallback_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		fallback_label.add_theme_font_size_override("font_size", 15)
-		fallback_label.add_theme_color_override("font_color", Color(0.96, 0.72, 0.54, 1.0))
-		button.add_child(fallback_label)
+func _make_quit_button() -> Button:
+	var button := _make_text_button("QUIT" if _language == "en" else "退出", _on_quit_pressed)
+	button.name = "Quit"
+	button.custom_minimum_size = Vector2(196.0, 36.0)
+	button.pivot_offset = button.custom_minimum_size * 0.5
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_font_size_override("font_size", 16)
+	button.add_theme_color_override("font_color", Color(0.92, 0.84, 0.58, 1.0))
+	button.add_theme_color_override("font_hover_color", Color(1.0, 0.94, 0.72, 1.0))
+	button.add_theme_color_override("font_pressed_color", Color(0.82, 0.72, 0.46, 1.0))
+	button.add_theme_stylebox_override(
+		"normal",
+		_make_footer_button_style(Color(0.025, 0.052, 0.038, 0.92), Color(0.42, 0.40, 0.22, 0.88))
+	)
+	button.add_theme_stylebox_override(
+		"hover",
+		_make_footer_button_style(Color(0.045, 0.082, 0.055, 0.98), Color(0.66, 0.60, 0.30, 1.0))
+	)
+	button.add_theme_stylebox_override(
+		"pressed",
+		_make_footer_button_style(Color(0.018, 0.036, 0.027, 1.0), Color(0.76, 0.64, 0.30, 1.0))
+	)
 	return button
+
+
+func _make_footer_button_style(background: Color, border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(6)
+	style.content_margin_left = 18.0
+	style.content_margin_right = 18.0
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.30)
+	style.shadow_size = 4
+	style.shadow_offset = Vector2(0.0, 2.0)
+	return style
 
 
 func _make_text_button(button_text: String, callback: Callable) -> Button:

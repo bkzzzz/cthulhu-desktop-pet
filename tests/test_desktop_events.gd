@@ -20,6 +20,7 @@ static func run() -> Array[String]:
 	_test_pet6_dragged_combat(failures)
 	_test_era_age_and_difficulty(failures)
 	_test_adaptive_encounter_and_rewards(failures)
+	_test_campaign_combat_checkpoints(failures)
 	_test_victory_loot_burst(failures)
 	_test_invitation_retention_and_singleton(failures)
 	_test_battle_invitation_cooldowns(failures)
@@ -94,6 +95,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	if EraProgression.get_calendar_year(0.0) != EraProgression.MEDIEVAL_START_CALENDAR_YEAR:
 		failures.append("the menu era clock must begin on a real medieval calendar year")
 	var soldier_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.SOLDIER_ERA_START_YEAR - 1)
+	if not is_equal_approx(soldier_time / 3600.0, 10.0):
+		failures.append("the soldier era must begin at the ten-hour early-game checkpoint")
 	if EraProgression.get_era_index(soldier_time - 0.01) != 0:
 		failures.append("soldiers must stay out of the village era")
 	if EraProgression.get_era_index(soldier_time) != 1:
@@ -108,6 +111,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	if not later_types.has("soldier1") or not later_types.has("soldier2"):
 		failures.append("the later era must schedule both melee and ranged soldiers")
 	var victorian_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.VICTORIAN_ERA_START_YEAR - 1)
+	if not is_equal_approx(victorian_time / 3600.0, 25.0):
+		failures.append("the Victorian era must begin at the twenty-five-hour mid-game checkpoint")
 	if EraProgression.get_era_index(victorian_time) != 2:
 		failures.append("elapsed desktop time must advance into the Victorian era")
 	if EraProgression.get_calendar_year(victorian_time) != 1837:
@@ -122,6 +127,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 		if not victorian_types.has(expected_type):
 			failures.append("the Victorian era must schedule %s" % expected_type)
 	var modern_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.MODERN_ERA_START_YEAR - 1)
+	if not is_equal_approx(modern_time / 3600.0, 45.0):
+		failures.append("the modern era must begin at the forty-five-hour checkpoint")
 	if EraProgression.get_era_index(modern_time) != 3:
 		failures.append("elapsed desktop time must advance into the modern era")
 	var modern_types: Array[String] = []
@@ -132,6 +139,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 		if not modern_types.has(expected_type):
 			failures.append("the modern era must schedule %s" % expected_type)
 	var outer_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.OUTER_SPACE_ERA_START_YEAR - 1)
+	if not is_equal_approx(outer_time / 3600.0, 65.0):
+		failures.append("the outer-space era must remain a sixty-five-hour late-game chapter")
 	if EraProgression.get_era_index(outer_time) != 4:
 		failures.append("elapsed desktop time must advance into the outer-space era")
 	var outer_types: Array[String] = []
@@ -141,6 +150,22 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	for expected_type in ["outerspace1", "outerspace2", "outerspace3"]:
 		if not outer_types.has(expected_type):
 			failures.append("the outer-space era must schedule %s" % expected_type)
+	var legacy_outer_runtime := (
+		EraProgression.LEGACY_SECONDS_PER_YEAR
+		* float(EraProgression.OUTER_SPACE_ERA_START_YEAR - 1)
+	)
+	if EraProgression.get_legacy_era_index(legacy_outer_runtime) != 4:
+		failures.append("pre-rebalance saves must preserve their already-reached combat era")
+	var migrated_main := Main.new()
+	migrated_main.set("_persistence_enabled", false)
+	migrated_main.set("_total_runtime_seconds", legacy_outer_runtime)
+	migrated_main.set("_era_floor_index", 4)
+	if (
+		EraProgression.get_era_index(float(migrated_main.call("_get_era_runtime_seconds"))) != 4
+		or not is_equal_approx(float(migrated_main.get("_total_runtime_seconds")), legacy_outer_runtime)
+	):
+		failures.append("era migration must preserve the chapter without inflating saved play time")
+	migrated_main.free()
 
 
 static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
@@ -161,6 +186,11 @@ static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
 		else:
 			if sprite.sprite_frames.get_frame_count("run") != 12:
 				failures.append("%s must use all 12 authored movement frames" % enemy_id)
+			elif (
+				not is_equal_approx(sprite.sprite_frames.get_frame_duration("run", 0), 0.5)
+				or not is_equal_approx(sprite.sprite_frames.get_frame_duration("run", 11), 0.5)
+			):
+				failures.append("%s movement loop must not dwell on its wraparound pose" % enemy_id)
 			var expected_attack_frames := 12 if enemy_id in ["victorian2", "victorian_boss", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"] else 16
 			if sprite.sprite_frames.get_frame_count("attack") != expected_attack_frames:
 				failures.append("%s must use all %d authored attack frames" % [enemy_id, expected_attack_frames])
@@ -235,6 +265,74 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 	if float(outer_bolt.get("_splash_radius")) <= 0.0:
 		failures.append("outer-space barrage bolts must trigger impact effects")
 	outer_bolt.free()
+
+	var dodge_target := Node2D.new()
+	dodge_target.position = Vector2(600.0, 360.0)
+	var ballistic_shot := EnemyProjectileActor.new()
+	var ballistic_impacts := [0]
+	ballistic_shot.impacted.connect(
+		func(_actor: Node2D, _hit_target: Node2D, _damage: float, _splash: float, _knockback: float) -> void:
+			ballistic_impacts[0] += 1
+	)
+	ballistic_shot.setup("arrow", Vector2(80.0, 280.0), dodge_target, 1.0, 1.0)
+	var fixed_aim_position := ballistic_shot.get("_last_target_position") as Vector2
+	ballistic_shot.call("_process", float(ballistic_shot.get("_flight_duration")) * 0.35)
+	dodge_target.position += Vector2(0.0, 180.0)
+	ballistic_shot.call("_process", float(ballistic_shot.get("_flight_duration")))
+	if ballistic_shot.position.x <= fixed_aim_position.x:
+		failures.append("a missed enemy projectile must continue past its original aim position")
+	if ballistic_impacts[0] != 0:
+		failures.append("moving a pet after launch must allow it to dodge an enemy projectile")
+	ballistic_shot.free()
+	dodge_target.free()
+
+	var stationary_target := Node2D.new()
+	stationary_target.position = Vector2(600.0, 360.0)
+	var stationary_shot := EnemyProjectileActor.new()
+	var stationary_impacts := [0]
+	stationary_shot.impacted.connect(
+		func(_actor: Node2D, hit_target: Node2D, _damage: float, _splash: float, _knockback: float) -> void:
+			if hit_target == stationary_target:
+				stationary_impacts[0] += 1
+	)
+	stationary_shot.setup("arrow", Vector2(80.0, 280.0), stationary_target, 1.0, 1.0)
+	stationary_shot.call("_process", float(stationary_shot.get("_flight_duration")))
+	if stationary_impacts[0] != 1:
+		failures.append("continuous projectile collision must hit a stationary pet")
+	stationary_shot.call("_process", 0.5)
+	if stationary_impacts[0] != 1:
+		failures.append("a projectile collision must resolve damage exactly once")
+	stationary_shot.free()
+	stationary_target.free()
+
+	var original_target := Node2D.new()
+	original_target.position = Vector2(800.0, 360.0)
+	var intercepting_pet := Node2D.new()
+	intercepting_pet.position = Vector2(440.0, 244.0)
+	var collision_candidates: Array[Node2D] = [original_target, intercepting_pet]
+	var fast_shot := EnemyProjectileActor.new()
+	var intercepted_target: Array[Node2D] = []
+	fast_shot.impacted.connect(
+		func(_actor: Node2D, hit_target: Node2D, _damage: float, _splash: float, _knockback: float) -> void:
+			intercepted_target.append(hit_target)
+	)
+	fast_shot.setup(
+		"outer_bolt",
+		Vector2(80.0, 280.0),
+		original_target,
+		1.0,
+		1.0,
+		collision_candidates
+	)
+	original_target.position.y += 220.0
+	fast_shot.call("_process", float(fast_shot.get("_flight_duration")) * 0.25)
+	intercepting_pet.position.y += 200.0
+	fast_shot.call("_process", float(fast_shot.get("_flight_duration")) * 0.50)
+	if intercepted_target.size() != 1 or intercepted_target[0] != intercepting_pet:
+		failures.append("swept collision must hit another pet crossing a high-speed projectile path")
+	fast_shot.free()
+	original_target.free()
+	intercepting_pet.free()
 
 	var enemy := EnemyActor.new()
 	enemy.setup("villager1", Vector2(180.0, 400.0), 400.0, 1.0, 180.0)
@@ -390,10 +488,10 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 		failures.append("battle gold rewards must rise with potential coin income")
 	if int(high_budget.get("faith", 0)) <= int(low_budget.get("faith", 0)):
 		failures.append("battle faith rewards must rise with baseline faith growth")
-	if int(low_budget.get("faith", 0)) < int(floor(low_manual_click_gain * 75.0)):
-		failures.append("even an opening battle reward must be worth at least seventy-five Adder clicks")
-	if int(low_budget.get("faith", 0)) < int(floor(low_baseline_faith_rate * 22.0)):
-		failures.append("battle faith rewards must cover at least twenty-two seconds of baseline production")
+	if int(low_budget.get("faith", 0)) < int(floor(low_manual_click_gain * 5.0)):
+		failures.append("even an opening battle reward must be worth at least five Adder clicks")
+	if int(low_budget.get("faith", 0)) < int(floor(low_baseline_faith_rate * 10.0)):
+		failures.append("battle faith rewards must cover at least ten seconds of baseline production")
 
 	for drop_index in 12:
 		main.call("_spawn_battle_reward", Vector2(300.0 + float(drop_index), 420.0), 50)
@@ -422,6 +520,73 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 		failures.append("victory settlement must grant its authoritative reward exactly once")
 	main.set("_persistence_enabled", false)
 	main.free()
+
+
+static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
+	var checkpoints := [
+		{"hours": 0.0, "levels": {"pet1": 1}},
+		{"hours": 10.0, "levels": {"pet1": 63, "pet2": 74, "pet3": 69, "pet4": 63, "pet5": 61}},
+		{"hours": 25.0, "levels": {"pet1": 80, "pet2": 95, "pet3": 88, "pet4": 80, "pet5": 77, "pet6": 74}},
+		{"hours": 45.0, "levels": {"pet1": 93, "pet2": 100, "pet3": 100, "pet4": 93, "pet5": 90, "pet6": 86, "pet7": 83, "pet8": 81}},
+		{"hours": 65.0, "levels": {"pet1": 100, "pet2": 100, "pet3": 100, "pet4": 100, "pet5": 100, "pet6": 97, "pet7": 94, "pet8": 91, "pet9": 88}},
+		{"hours": 89.0, "levels": {"pet1": 100, "pet2": 100, "pet3": 100, "pet4": 100, "pet5": 100, "pet6": 100, "pet7": 100, "pet8": 100, "pet9": 100, "pet10": 99}}
+	]
+	for checkpoint_value in checkpoints:
+		var checkpoint := checkpoint_value as Dictionary
+		var levels := checkpoint.get("levels", {}) as Dictionary
+		var pet_ids: Array = levels.keys()
+		var average_level := 0.0
+		var roster_power := 0.0
+		var peak_power := 0.0
+		var estimated_dps := 0.0
+		for pet_id_value in pet_ids:
+			var pet_id := String(pet_id_value)
+			var level := int(levels.get(pet_id, 1))
+			var evolved := level >= Main.PetProgression.CAMPAIGN_PET_LEVEL_TARGET
+			var pet_power := Main.PetCatalog.get_combat_power(pet_id, level, evolved)
+			var rarity := clampi(int(Main.PetCatalog.get_definition(pet_id).get("rarity_stars", 1)), 1, 5)
+			var damage_scale := clampf(pow(pet_power / 20.0, 0.35), 0.80, 2.5)
+			average_level += float(level)
+			roster_power += pet_power
+			peak_power = maxf(peak_power, pet_power)
+			estimated_dps += (
+				(1.05 + float(rarity) * 0.24 + sqrt(float(level)) * 0.055)
+				* damage_scale
+				/ 1.15
+			)
+		average_level /= float(maxi(1, pet_ids.size()))
+		var runtime_seconds := float(checkpoint.get("hours", 0.0)) * 3600.0
+		var schedule := BattleBalance.build_wave_schedule(
+			EraProgression.get_wave_schedule(runtime_seconds),
+			average_level,
+			false
+		)
+		var difficulty := BattleBalance.recommended_difficulty_scale(
+			roster_power,
+			schedule,
+			average_level,
+			false,
+			1.0,
+			peak_power
+		)
+		var health_scale := pow(maxf(0.01, difficulty), 0.68)
+		var strongest_wave_health := 0.0
+		for wave_value in schedule:
+			var wave_health := 0.0
+			for enemy_id_value in (wave_value as Dictionary).get("types", []):
+				wave_health += float(EnemyActor.DEFINITIONS[String(enemy_id_value)].get("hp", 1.0)) * health_scale
+			strongest_wave_health = maxf(strongest_wave_health, wave_health)
+		var estimated_clear_seconds := strongest_wave_health / maxf(0.001, estimated_dps)
+		if difficulty < 0.25 or difficulty > 4.5:
+			failures.append(
+				"the %.0fh combat checkpoint must stay inside the adaptive difficulty envelope, got %.2f"
+				% [float(checkpoint.get("hours", 0.0)), difficulty]
+			)
+		if estimated_clear_seconds < 2.0 or estimated_clear_seconds > 12.0:
+			failures.append(
+				"the %.0fh strongest wave must remain a clearable 2-12 seconds, estimated %.2f"
+				% [float(checkpoint.get("hours", 0.0)), estimated_clear_seconds]
+			)
 
 
 static func _test_invitation_retention_and_singleton(failures: Array[String]) -> void:
@@ -510,8 +675,12 @@ static func _test_battle_invitation_cooldowns(failures: Array[String]) -> void:
 	main.set("_total_runtime_seconds", 1000.0)
 	main.set("_next_pilgrimage_at", 1999.0)
 	main.call("_update_pilgrimage")
-	if main.get("_event_invitation") != null:
-		failures.append("a due pilgrimage must not take the one invitation slot reserved after battle")
+	var pilgrimage_invitation := main.get("_event_invitation") as Node2D
+	if pilgrimage_invitation == null or String(pilgrimage_invitation.get("event_type")) != "pilgrimage":
+		failures.append("the longer battle cadence must leave room for a due pilgrimage invitation")
+	elif is_instance_valid(pilgrimage_invitation):
+		pilgrimage_invitation.free()
+	main.set("_event_invitation", null)
 	main.set("_simulation_now_seconds", float(main.get("_next_battle_at")) + 0.1)
 	main.call("_update_event_invitations")
 	var followup_invitation := main.get("_event_invitation") as Node2D
@@ -521,6 +690,15 @@ static func _test_battle_invitation_cooldowns(failures: Array[String]) -> void:
 
 
 static func _test_pet_combat_assets(failures: Array[String]) -> void:
+	for loop_pet_id in Main.PetCatalog.ACTIVE_DESKTOP_PETS:
+		var loop_frames := Main.PetCatalog.build_frames(loop_pet_id)
+		for loop_name in ["idle", "walk"]:
+			var loop_count := loop_frames.get_frame_count(loop_name)
+			if loop_count > 1 and (
+				not is_equal_approx(loop_frames.get_frame_duration(loop_name, 0), 0.5)
+				or not is_equal_approx(loop_frames.get_frame_duration(loop_name, loop_count - 1), 0.5)
+			):
+				failures.append("%s %s loop must not dwell on its wraparound pose" % [loop_pet_id, loop_name])
 	for pet_id in ["pet3", "pet4", "pet5", "pet6"]:
 		var pet_data := Main.PetCatalog.get_definition(pet_id)
 		var frames := Main.PetCatalog.build_frames(pet_id)
@@ -556,6 +734,11 @@ static func _test_pet_combat_assets(failures: Array[String]) -> void:
 	else:
 		for frame_index in pet4_sprite.sprite_frames.get_frame_count("attack"):
 			pet4_sprite.frame = frame_index
+			var frame_image := pet4_sprite.sprite_frames.get_frame_texture("attack", frame_index).get_image()
+			var frame_bounds := frame_image.get_used_rect()
+			if frame_bounds.position.y < 40 or frame_bounds.size.x >= frame_image.get_width() - 20:
+				failures.append("pet4 attack frames must discard per-cell chroma residue before grounding")
+				break
 			pet4.call("_anchor_attack_frame_to_visual_bottom")
 			var visible_bottom := float(pet4.call("_get_current_frame_visual_bottom_y"))
 			if absf(visible_bottom - pet4_ground_y) > 1.0:
@@ -662,6 +845,12 @@ static func _test_recovery_pauses_production(failures: Array[String]) -> void:
 	var pet2_only_rate := Main.PetProgression.faith_per_second(Main.PetCatalog.get_definition("pet2"), 1)
 	if not is_equal_approx(float(main.call("_get_faith_growth_rate")), pet2_only_rate):
 		failures.append("a defeated pet must pause all passive production while recovering")
+	var permanent_roster_rate := (
+		pet2_only_rate
+		+ Main.PetProgression.faith_per_second(Main.PetCatalog.get_definition("pet1"), 1)
+	)
+	if not is_equal_approx(float(main.call("_get_baseline_faith_growth_rate")), permanent_roster_rate):
+		failures.append("temporary recovery must not close a permanent gacha faith gate")
 	var entries: Array[Dictionary] = main.call("_get_inventory_pet_entries")
 	var recovery_entry: Dictionary = {}
 	for entry in entries:
@@ -788,8 +977,8 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 	var formation_start_x := pet.position.x
 	main.call("_update_battle_pet_formation", 1.0 / 60.0)
 	var early_formation_step := absf(pet.position.x - formation_start_x)
-	if early_formation_step <= 0.0 or early_formation_step > 5.0:
-		failures.append("melee pets must begin a smooth intercept as soon as incoming enemies appear")
+	if not is_zero_approx(early_formation_step):
+		failures.append("melee pets must hold position while enemies are still inside spawn zones")
 	projectile_source.call("_process", 4.0)
 	formation_start_x = pet.position.x
 	main.call("_update_battle_pet_formation", 1.0 / 60.0)

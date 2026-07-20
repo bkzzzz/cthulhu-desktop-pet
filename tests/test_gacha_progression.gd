@@ -9,7 +9,7 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_check_draw_costs(failures)
 	_check_pet_pool(failures)
-	_check_growth_gates(failures)
+	_check_progression_gates(failures)
 	_check_new_and_duplicate_results(failures)
 	_check_new_pet_pity(failures)
 	_check_static_machine_and_eggs(failures)
@@ -17,14 +17,22 @@ static func run() -> Array[String]:
 
 
 static func _check_draw_costs(failures: Array[String]) -> void:
-	for draw_count in 10:
+	var checkpoints := {
+		0: 50,
+		1: 60,
+		5: 300,
+		10: 1050,
+		20: 4050,
+		40: 16050
+	}
+	for draw_count_value in checkpoints:
+		var draw_count := int(draw_count_value)
 		_check_equal(
 			failures,
-			"opening draw %d stays cheap" % (draw_count + 1),
+			"quadratic draw price at count %d" % draw_count,
 			GachaProgression.draw_cost(draw_count),
-			2
+			int(checkpoints[draw_count])
 		)
-	_check_equal(failures, "draw 11 adds only one coin", GachaProgression.draw_cost(10), 3)
 
 	_check_equal(
 		failures,
@@ -34,29 +42,29 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 	)
 	_check_equal(
 		failures,
-		"ten opening draws remain affordable with manual coins",
+		"ten opening draws use the exact quadratic total",
 		GachaProgression.draw_cost_total(0, 10),
-		20.0
+		3350.0
 	)
 	_check_equal(
 		failures,
 		"one thousand draws use the full batch instead of clamping to ten",
 		GachaProgression.draw_cost_total(0, 1000),
-		18_290.0
+		425_225_440.0
 	)
 
 	var previous_cost := GachaProgression.draw_cost(0)
-	for draw_count in range(1, 241):
+	for draw_count in range(1, 400):
 		var next_cost := GachaProgression.draw_cost(draw_count)
-		if next_cost < previous_cost or next_cost - previous_cost > 1:
+		if next_cost < previous_cost:
 			failures.append(
-				"draw costs must rise slowly at draw %d: %d after %d"
+				"draw costs must remain monotonic at draw %d: %d after %d"
 				% [draw_count + 1, next_cost, previous_cost]
 			)
 		previous_cost = next_cost
 	_check_equal(
 		failures,
-		"draw price has a small permanent cap",
+		"draw price has a bounded permanent cap",
 		GachaProgression.draw_cost(1000000),
 		GachaProgression.MAX_DRAW_COST
 	)
@@ -64,7 +72,7 @@ static func _check_draw_costs(failures: Array[String]) -> void:
 
 static func _check_pet_pool(failures: Array[String]) -> void:
 	var expected_ids := [
-		"pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
+		"pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
 		"pet8", "pet9", "pet10"
 	]
 	var actual_ids: Array[String] = []
@@ -73,7 +81,7 @@ static func _check_pet_pool(failures: Array[String]) -> void:
 		var entry: Dictionary = entry_value
 		actual_ids.append(String(entry.get("pet_id", "")))
 		total_weight += float(entry.get("weight", 0.0))
-	_check_equal(failures, "gacha pool contains every non-starter pet", actual_ids, expected_ids)
+	_check_equal(failures, "gacha pool contains all ten pet tiers", actual_ids, expected_ids)
 	_check_equal(failures, "catalog gacha list matches the roll pool", PetCatalog.GACHA_PETS, expected_ids)
 	_check_close(failures, "pet draw weights total 100", total_weight, 100.0, 0.0001)
 	for entry_value in GachaProgression.PET_POOL:
@@ -90,84 +98,133 @@ static func _check_pet_pool(failures: Array[String]) -> void:
 			break
 		previous_weight = weight
 
-	_check_roll_pet(failures, "first two-star boundary", 0.0, "pet2")
-	_check_roll_pet(failures, "second two-star boundary", 0.38, "pet3")
-	_check_roll_pet(failures, "first three-star boundary", 0.65, "pet4")
-	_check_roll_pet(failures, "first four-star boundary", 0.80, "pet5")
-	_check_roll_pet(failures, "first five-star boundary", 0.88, "pet6")
-	_check_roll_pet(failures, "pet7 boundary", 0.93, "pet7")
-	_check_roll_pet(failures, "pet8 boundary", 0.96, "pet8")
-	_check_roll_pet(failures, "pet9 boundary", 0.98, "pet9")
-	_check_roll_pet(failures, "pet10 boundary", 0.9925, "pet10")
-	_check_roll_pet(failures, "unit roll is safely clamped", 1.0, "pet10")
 
 
-static func _check_growth_gates(failures: Array[String]) -> void:
+static func _check_progression_gates(failures: Array[String]) -> void:
 	var previous_threshold := -1.0
 	for entry_value in GachaProgression.PET_POOL:
 		var entry := entry_value as Dictionary
-		var pet_id := String(entry.get("pet_id", ""))
 		var threshold := float(entry.get("min_faith_rate", -1.0))
 		if threshold < previous_threshold:
-			failures.append("gacha production thresholds must rise with pet combat tier")
+			failures.append("permanent faith-rate gates must rise by pet tier")
 			return
 		previous_threshold = threshold
-		var eligible_ids: Array[String] = []
-		for eligible_value in GachaProgression.make_eligible_pool(threshold):
-			eligible_ids.append(String((eligible_value as Dictionary).get("pet_id", "")))
-		if not eligible_ids.has(pet_id):
-			failures.append("%s must enter the pool exactly at its production threshold" % pet_id)
-			return
-		if threshold > 0.0:
-			for locked_value in GachaProgression.make_eligible_pool(threshold - 0.001):
-				if String((locked_value as Dictionary).get("pet_id", "")) == pet_id:
-					failures.append("%s must remain unavailable below its production threshold" % pet_id)
-					return
 
-	var armed_pity := GachaProgression.NEW_PET_PITY_DRAWS - 1
-	var low_growth_result := GachaProgression.roll_pet(
-		0.999,
-		["pet1", "pet2"],
-		armed_pity,
-		0.0
-	)
-	if bool(low_growth_result.get("is_new", true)) or String(low_growth_result.get("pet_id", "")) != "pet2":
-		failures.append("pity must not bypass the production gate for a higher-stage pet")
-	var stale_locked_pool := GachaProgression.make_locked_pool(
-		GachaProgression.make_unlocked_lookup(["pet1", "pet2"]),
+	for highest_tier in range(1, 11):
+		var owned_ids: Array[String] = []
+		for owned_tier in range(1, highest_tier + 1):
+			owned_ids.append("pet%d" % owned_tier)
+		var unlocked_lookup := GachaProgression.make_unlocked_lookup(owned_ids)
+		var next_tier := highest_tier + 1
+		var next_threshold := (
+			INF
+			if next_tier > 10
+			else float(GachaProgression.get_pool_entry("pet%d" % next_tier).get("min_faith_rate", INF))
+		)
+		var below_rate := maxf(0.0, next_threshold - 0.001) if is_finite(next_threshold) else 0.0
+		var below_pool := GachaProgression.make_progression_pool(unlocked_lookup, below_rate)
+		var expected_below_size := (
+			mini(10, highest_tier + 1)
+			if next_threshold <= 0.0
+			else highest_tier
+		)
+		if below_pool.size() != expected_below_size:
+			failures.append("Pet %d must stay out of the pool below its permanent faith gate" % next_tier)
+			return
+		var progression_pool := GachaProgression.make_progression_pool(unlocked_lookup, next_threshold)
+		var expected_maximum_tier := mini(10, next_tier)
+		if progression_pool.size() != expected_maximum_tier:
+			failures.append("owning Pet %d at the next faith gate must expose only Pets 1-%d" % [highest_tier, expected_maximum_tier])
+			return
+		var locked_pool := GachaProgression.make_locked_pool(unlocked_lookup, next_threshold)
+		if locked_pool.size() != (0 if highest_tier == 10 else 1):
+			failures.append("the combined gate must expose exactly one next unowned tier")
+			return
+		for unit_roll in [0.0, 0.25, 0.5, 0.75, 0.999999]:
+			var result := GachaProgression.roll_pet(unit_roll, owned_ids, 0, next_threshold)
+			var result_tier := int(String(result.get("pet_id", "")).trim_prefix("pet"))
+			if result_tier > expected_maximum_tier:
+				failures.append("a roll must never skip beyond one tier above Pet %d" % highest_tier)
+				return
+
+	var sparse_pool := GachaProgression.make_progression_pool(
+		GachaProgression.make_unlocked_lookup(["pet1", "pet7"]),
 		1_000_000.0
 	)
-	var stale_pool_result := GachaProgression.roll_pet_with_context(
-		0.999,
-		GachaProgression.make_unlocked_lookup(["pet1", "pet2"]),
-		stale_locked_pool,
-		armed_pity,
-		0.0
+	if sparse_pool.size() != 8 or String((sparse_pool.back() as Dictionary).get("pet_id", "")) != "pet8":
+		failures.append("legacy sparse rosters must retain owned pets and every eligible lower tier")
+
+	var armed_pity := GachaProgression.NEW_PET_PITY_DRAWS - 1
+	var owned_lookup := GachaProgression.make_unlocked_lookup(["pet1"])
+	var initial_locked_pool := GachaProgression.make_locked_pool(owned_lookup, 1_000_000.0)
+	var pet2_result := GachaProgression.roll_pet_with_context(
+		0.0, owned_lookup, initial_locked_pool, armed_pity, 1_000_000.0
 	)
-	if bool(stale_pool_result.get("is_new", true)) or String(stale_pool_result.get("pet_id", "")) != "pet2":
-		failures.append("a stale cached pity pool must still be filtered by the current production gate")
+	if String(pet2_result.get("pet_id", "")) != "pet2":
+		failures.append("armed pity must unlock Pet 2 from the starter pool")
+		return
+	owned_lookup["pet2"] = true
+	var frozen_batch_result := GachaProgression.roll_pet_with_context(
+		0.0, owned_lookup, initial_locked_pool, armed_pity, 1_000_000.0
+	)
+	if bool(frozen_batch_result.get("is_new", true)):
+		failures.append("one batch must freeze its starting tier ceiling after unlocking Pet 2")
+	var large_batch_owned := GachaProgression.make_unlocked_lookup(["pet1"])
+	var large_batch_candidates := GachaProgression.make_locked_pool(large_batch_owned, 1_000_000.0)
+	var large_batch_pity := 0
+	var large_batch_unlocks := 0
+	for _draw_index in GachaProgression.MAX_BATCH_DRAWS:
+		var large_result := GachaProgression.roll_pet_with_context(
+			0.0,
+			large_batch_owned,
+			large_batch_candidates,
+			large_batch_pity,
+			1_000_000.0
+		)
+		if bool(large_result.get("is_new", false)):
+			var large_pet_id := String(large_result.get("pet_id", ""))
+			large_batch_owned[large_pet_id] = true
+			large_batch_unlocks += 1
+			for candidate_index in large_batch_candidates.size():
+				if String((large_batch_candidates[candidate_index] as Dictionary).get("pet_id", "")) == large_pet_id:
+					large_batch_candidates.remove_at(candidate_index)
+					break
+		large_batch_pity = GachaProgression.next_pity_count(large_batch_pity, large_result)
+	if large_batch_unlocks != 1 or large_batch_owned.has("pet3"):
+		failures.append("a 10,000-pull batch must never chain beyond its one starting tier")
+	var next_request_result := GachaProgression.roll_pet(
+		0.0, ["pet1", "pet2"], armed_pity, 1_000_000.0
+	)
+	if String(next_request_result.get("pet_id", "")) != "pet3":
+		failures.append("a later request may unlock Pet 3 once ownership and faith both qualify")
+
 	var pet3_threshold := float(GachaProgression.get_pool_entry("pet3").get("min_faith_rate", INF))
-	var newly_eligible_result := GachaProgression.roll_pet(
-		0.0,
-		["pet1", "pet2"],
-		armed_pity,
-		pet3_threshold
+	var locked_pity_result := GachaProgression.roll_pet(
+		0.999, ["pet1", "pet2"], armed_pity, pet3_threshold - 0.001
 	)
-	if String(newly_eligible_result.get("pet_id", "")) != "pet3" or not bool(newly_eligible_result.get("is_new", false)):
-		failures.append("armed pity must wait and then unlock a pet after its production stage opens")
+	if bool(locked_pity_result.get("is_new", true)):
+		failures.append("armed pity must remain a duplicate below the permanent faith gate")
+	if GachaProgression.next_pity_count(armed_pity, locked_pity_result) != armed_pity:
+		failures.append("gate-locked pity must remain armed for a future eligible draw")
+	var stale_pool := GachaProgression.make_locked_pool(owned_lookup, pet3_threshold)
+	var stale_result := GachaProgression.roll_pet_with_context(
+		0.0, owned_lookup, stale_pool, armed_pity, pet3_threshold - 0.001
+	)
+	if bool(stale_result.get("is_new", true)):
+		failures.append("a stale cached pool must be revalidated against the current permanent rate")
 
 
 static func _check_new_and_duplicate_results(failures: Array[String]) -> void:
-	var first_pet2 := GachaProgression.roll_pet(0.0, ["pet1"], 0)
+	var first_pet2 := GachaProgression.roll_pet(0.999, ["pet1"], 0)
 	if not bool(first_pet2.get("is_new", false)):
 		failures.append("drawing a locked pet must mark it as newly unlocked")
 	if GachaProgression.duplicate_faith_reward(1000, first_pet2) != 0:
 		failures.append("a newly unlocked pet must not also return duplicate faith")
 
-	var duplicate_pet2 := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
+	var duplicate_pet2 := GachaProgression.roll_pet(0.8, ["pet1", "pet2"], 0)
 	if bool(duplicate_pet2.get("is_new", true)):
 		failures.append("drawing an unlocked pet must be a duplicate result")
-	if GachaProgression.duplicate_faith_reward(1000, duplicate_pet2) != 650:
+	if GachaProgression.duplicate_faith_reward(1000, duplicate_pet2) != 100:
 		failures.append("a duplicate two-star pet must return its star-based faith reward")
 
 
@@ -178,7 +235,7 @@ static func _check_new_pet_pity(failures: Array[String]) -> void:
 	]
 	var pity_count := 0
 	for draw_index in GachaProgression.NEW_PET_PITY_DRAWS - 1:
-		var duplicate := GachaProgression.roll_pet(0.0, unlocked, pity_count, 12.0)
+		var duplicate := GachaProgression.roll_pet(0.0, unlocked, pity_count, 1_000.0)
 		if bool(duplicate.get("is_new", true)):
 			failures.append("pre-pity draws must still be allowed to repeat an owned pet")
 			return
@@ -189,7 +246,7 @@ static func _check_new_pet_pity(failures: Array[String]) -> void:
 		pity_count,
 		GachaProgression.NEW_PET_PITY_DRAWS - 1
 	)
-	var guaranteed := GachaProgression.roll_pet(0.0, unlocked, pity_count, 12.0)
+	var guaranteed := GachaProgression.roll_pet(0.0, unlocked, pity_count, 1_000.0)
 	_check_equal(failures, "pity chooses the only locked pet", guaranteed.get("pet_id", ""), "pet5")
 	if not bool(guaranteed.get("is_new", false)):
 		failures.append("the fifth draw after repeated duplicates must unlock a new pet")
@@ -215,6 +272,14 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		failures.append("the pet gacha must use the supplied egg image")
 	var window := GachaWindow.new()
 	window.setup()
+	window.set_language("en")
+	window.refresh_state(1000.0, 0, GachaProgression.draw_cost(0), ["pet1", "pet2"], 0, [], 0.0)
+	var progress_label := window.get("_progress_label") as Label
+	if progress_label == null or not progress_label.text.contains("PERMANENT FAITH"):
+		failures.append("the gacha UI must explain the permanent faith requirement for the next pet")
+	window.refresh_state(1000.0, 0, GachaProgression.draw_cost(0), ["pet1", "pet2"], 0, [], 20.0)
+	if progress_label == null or not progress_label.text.contains("PET 3 AVAILABLE"):
+		failures.append("the gacha UI must announce when the next faith-gated tier enters the pool")
 	window.set_language("zh")
 	var background := window.get_node_or_null("GachaRoot/GachaBackground") as TextureRect
 	if background == null or background.texture == null:
@@ -278,7 +343,7 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 		failures.append("the gacha shuffle should use a deliberately coarse frame cadence")
 
 	window.set("_animation_playing", true)
-	var result := GachaProgression.roll_pet(0.0, ["pet1"], 0)
+	var result := GachaProgression.roll_pet(0.999, ["pet1"], 0)
 	result["name"] = "测试宠物"
 	window.show_result(result)
 	var result_title: Label = window.get("_result_title")

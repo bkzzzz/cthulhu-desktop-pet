@@ -89,7 +89,7 @@ func _update_pilgrimage() -> void:
 	if now >= _next_pilgrimage_at:
 		if (
 			_next_battle_at > 0.0
-			and _next_battle_at <= now + BATTLE_INTERVAL_MAX_SECONDS
+			and _next_battle_at <= now + BATTLE_INVITATION_RESERVATION_SECONDS
 		):
 			_next_pilgrimage_at = now + 60.0
 			return
@@ -152,7 +152,7 @@ func _spawn_event_invitation(event_type: String) -> void:
 			BattleBalance.build_final_boss_schedule()
 			if _host._should_offer_final_boss()
 			else BattleBalance.build_wave_schedule(
-				EraProgression.get_wave_schedule(_total_runtime_seconds),
+				EraProgression.get_wave_schedule(_get_era_runtime_seconds()),
 				EconomyBalance.average_level(_deployed_pet_ids, _pet_states),
 				_host._is_endless_mode()
 			)

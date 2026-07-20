@@ -5,9 +5,9 @@ const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 
 const CAMPAIGN_LEVEL_TARGET := 100
 const BASELINE_COIN_RATE_PER_MINUTE := 10.0
-const EXPECTED_ACTIVE_FAITH_MULTIPLIER := 1.70
+const EXPECTED_ACTIVE_FAITH_MULTIPLIER := 1.25
 
-const OFFERING_PRICE_MINUTES_PER_BONUS := 1.10
+const OFFERING_PRICE_MINUTES_PER_BONUS := 2.20
 
 
 static func potential_coin_rate_per_minute(

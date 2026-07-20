@@ -30,9 +30,9 @@ func _render_previews() -> void:
 	var custom_path := OS.get_user_data_dir().path_join("gacha_custom_preview.png")
 	window.get_texture().get_image().save_png(custom_path)
 
-	var duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
+	var duplicate := GachaProgression.roll_pet(0.8, ["pet1", "pet2"], 0)
 	duplicate["name"] = "深渊凝视"
-	duplicate["duplicate_faith"] = 650
+	duplicate["duplicate_faith"] = 100
 	var new_pet := GachaProgression.roll_pet(0.5, ["pet1"], 4)
 	new_pet["name"] = "新宠物"
 	window.show_results([new_pet, duplicate])

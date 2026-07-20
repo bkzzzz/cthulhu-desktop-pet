@@ -4,9 +4,10 @@ const MAX_UPGRADE_COST := 8_000_000_000_000_000_000
 const MAX_FAITH_PER_SECOND := 1.0e300
 const MAX_MONEY_VALUE_PER_MINUTE := 2500.0
 const MAX_LEVEL := 100_000
-const CAMPAIGN_TARGET_HOURS := 50.0
-const CAMPAIGN_PASSIVE_TARGET_HOURS := 90.0
+const CAMPAIGN_TARGET_HOURS := 100.0
+const CAMPAIGN_PASSIVE_TARGET_HOURS := 125.0
 const CAMPAIGN_PET_LEVEL_TARGET := 100
+const MONEY_LEVEL_GROWTH := 1.010
 
 const CAMPAIGN_BASE_PRODUCTION_MULTIPLIER := 3.25
 const OPENING_EXTRA_PRODUCTION_MULTIPLIER := 12.0
@@ -60,7 +61,7 @@ static func money_drop_value_per_minute(pet_data: Dictionary, level: int) -> flo
 	var effective_levels := minf(excess_levels, 200.0)
 	if excess_levels > 200.0:
 		effective_levels += sqrt(excess_levels - 200.0) * 4.0
-	var result := base_rate * pow(1.012, effective_levels)
+	var result := base_rate * pow(MONEY_LEVEL_GROWTH, effective_levels)
 	if not is_finite(result):
 		return MAX_MONEY_VALUE_PER_MINUTE
 	return clampf(result, 0.0, MAX_MONEY_VALUE_PER_MINUTE)

@@ -1,6 +1,7 @@
 extends RefCounted
 
-const SECONDS_PER_YEAR := 300.0
+const LEGACY_SECONDS_PER_YEAR := 300.0
+const SECONDS_PER_YEAR := 18_000.0
 const SOLDIER_ERA_START_YEAR := 3
 const VICTORIAN_ERA_START_YEAR := 6
 const MODERN_ERA_START_YEAR := 10
@@ -23,6 +24,20 @@ const ERA_START_YEARS := [
 
 static func get_era_count() -> int:
 	return ERA_START_YEARS.size()
+
+
+static func get_legacy_era_index(total_runtime_seconds: float) -> int:
+	var progression_year := maxi(
+		1,
+		int(floor(maxf(0.0, total_runtime_seconds) / LEGACY_SECONDS_PER_YEAR)) + 1
+	)
+	if progression_year >= OUTER_SPACE_ERA_START_YEAR:
+		return 4
+	if progression_year >= MODERN_ERA_START_YEAR:
+		return 3
+	if progression_year >= VICTORIAN_ERA_START_YEAR:
+		return 2
+	return 1 if progression_year >= SOLDIER_ERA_START_YEAR else 0
 
 
 static func get_era_start_runtime_seconds(era_index: int) -> float:

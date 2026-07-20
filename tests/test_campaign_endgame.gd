@@ -172,9 +172,9 @@ static func _test_final_boss_balance_window(failures: Array[String]) -> void:
 	var boss := Main.EnemyActor.new()
 	boss.setup("final_boss", Vector2(700.0, 704.0), 704.0, difficulty * 1.075, 700.0)
 	var estimated_clear_seconds := boss.max_health / maxf(0.001, estimated_damage_per_second)
-	if estimated_clear_seconds < 10.0 or estimated_clear_seconds > 24.0:
+	if estimated_clear_seconds < 18.0 or estimated_clear_seconds > 26.0:
 		failures.append(
-			"the final boss must occupy a meaningful but clearable 10-24 second window, estimated %.1fs"
+			"the final boss must occupy a meaningful but clearable 18-26 second window, estimated %.1fs"
 			% estimated_clear_seconds
 		)
 	boss.free()
@@ -185,8 +185,8 @@ static func _test_final_boss_balance_window(failures: Array[String]) -> void:
 	main.set("_battle_wave_schedule", Main.EraProgression.get_wave_schedule(0.0))
 	var regular_rewards: Dictionary = main.call("_get_battle_reward_budget", 1.0)
 	if (
-		int(final_rewards.get("gold", 0)) < int(regular_rewards.get("gold", 0)) * 3
-		or int(final_rewards.get("faith", 0)) < int(regular_rewards.get("faith", 0)) * 2
+		int(final_rewards.get("gold", 0)) < int(regular_rewards.get("gold", 0)) * 5
+		or int(final_rewards.get("faith", 0)) < int(regular_rewards.get("faith", 0)) * 3
 	):
 		failures.append("the one-time final boss must award a clearly premium gold and faith payout")
 	main.free()

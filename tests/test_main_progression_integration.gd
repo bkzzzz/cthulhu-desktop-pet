@@ -10,6 +10,7 @@ static func run() -> Array[String]:
 	_test_starter_unlock_state(failures)
 	_test_language_defaults_and_pet_names(failures)
 	_test_pet_gacha_integration(failures)
+	_test_gacha_batch_tier_ceiling(failures)
 	_test_hidden_inventory_updates_are_lazy(failures)
 	_test_single_level_upgrade(failures)
 	_test_upgrade_entry_simplicity(failures)
@@ -105,6 +106,7 @@ static func _test_pet_gacha_integration(failures: Array[String]) -> void:
 	window.setup()
 	main.set("_gacha_window", window)
 	main.set("_gold_coins", 1000000)
+	main.set("_gacha_pity_count", Main.GachaProgression.NEW_PET_PITY_DRAWS - 1)
 	var first_cost := Main.GachaProgression.draw_cost(0)
 	main.call("_on_gacha_draw_requested")
 	_drain_gacha_batch(main, failures, "first draw")
@@ -244,6 +246,31 @@ static func _drain_gacha_batch(main: Node, failures: Array[String], label: Strin
 		chunk_count += 1
 	if bool(main.get("_gacha_batch_active")):
 		failures.append("%s gacha batch must finish within a bounded number of chunks" % label)
+
+
+static func _test_gacha_batch_tier_ceiling(failures: Array[String]) -> void:
+	var main := _make_main()
+	var window := Main.GachaWindowScript.new()
+	window.setup()
+	main.set("_gacha_window", window)
+	var starter_state: Dictionary = main.call("_get_pet_state", "pet1")
+	starter_state["upgrade_level"] = 100
+	starter_state["evolved"] = true
+	main.set("_gold_coins", 1_000_000_000)
+	main.set("_gacha_pity_count", Main.GachaProgression.NEW_PET_PITY_DRAWS - 1)
+	main.call("_on_gacha_draw_requested", 10)
+	_drain_gacha_batch(main, failures, "faith-gated ten draw")
+	var unlocked_after_batch: Array = main.get("_unlocked_pet_ids")
+	if unlocked_after_batch != ["pet1", "pet2"]:
+		failures.append("one high-faith batch must unlock only its starting next tier")
+	main.call("_on_gacha_draw_requested", 1)
+	_drain_gacha_batch(main, failures, "next gated request")
+	var unlocked_after_next_request: Array = main.get("_unlocked_pet_ids")
+	if not unlocked_after_next_request.has("pet3"):
+		failures.append("a later request may unlock the following tier after the prior batch ends")
+	main.set("_gacha_window", null)
+	window.free()
+	main.free()
 
 
 static func _test_hidden_inventory_updates_are_lazy(failures: Array[String]) -> void:

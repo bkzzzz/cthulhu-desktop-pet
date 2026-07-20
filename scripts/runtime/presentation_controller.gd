@@ -12,7 +12,7 @@ var _victory_loot_drops: Array[Node2D] = []
 func _refresh_era_display(force := false) -> void:
 	if _side_drawer == null or not _side_drawer.has_method("refresh_era"):
 		return
-	var display_text = EraProgression.get_display_text(_total_runtime_seconds, _language)
+	var display_text = EraProgression.get_display_text(_get_era_runtime_seconds(), _language)
 	if force or display_text != _last_era_display:
 		var calendar_changed = display_text != _last_era_display
 		_last_era_display = display_text
@@ -424,7 +424,7 @@ func _create_settings_window() -> void:
 	_settings_window.setup(_pet_activity_range, _language)
 	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
 	_settings_window.refresh_debug_values(_faith_points, _gold_coins, _debug_enemy_power_scale, _debug_game_speed, _host._get_debug_pet_levels())
-	_settings_window.refresh_debug_era(EraProgression.get_era_index(_total_runtime_seconds))
+	_settings_window.refresh_debug_era(EraProgression.get_era_index(_get_era_runtime_seconds()))
 
 
 func _create_completion_window() -> void:
@@ -522,7 +522,8 @@ func _sync_gacha_state() -> void:
 		next_cost,
 		_unlocked_pet_ids.duplicate(),
 		_gacha_pity_count,
-		_gacha_history
+		_gacha_history,
+		_host._get_baseline_faith_growth_rate()
 	)
 
 func _update_settings_runtime(delta: float) -> void:
@@ -719,5 +720,5 @@ func _on_settings_requested() -> void:
 			_debug_game_speed,
 			_host._get_debug_pet_levels()
 		)
-	_settings_window.refresh_debug_era(EraProgression.get_era_index(_total_runtime_seconds))
+	_settings_window.refresh_debug_era(EraProgression.get_era_index(_get_era_runtime_seconds()))
 	_settings_window.open_window()

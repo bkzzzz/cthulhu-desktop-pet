@@ -20,6 +20,15 @@ func _load_game() -> void:
 	_follower_count = maxf(0.0, float(save.get_value("economy", "followers", 0.0)))
 	_gold_coins = CurrencyDisplay.sanitize_gold(int(save.get_value("economy", "gold_coins", 0)))
 	_total_runtime_seconds = maxf(0.0, float(save.get_value("statistics", "total_runtime_seconds", 0.0)))
+	_era_floor_index = (
+		clampi(
+			int(save.get_value("progression", "era_floor_index", 0)),
+			0,
+			EraProgression.get_era_count() - 1
+		)
+		if save.has_section_key("progression", "era_floor_index")
+		else EraProgression.get_legacy_era_index(_total_runtime_seconds)
+	)
 	_campaign_completed = bool(save.get_value("progression", "campaign_completed", false))
 	_campaign_completion_acknowledged = bool(save.get_value(
 		"progression",
@@ -137,6 +146,7 @@ func _save_game() -> void:
 	save.set_value("economy", "followers", maxf(0.0, _follower_count))
 	save.set_value("economy", "gold_coins", CurrencyDisplay.sanitize_gold(_gold_coins))
 	save.set_value("statistics", "total_runtime_seconds", maxf(0.0, _total_runtime_seconds))
+	save.set_value("progression", "era_floor_index", _era_floor_index)
 	save.set_value("progression", "campaign_completed", _campaign_completed)
 	save.set_value("progression", "final_boss_defeated", _final_boss_defeated)
 	save.set_value(

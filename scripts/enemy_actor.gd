@@ -121,7 +121,7 @@ const DEFINITIONS := {
 	"final_boss": {
 		"move": "res://assets/enemyCharacter/finalBoss1/finalBossAnimation.png",
 		"attack": "res://assets/enemyCharacter/finalBoss1/finalBossAnimation.png",
-		"hp": 185.0, "damage": 0.42, "speed": 95.0, "reward": 250, "ranged": true,
+		"hp": 260.0, "damage": 0.50, "speed": 95.0, "reward": 400, "ranged": true,
 		"projectile": "modern_orb", "run_columns": 4, "run_rows": 3,
 		"attack_columns": 4, "attack_rows": 3, "visual_scale": 1.12,
 		"attack_visual_scale": 1.035, "run_animation_speed": 7.5,
@@ -140,7 +140,7 @@ const COMBAT_POWER := {
 	"victorian1": 30.0, "victorian2": 34.0, "victorian_boss": 50.0,
 	"modern2": 65.0, "modern3": 78.0,
 	"outerspace1": 120.0, "outerspace2": 150.0, "outerspace3": 190.0,
-	"final_boss": 420.0
+	"final_boss": 520.0
 }
 
 const MELEE_STOP_DISTANCE := 68.0
@@ -149,6 +149,7 @@ const FOOT_TASKBAR_OVERLAP := 0.0
 const CHROMA_TOLERANCE := 0.24
 const SWALLOW_ROTATIONS := 0.85
 const HIT_REACTION_SECONDS := 0.16
+const LOOP_ENDPOINT_DURATION_SCALE := 0.5
 
 static var _frames_cache := {}
 static var _alignment_cache := {}
@@ -301,14 +302,6 @@ func _process(delta: float) -> void:
 		return
 
 	if not _entered:
-		if not is_ranged and _is_target_in_attack_range():
-			_face_target(_target.position.x - position.x)
-			if _attack_cooldown <= 0.0:
-				_begin_attack()
-			else:
-				_play_run(false, 0.45)
-			_update_sprite_pose(safe_delta)
-			return
 		var entry_destination := _get_entry_destination_x()
 		var entry_distance := entry_destination - position.x
 		if absf(entry_distance) > 1.0:
@@ -462,12 +455,12 @@ func has_entered_battlefield() -> bool:
 
 
 func _get_entry_destination_x() -> float:
-	if not is_ranged:
-		return _entry_x
 	var visual_margin := _get_run_visual_half_width()
+	if is_ranged:
+		return visual_margin if _entry_side < 0 else _get_battlefield_width() - visual_margin
 	if _entry_side < 0:
-		return visual_margin
-	return _get_battlefield_width() - visual_margin
+		return maxf(_entry_x, visual_margin)
+	return minf(_entry_x, _get_battlefield_width() - visual_margin)
 
 
 func _get_run_visual_half_width() -> float:
@@ -623,12 +616,20 @@ static func _add_atlas_animation(
 	frames.set_animation_speed(animation_name, speed)
 	frames.set_animation_loop(animation_name, looped)
 	var frame_size := Vector2(float(texture.get_width()) / columns, float(texture.get_height()) / rows)
+	var frame_count := columns * rows
+	var frame_index := 0
 	for row in rows:
 		for column in columns:
 			var atlas := AtlasTexture.new()
 			atlas.atlas = texture
 			atlas.region = Rect2(Vector2(column, row) * frame_size, frame_size)
-			frames.add_frame(animation_name, atlas)
+			var duration_scale := 1.0
+			if looped and frame_count > 1 and frame_index in [0, frame_count - 1]:
+				# Treat the two endpoint samples as one boundary beat so the run
+				# cycle does not appear to pause when it wraps back to frame zero.
+				duration_scale = LOOP_ENDPOINT_DURATION_SCALE
+			frames.add_frame(animation_name, atlas, duration_scale)
+			frame_index += 1
 
 
 func _play_run(moving: bool, speed_scale := 1.0) -> void:

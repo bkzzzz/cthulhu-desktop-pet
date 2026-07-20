@@ -114,27 +114,27 @@ static func reward_budget(
 		for enemy_id_value in wave_value.get("types", []):
 			enemy_gold += EnemyActor.get_reward_count(String(enemy_id_value))
 	var reward_factor := clampf(pow(maxf(0.20, difficulty), 0.18), 0.78, 1.35)
-	var gold_minutes := (0.42 if not endless_mode else 0.48) * reward_factor
+	var gold_minutes := (0.60 if not endless_mode else 0.68) * reward_factor
 	var victory_gold := _safe_reward_int(maxf(
-		55.0 * reward_factor,
+		50.0 * reward_factor,
 		maxf(0.0, coin_rate_per_minute) * gold_minutes
 	))
 	var faith_seconds := clampf(
-		(24.0 if not endless_mode else 26.0) * reward_factor,
-		22.0,
-		30.0
+		(12.0 if not endless_mode else 14.0) * reward_factor,
+		10.0,
+		16.0
 	)
 	var click_floor := (
 		maxf(0.0, manual_click_gain)
-		* 75.0
+		* 5.0
 		* maxf(1.0, reward_factor)
 	)
 	var upgrade_floor := minf(
 		float(maxi(0, next_upgrade_cost)) * 0.0025 * reward_factor,
-		maxf(0.0, faith_rate_per_second) * 30.0
+		maxf(0.0, faith_rate_per_second) * 16.0
 	)
 	var faith_reward := _safe_reward_int(maxf(
-		maxf(35.0 * reward_factor, click_floor),
+		maxf(5.0 * reward_factor, click_floor),
 		maxf(
 			maxf(0.0, faith_rate_per_second) * faith_seconds,
 			upgrade_floor

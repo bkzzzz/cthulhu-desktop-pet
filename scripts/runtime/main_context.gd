@@ -95,7 +95,7 @@ const GACHA_BATCH_MAX_DRAWS_PER_FRAME := 128
 const GACHA_BATCH_FRAME_BUDGET_USEC := 1800
 const GACHA_BATCH_BUDGET_CHECK_INTERVAL := 16
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 13
+const SAVE_VERSION := 14
 const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const FINAL_BOSS_SAVE_VERSION := 13
@@ -116,12 +116,13 @@ const PILGRIMAGE_BROADCAST_FONT_SIZE := 46
 const PILGRIMAGE_INVITE_TEXTURE := "res://assets/ui/items/prayIcon.png"
 const BATTLE_INVITE_TEXTURE := "res://assets/ui/items/fightIcon.png"
 const BATTLE_UNLOCK_RUNTIME_SECONDS := 60.0
-const BATTLE_INITIAL_DELAY_MIN_SECONDS := 35.0
-const BATTLE_INITIAL_DELAY_MAX_SECONDS := 70.0
-const BATTLE_INTERVAL_MIN_SECONDS := 8.0
-const BATTLE_INTERVAL_MAX_SECONDS := 18.0
-const BATTLE_DECLINED_DELAY_MIN_SECONDS := 75.0
-const BATTLE_DECLINED_DELAY_MAX_SECONDS := 135.0
+const BATTLE_INITIAL_DELAY_MIN_SECONDS := 60.0
+const BATTLE_INITIAL_DELAY_MAX_SECONDS := 120.0
+const BATTLE_INTERVAL_MIN_SECONDS := 120.0
+const BATTLE_INTERVAL_MAX_SECONDS := 240.0
+const BATTLE_INVITATION_RESERVATION_SECONDS := 30.0
+const BATTLE_DECLINED_DELAY_MIN_SECONDS := 300.0
+const BATTLE_DECLINED_DELAY_MAX_SECONDS := 480.0
 const BATTLE_DURATION_SECONDS := 55.0
 const BATTLE_DIFFICULTY_VARIANCE_MIN := 0.90
 const BATTLE_DIFFICULTY_VARIANCE_MAX := 1.16
@@ -320,6 +321,9 @@ var _active_battle_difficulty_scale: float:
 var _last_era_display: String:
 	get: return _state._last_era_display
 	set(value): _state._last_era_display = value
+var _era_floor_index: int:
+	get: return _state._era_floor_index
+	set(value): _state._era_floor_index = clampi(value, 0, EraProgression.get_era_count() - 1)
 var _recovery_ui_refresh_time: float:
 	get: return _state._recovery_ui_refresh_time
 	set(value): _state._recovery_ui_refresh_time = value
@@ -467,6 +471,13 @@ var _session_runtime_seconds: float:
 var _total_runtime_seconds: float:
 	get: return _state._total_runtime_seconds
 	set(value): _state._total_runtime_seconds = value
+
+
+func _get_era_runtime_seconds() -> float:
+	return maxf(
+		_total_runtime_seconds,
+		EraProgression.get_era_start_runtime_seconds(_era_floor_index)
+	)
 var _settings_refresh_timer: float:
 	get: return _state._settings_refresh_timer
 	set(value): _state._settings_refresh_timer = value

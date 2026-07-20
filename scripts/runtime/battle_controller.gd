@@ -2,17 +2,17 @@ extends "res://scripts/runtime/main_context.gd"
 
 const ENCOUNTER_REWARD_KEY := "_encounter_reward_budget"
 const ENCOUNTER_DIFFICULTY_KEY := "_encounter_difficulty_scale"
-const BATTLE_GOLD_REWARD_MINUTES := 0.48
-const BATTLE_GOLD_REWARD_MIN_MINUTES := 0.40
-const BATTLE_GOLD_REWARD_MAX_MINUTES := 0.60
-const BATTLE_FAITH_REWARD_BASE_SECONDS := 24.0
-const BATTLE_FAITH_REWARD_MIN_SECONDS := 22.0
-const BATTLE_FAITH_REWARD_MAX_SECONDS := 30.0
-const BATTLE_FAITH_REWARD_MANUAL_CLICKS := 75.0
+const BATTLE_GOLD_REWARD_MINUTES := 0.60
+const BATTLE_GOLD_REWARD_MIN_MINUTES := 0.50
+const BATTLE_GOLD_REWARD_MAX_MINUTES := 0.75
+const BATTLE_FAITH_REWARD_BASE_SECONDS := 12.0
+const BATTLE_FAITH_REWARD_MIN_SECONDS := 10.0
+const BATTLE_FAITH_REWARD_MAX_SECONDS := 16.0
+const BATTLE_FAITH_REWARD_MANUAL_CLICKS := 5.0
 const BATTLE_REWARD_VISUAL_DROP_LIMIT := 8
 const MAX_BATTLE_REWARD_VALUE := 9_000_000_000_000_000_000
-const FINAL_BOSS_GOLD_REWARD_MULTIPLIER := 3.0
-const FINAL_BOSS_FAITH_REWARD_MULTIPLIER := 2.0
+const FINAL_BOSS_GOLD_REWARD_MULTIPLIER := 5.0
+const FINAL_BOSS_FAITH_REWARD_MULTIPLIER := 3.0
 
 var _battle_visual_reward_drops := 0
 
@@ -41,7 +41,7 @@ func _build_battle_wave_schedule() -> Array[Dictionary]:
 	if _host._should_offer_final_boss():
 		return BattleBalance.build_final_boss_schedule()
 	return BattleBalance.build_wave_schedule(
-		EraProgression.get_wave_schedule(_total_runtime_seconds),
+		EraProgression.get_wave_schedule(_get_era_runtime_seconds()),
 		_get_battle_average_pet_level(),
 		_host._is_endless_mode()
 	)
@@ -201,7 +201,7 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 		BATTLE_GOLD_REWARD_MIN_MINUTES,
 		BATTLE_GOLD_REWARD_MAX_MINUTES
 	)
-	var opening_gold_floor := 55.0 * difficulty_factor
+	var opening_gold_floor := 50.0 * difficulty_factor
 	var victory_gold := _safe_battle_reward_int(maxf(
 		opening_gold_floor,
 		potential_coin_rate * gold_minutes
@@ -215,7 +215,7 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 		BATTLE_FAITH_REWARD_MIN_SECONDS,
 		BATTLE_FAITH_REWARD_MAX_SECONDS
 	)
-	var opening_faith_floor := _safe_battle_reward_int(35.0 * difficulty_factor)
+	var opening_faith_floor := _safe_battle_reward_int(5.0 * difficulty_factor)
 	var manual_faith_floor := _safe_battle_reward_int(
 		manual_click_gain
 		* BATTLE_FAITH_REWARD_MANUAL_CLICKS
@@ -576,7 +576,15 @@ func _on_enemy_projectile_requested(
 		start_position = enemy.call("get_projectile_origin")
 	var projectile: Node2D = EnemyProjectileActor.new()
 	projectile.set_meta("battle_runtime", true)
-	projectile.call("setup", projectile_kind, start_position, target, damage, power_scale)
+	projectile.call(
+		"setup",
+		projectile_kind,
+		start_position,
+		target,
+		damage,
+		power_scale,
+		_get_alive_battle_pets()
+	)
 	projectile.connect("impacted", Callable(self, "_on_enemy_projectile_impacted"))
 	projectile.tree_exited.connect(_on_battle_effect_tree_exited.bind(projectile))
 	add_child(projectile)
@@ -589,17 +597,17 @@ func _on_enemy_projectile_impacted(
 	splash_radius: float,
 	knockback: float
 ) -> void:
-	if not _battle_active or target == null or not is_instance_valid(target):
+	if not _battle_active:
 		return
-	var impact_position = target.position + Vector2(0.0, -48.0)
-	if target.has_method("get_battle_hit_position"):
-		impact_position = target.call("get_battle_hit_position")
+	var impact_position := projectile.position if projectile != null and is_instance_valid(projectile) else Vector2.ZERO
 	var projectile_direction := 1.0
 	if projectile != null and is_instance_valid(projectile) and projectile.has_method("get_travel_direction"):
 		var travel_direction: Vector2 = projectile.call("get_travel_direction")
 		if not is_zero_approx(travel_direction.x):
 			projectile_direction = signf(travel_direction.x)
 	if splash_radius <= 0.0:
+		if target == null or not is_instance_valid(target):
+			return
 		_damage_battle_pet(target, damage, projectile_direction * knockback)
 		return
 	_spawn_battle_explosion(impact_position, clampf(splash_radius / 32.0, 3.0, 7.5))
@@ -785,6 +793,11 @@ func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 
 func _is_battle_enemy_targetable(enemy: Node2D) -> bool:
 	if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
+		return false
+	# Spawn protection is an engagement rule, not invulnerability: enemies may
+	# take incidental damage while entering, but pets cannot lock or chase them
+	# until their complete run sprite is inside the combat area.
+	if enemy.has_method("has_entered_battlefield") and not bool(enemy.call("has_entered_battlefield")):
 		return false
 	if enemy.has_method("is_targetable"):
 		return bool(enemy.call("is_targetable"))

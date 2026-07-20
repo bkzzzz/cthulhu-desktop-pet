@@ -192,7 +192,7 @@ func _get_pet_age_text(pet_data: Dictionary) -> String:
 		if not localized_age.is_empty():
 			return localized_age
 		return "Unknown" if _language == "en" else "年龄不详"
-	var elapsed_years = EraProgression.get_elapsed_calendar_years(_total_runtime_seconds)
+	var elapsed_years = EraProgression.get_elapsed_calendar_years(_get_era_runtime_seconds())
 	var age_years = maxi(0, int(pet_data.get("base_age_years", 0)) + elapsed_years)
 	var qualifier = String(pet_data.get("age_qualifier", ""))
 	if _language == "en":
@@ -884,6 +884,7 @@ func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 
 func _on_debug_era_requested(era_index: int) -> void:
 	_total_runtime_seconds = EraProgression.get_era_start_runtime_seconds(era_index)
+	_era_floor_index = era_index
 	_session_runtime_seconds = minf(_session_runtime_seconds, _total_runtime_seconds)
 	_last_era_display = ""
 	_pet_upgrade_stats_dirty = true
@@ -893,7 +894,7 @@ func _on_debug_era_requested(era_index: int) -> void:
 	_host._schedule_next_battle(_host._get_now_seconds(), true)
 	if _settings_window != null:
 		_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
-		_settings_window.refresh_debug_era(EraProgression.get_era_index(_total_runtime_seconds))
+		_settings_window.refresh_debug_era(EraProgression.get_era_index(_get_era_runtime_seconds()))
 	_host._request_save()
 
 func _get_debug_pet_levels() -> Dictionary:

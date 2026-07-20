@@ -52,6 +52,7 @@ var _result_action_button: Button
 var _result_skip_all_button: Button
 var _result_overlay: Control
 var _draw_button: Button
+var _progress_label: Label
 var _draw_amount_buttons: Dictionary = {}
 var _custom_draw_input: LineEdit
 var _custom_draw_row: Control
@@ -71,6 +72,8 @@ var _showing_batch_summary := false
 var _coin_balance := 0.0
 var _next_cost := GachaProgression.BASE_DRAW_COST
 var _draw_count := 0
+var _faith_growth_rate := 0.0
+var _unlocked_pet_ids: Array = []
 var _rng := RandomNumberGenerator.new()
 var _language := LanguageSettings.DEFAULT_LANGUAGE
 
@@ -107,14 +110,18 @@ func refresh_state(
 	coin_balance: float,
 	draw_count: int,
 	next_cost: int,
-	_unlocked_pet_ids: Array,
+	unlocked_pet_ids: Array,
 	_pity_count: int,
-	_history: Array
+	_history: Array,
+	faith_growth_rate := 0.0
 ) -> void:
 	_coin_balance = maxf(0.0, coin_balance)
 	_draw_count = maxi(0, draw_count)
 	_next_cost = maxi(1, next_cost)
+	_unlocked_pet_ids = unlocked_pet_ids.duplicate()
+	_faith_growth_rate = maxf(0.0, faith_growth_rate)
 	_update_draw_button()
+	_update_progress_label()
 
 
 func set_language(language_code: String) -> void:
@@ -135,6 +142,7 @@ func set_language(language_code: String) -> void:
 		else:
 			_reveal_current_result(false)
 	_update_draw_button()
+	_update_progress_label()
 
 
 func show_result(result: Dictionary) -> void:
@@ -250,6 +258,12 @@ func _create_content() -> void:
 	_apply_button_styles(_draw_button, false)
 	_draw_button.pressed.connect(_on_draw_button_pressed)
 	button_center.add_child(_draw_button)
+	_progress_label = _make_label("", 14, Color(0.72, 0.78, 0.60))
+	_progress_label.name = "GachaFaithProgress"
+	_progress_label.custom_minimum_size = Vector2(CONTENT_WIDTH, 25.0)
+	_progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_progress_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	content.add_child(_progress_label)
 
 	var amount_card := PanelContainer.new()
 	amount_card.name = "DrawAmountCard"
@@ -737,6 +751,46 @@ func _update_draw_button() -> void:
 		_draw_button.text = (
 			"DRAW × %d  ·  %s" if _language == "en" else "扭蛋 × %d  ·  %s"
 		) % [draw_amount, selected_cost_text]
+
+
+func _update_progress_label() -> void:
+	if _progress_label == null:
+		return
+	var owned_lookup := GachaProgression.make_unlocked_lookup(_unlocked_pet_ids)
+	var next_entry := GachaProgression.get_next_progression_entry(owned_lookup)
+	if next_entry.is_empty():
+		_progress_label.text = (
+			"ALL PET TIERS UNLOCKED"
+			if _language == "en"
+			else "鎵€鏈夊疇鐗╅樁绾у凡瑙ｉ攣"
+		)
+		return
+	var pet_id := String(next_entry.get("pet_id", "pet"))
+	var pet_tier := int(pet_id.trim_prefix("pet"))
+	var required_rate := maxf(0.0, float(next_entry.get("min_faith_rate", 0.0)))
+	if _faith_growth_rate + 0.000001 >= required_rate:
+		_progress_label.text = (
+			"PET %d AVAILABLE  ·  FAITH GATE OPEN" % pet_tier
+			if _language == "en"
+			else "\u5ba0\u7269 %d \u5df2\u8fdb\u5165\u5361\u6c60  ·  \u4fe1\u4ef0\u95e8\u69db\u5df2\u5f00\u542f" % pet_tier
+		)
+		return
+	_progress_label.text = (
+		"NEXT PET %d  ·  PERMANENT FAITH %s / %s per sec"
+		if _language == "en"
+		else "涓嬩竴瀹犵墿 %d  路  姘镐箙淇′话 %s / %s 姣忕"
+	) % [
+		pet_tier,
+		_format_faith_rate(_faith_growth_rate),
+		_format_faith_rate(required_rate)
+	]
+
+
+func _format_faith_rate(value: float) -> String:
+	var safe_value := maxf(0.0, value)
+	if safe_value < 10.0:
+		return "%.2f" % safe_value
+	return CurrencyDisplay.format_compact(int(round(safe_value)))
 
 
 func _make_label(text_value: String, font_size: int, color: Color) -> Label:

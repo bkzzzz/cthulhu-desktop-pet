@@ -19,8 +19,8 @@ static func run() -> Array[String]:
 		failures.append("only pet1 may be unlocked at the start of a fresh game")
 	if PetCatalog.INVENTORY_STARTER_PETS != ["pet1"]:
 		failures.append("the starter roster must not expose gacha pets")
-	if PetCatalog.GACHA_PETS != expected_pets.slice(1):
-		failures.append("pet2 through pet10 must be acquired through pet gacha")
+	if PetCatalog.GACHA_PETS != expected_pets:
+		failures.append("all ten pets must remain obtainable from the progressive gacha pool")
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)
@@ -208,7 +208,6 @@ static func _test_new_pet_animation_preserves_pixels(failures: Array[String]) ->
 			var sheet_image := sheet_texture.get_image()
 			sheet_image.convert(Image.FORMAT_RGBA8)
 			var frame_size := Vector2i(sheet_image.get_width() / 4, sheet_image.get_height() / 3)
-			var key_color := sheet_image.get_pixel(0, 0)
 			for frame_index in built_frames.get_frame_count(animation_name):
 				var source_frame := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
 				source_frame.blit_rect(
@@ -216,7 +215,7 @@ static func _test_new_pet_animation_preserves_pixels(failures: Array[String]) ->
 					Rect2i(Vector2i((frame_index % 4) * frame_size.x, (frame_index / 4) * frame_size.y), frame_size),
 					Vector2i.ZERO
 				)
-				PetCatalog._apply_chroma_key(source_frame, key_color)
+				PetCatalog._apply_frame_chroma_key(source_frame)
 				var built_image := built_frames.get_frame_texture(animation_name, frame_index).get_image()
 				if _count_visible_pixels(built_image) < _count_visible_pixels(source_frame):
 					failures.append("%s %s frame %d must not crop the creature's head or silhouette" % [pet_id, animation_name, frame_index])

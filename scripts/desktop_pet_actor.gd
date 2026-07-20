@@ -43,12 +43,6 @@ const SWALLOW_SPIT_DISTANCE_MIN := 120.0
 const SWALLOW_SPIT_DISTANCE_MAX := 240.0
 const PET5_DEFAULT_ROLL_SPEED := 7.5
 const PET5_BATTLE_ROLL_SPEED := 760.0
-const BATTLE_EDGE_MARGIN_MIN := 150.0
-const BATTLE_EDGE_MARGIN_RATIO := 0.16
-const BATTLE_MELEE_PURSUIT_MARGIN_MIN := 96.0
-const BATTLE_MELEE_PURSUIT_MARGIN_RATIO := 0.08
-const BATTLE_ENEMY_SPAWN_CORRIDOR := 36.0
-
 const LEVEL_SIZE_BASELINE_LEVEL := 100
 const LEVEL_SIZE_MIN_MULTIPLIER := 0.70
 const LEVEL_SIZE_BASE_FORM_MAX_MULTIPLIER := 0.94
@@ -416,7 +410,10 @@ func set_window_bounds(
 		_air_path_target.y += ground_shift
 	_set_safe_bounds(min_x, max_x)
 	_activity_restricted = restrict_activity
-	position.x = clampf(position.x, _get_drag_min_x(), _get_drag_max_x())
+	# Combat movement and knockback already respect the pet's visible-screen
+	# limits. Do not recenter an in-progress reaction when bounds are refreshed.
+	if not _battle_mode:
+		position.x = clampf(position.x, _get_drag_min_x(), _get_drag_max_x())
 	_target_x = clampf(_target_x, _min_x, _max_x)
 	_pop_target_position.x = clampf(_pop_target_position.x, _min_x, _max_x)
 	if _behavior_style == "sleepy_floater":
@@ -468,7 +465,6 @@ func set_battle_mode(enabled: bool) -> void:
 		z_index = 210
 		_battle_facing_direction = -1.0
 		_face_direction(_battle_facing_direction)
-		position.x = clampf(position.x, _get_drag_min_x(), _get_drag_max_x())
 	else:
 		cancel_pointer_capture()
 		z_index = 0
@@ -488,8 +484,8 @@ func battle_move_toward(
 ) -> bool:
 	if not _battle_mode or _sprite == null:
 		return false
-	var movement_min := _get_battle_pursuit_min_x() if allow_edge_pursuit else _get_drag_min_x()
-	var movement_max := _get_battle_pursuit_max_x() if allow_edge_pursuit else _get_drag_max_x()
+	var movement_min := _get_drag_min_x()
+	var movement_max := _get_drag_max_x()
 	var safe_target := clampf(target_x, movement_min, movement_max)
 	var previous_x := position.x
 	var travel_direction := safe_target - previous_x
@@ -551,7 +547,7 @@ func begin_battle_roll_attack(target_x: float, speed := PET5_BATTLE_ROLL_SPEED) 
 		or _behavior in [Behavior.GRABBED, Behavior.FALLING, Behavior.SWALLOWED]
 	):
 		return false
-	var safe_target := clampf(target_x, _get_battle_pursuit_min_x(), _get_battle_pursuit_max_x())
+	var safe_target := clampf(target_x, _get_drag_min_x(), _get_drag_max_x())
 	var direction := safe_target - position.x
 	if absf(direction) < 4.0:
 		return false
@@ -700,8 +696,8 @@ func receive_battle_hit(knockback := 14.0) -> void:
 	var stable_y := position.y
 	position.x = clampf(
 		position.x + knockback,
-		_get_drag_min_x(),
-		_get_drag_max_x()
+		_min_x,
+		_max_x
 	)
 	# Damage reactions are horizontal only. Preserve the vertical coordinate so
 	# the flash/knockback can never appear as a one-frame hop.
@@ -726,6 +722,10 @@ func is_battle_ready() -> bool:
 		and not _battle_roll_active
 		and _behavior not in [Behavior.GRABBED, Behavior.FALLING, Behavior.SWALLOWED]
 	)
+
+
+func is_battle_collision_enabled() -> bool:
+	return _battle_mode and _sprite != null and _sprite.visible
 
 
 func can_be_swallowed() -> bool:
@@ -2015,57 +2015,11 @@ func _set_safe_bounds(min_x: float, max_x: float) -> void:
 
 
 func _get_drag_min_x() -> float:
-	if not _battle_mode:
-		return _min_x
-	var margin := _get_battle_edge_margin()
-	return minf(maxf(_min_x, margin), _get_drag_max_x_unchecked())
+	return _min_x
 
 
 func _get_drag_max_x() -> float:
-	return _get_drag_max_x_unchecked()
-
-
-func _get_drag_max_x_unchecked() -> float:
-	if not _battle_mode:
-		return _max_x
-	return maxf(
-		minf(_max_x, float(_window_size.x) - _get_battle_edge_margin()),
-		float(_window_size.x) * 0.5
-	)
-
-
-func _get_battle_edge_margin() -> float:
-	return minf(
-		float(_window_size.x) * 0.36,
-		maxf(BATTLE_EDGE_MARGIN_MIN, float(_window_size.x) * BATTLE_EDGE_MARGIN_RATIO)
-	)
-
-
-func _get_battle_pursuit_min_x() -> float:
-	return minf(
-		maxf(_min_x + BATTLE_ENEMY_SPAWN_CORRIDOR, _get_battle_melee_pursuit_margin()),
-		_get_battle_pursuit_max_x()
-	)
-
-
-func _get_battle_pursuit_max_x() -> float:
-	return maxf(
-		minf(
-			_max_x - BATTLE_ENEMY_SPAWN_CORRIDOR,
-			float(_window_size.x) - _get_battle_melee_pursuit_margin()
-		),
-		float(_window_size.x) * 0.5
-	)
-
-
-func _get_battle_melee_pursuit_margin() -> float:
-	return minf(
-		float(_window_size.x) * 0.24,
-		maxf(
-			BATTLE_MELEE_PURSUIT_MARGIN_MIN,
-			float(_window_size.x) * BATTLE_MELEE_PURSUIT_MARGIN_RATIO
-		)
-	)
+	return _max_x
 
 
 func _get_drag_min_y() -> float:

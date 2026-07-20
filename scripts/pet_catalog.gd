@@ -6,19 +6,20 @@ const ACTIVE_DESKTOP_PETS := [
 ]
 const STARTER_UNLOCKED_PETS := ["pet1"]
 const GACHA_PETS := [
-	"pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
+	"pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
 	"pet8", "pet9", "pet10"
 ]
 const INVENTORY_STARTER_PETS := STARTER_UNLOCKED_PETS
 
 const BASE_COMBAT_POWER := {
-	"pet1": 12.0, "pet2": 17.0, "pet3": 22.0, "pet4": 28.0,
-	"pet5": 34.0, "pet6": 40.0, "pet7": 45.0, "pet8": 52.0,
-	"pet9": 60.0, "pet10": 70.0
+	"pet1": 12.0, "pet2": 17.0, "pet3": 23.0, "pet4": 30.0,
+	"pet5": 38.0, "pet6": 47.0, "pet7": 57.0, "pet8": 68.0,
+	"pet9": 80.0, "pet10": 94.0
 }
 
-const EVOLUTION_POWER_MULTIPLIER := 1.85
+const EVOLUTION_POWER_MULTIPLIER := 1.70
 const EVOLUTION_PRODUCTION_MULTIPLIER := 1.5
+const LOOP_ENDPOINT_DURATION_SCALE := 0.5
 
 const ENGLISH_METADATA := {
 	"pet1": {
@@ -139,6 +140,7 @@ const DEFINITIONS := {
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.0025,
 		"power_growth": 1.035,
+		"base_money_rate": 7.0,
 		"icon": "res://assets/NewCharacters/pet1/pet1.png",
 		"idle": "res://assets/NewCharacters/pet1/pet1Idle.png",
 		"walk": "res://assets/NewCharacters/pet1/pet1Walk.png",
@@ -196,6 +198,7 @@ const DEFINITIONS := {
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.00875,
 		"power_growth": 1.035,
+		"base_money_rate": 9.0,
 		"icon": "res://assets/NewCharacters/pet2/pet2.png",
 		"idle": "res://assets/NewCharacters/pet2/pet2Idle.png",
 		"walk": "res://assets/NewCharacters/pet2/pet2Idle.png",
@@ -244,6 +247,7 @@ const DEFINITIONS := {
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.0375,
 		"power_growth": 1.035,
+		"base_money_rate": 11.0,
 		"icon": "res://assets/NewCharacters/pet3/pet3.png",
 		"idle": "res://assets/NewCharacters/pet3/pet3Idle.png",
 		"walk": "res://assets/NewCharacters/pet3/pet3Walk.png",
@@ -289,10 +293,11 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 280.0,
 		"emotion_weights": {"happy": 0.42, "sleepy": 0.30, "confused": 0.18, "suprised": 0.10},
 		"petting_emotion_weights": {"happy": 0.46, "sleepy": 0.28, "confused": 0.18, "suprised": 0.08},
-		"upgrade_cost_base": 55,
+		"upgrade_cost_base": 30,
 		"upgrade_cost_growth": 1.18,
-		"base_fps": 0.15,
+		"base_fps": 0.075,
 		"power_growth": 1.035,
+		"base_money_rate": 14.0,
 		"icon": "res://assets/NewCharacters/pet4/pet4.png",
 		"idle": "res://assets/NewCharacters/pet4/pet4Idle.png",
 		"walk": "res://assets/NewCharacters/pet4/pet4Walk.png",
@@ -342,10 +347,11 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 270.0,
 		"emotion_weights": {"suprised": 0.42, "happy": 0.28, "confused": 0.20, "sleepy": 0.10},
 		"petting_emotion_weights": {"suprised": 0.48, "happy": 0.27, "confused": 0.19, "sleepy": 0.06},
-		"upgrade_cost_base": 300,
+		"upgrade_cost_base": 48,
 		"upgrade_cost_growth": 1.18,
-		"base_fps": 0.625,
+		"base_fps": 0.105,
 		"power_growth": 1.035,
+		"base_money_rate": 17.0,
 		"icon": "res://assets/NewCharacters/pet5/pet5.png",
 		"idle": "res://assets/NewCharacters/pet5/pet5_Idle_Walk_Attack.png",
 		"walk": "res://assets/NewCharacters/pet5/pet5_Idle_Walk_Attack.png",
@@ -396,8 +402,9 @@ const DEFINITIONS := {
 		"petting_emotion_weights": {"confused": 0.36, "sleepy": 0.30, "suprised": 0.22, "happy": 0.12},
 		"upgrade_cost_base": 75,
 		"upgrade_cost_growth": 1.18,
-		"base_fps": 0.125,
+		"base_fps": 0.145,
 		"power_growth": 1.035,
+		"base_money_rate": 21.0,
 		"icon": "res://assets/NewCharacters/pet6/pet6.png",
 		"idle": "res://assets/NewCharacters/pet6/pet6Idle.png",
 		"walk": "res://assets/NewCharacters/pet6/pet6Walk.png",
@@ -445,10 +452,11 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 300.0,
 		"emotion_weights": {"confused": 0.40, "suprised": 0.30, "happy": 0.20, "sleepy": 0.10},
 		"petting_emotion_weights": {"suprised": 0.42, "happy": 0.30, "confused": 0.20, "sleepy": 0.08},
-		"upgrade_cost_base": 90,
+		"upgrade_cost_base": 110,
 		"upgrade_cost_growth": 1.18,
-		"base_fps": 0.16,
+		"base_fps": 0.19,
 		"power_growth": 1.035,
+		"base_money_rate": 25.0,
 		"icon": "res://assets/NewCharacters/pet7/pet7.png",
 		"idle": "res://assets/NewCharacters/pet7/pet7Idle_Walk_Attack.png",
 		"walk": "res://assets/NewCharacters/pet7/pet7Idle_Walk_Attack.png",
@@ -490,11 +498,11 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 270.0,
 		"emotion_weights": {"confused": 0.38, "suprised": 0.30, "happy": 0.22, "sleepy": 0.10},
 		"petting_emotion_weights": {"suprised": 0.38, "happy": 0.30, "confused": 0.24, "sleepy": 0.08},
-		"upgrade_cost_base": 140,
+		"upgrade_cost_base": 160,
 		"upgrade_cost_growth": 1.18,
-		"base_fps": 0.23,
+		"base_fps": 0.25,
 		"power_growth": 1.035,
-		"base_money_rate": 14.0,
+		"base_money_rate": 30.0,
 		"icon": "res://assets/NewCharacters/pet8/pet8.png",
 		"idle": "res://assets/NewCharacters/pet8/pet8Idle_Walk_Attack.png",
 		"walk": "res://assets/NewCharacters/pet8/pet8Idle_Walk_Attack.png",
@@ -531,11 +539,11 @@ const DEFINITIONS := {
 		"ambient_emotion_interval_max": 285.0,
 		"emotion_weights": {"sleepy": 0.34, "confused": 0.28, "happy": 0.24, "suprised": 0.14},
 		"petting_emotion_weights": {"happy": 0.36, "confused": 0.30, "sleepy": 0.22, "suprised": 0.12},
-		"upgrade_cost_base": 220,
+		"upgrade_cost_base": 240,
 		"upgrade_cost_growth": 1.18,
 		"base_fps": 0.34,
 		"power_growth": 1.035,
-		"base_money_rate": 17.0,
+		"base_money_rate": 36.0,
 		"icon": "res://assets/NewCharacters/pet9/pet9.png",
 		"idle": "res://assets/NewCharacters/pet9/pet9Idle_Walk_Attack.png",
 		"walk": "res://assets/NewCharacters/pet9/pet9Idle_Walk_Attack.png",
@@ -577,9 +585,9 @@ const DEFINITIONS := {
 		"petting_emotion_weights": {"confused": 0.38, "suprised": 0.28, "happy": 0.22, "sleepy": 0.12},
 		"upgrade_cost_base": 360,
 		"upgrade_cost_growth": 1.18,
-		"base_fps": 0.50,
+		"base_fps": 0.46,
 		"power_growth": 1.035,
-		"base_money_rate": 20.0,
+		"base_money_rate": 43.0,
 		"icon": "res://assets/NewCharacters/pet10/pet10.png",
 		"idle": "res://assets/NewCharacters/pet10/pet10Idle_Walk_Attack.png",
 		"walk": "res://assets/NewCharacters/pet10/pet10Idle_Walk_Attack.png",
@@ -910,7 +918,7 @@ static func get_runtime_definition(pet_id: String, evolved := false) -> Dictiona
 static func get_combat_power(pet_id: String, level := 1, evolved := false) -> float:
 	var base_power := float(BASE_COMBAT_POWER.get(pet_id, 10.0))
 	var safe_level := maxi(1, level)
-	var result := base_power * (1.0 + log(float(safe_level)) / log(10.0) * 0.32)
+	var result := base_power * (1.0 + log(float(safe_level)) / log(10.0) * 0.40)
 	return result * (EVOLUTION_POWER_MULTIPLIER if evolved and can_evolve(pet_id) else 1.0)
 
 
@@ -1113,8 +1121,6 @@ static func _add_sheet_animation(
 		return
 
 	source_image.convert(Image.FORMAT_RGBA8)
-	var key_color := source_image.get_pixel(0, 0)
-	_apply_chroma_key(source_image, key_color)
 	var frame_size := Vector2i(
 		int(source_image.get_width() / float(columns)),
 		int(source_image.get_height() / float(rows))
@@ -1136,6 +1142,7 @@ static func _add_sheet_animation(
 			if frame_index >= 0 and frame_index < columns * rows:
 				ordered_indices.append(frame_index)
 
+	var animation_textures: Array[Texture2D] = []
 	for frame_index in ordered_indices:
 
 
@@ -1145,11 +1152,27 @@ static func _add_sheet_animation(
 		var frame_image := Image.create_empty(frame_size.x, frame_size.y, false, Image.FORMAT_RGBA8)
 		var source_rect := Rect2i(Vector2i(column * frame_size.x, row * frame_size.y), frame_size)
 		frame_image.blit_rect(source_image, source_rect, Vector2i.ZERO)
+		# Generated sheets use subtly graded chroma backgrounds. Keying the whole
+		# sheet from its top-left pixel leaves residue in lower rows, which floor
+		# alignment then mistakes for part of the pet. Sample each cell instead.
+		_apply_frame_chroma_key(frame_image)
 		if skip_empty_frames and _get_visible_bounds(frame_image).size == Vector2i.ZERO:
 			continue
 		if align_to_floor:
 			frame_image = _align_frame_to_floor(frame_image, frame_foot_y)
-		frames.add_frame(animation_name, ImageTexture.create_from_image(frame_image))
+		animation_textures.append(ImageTexture.create_from_image(frame_image))
+
+	for output_index in animation_textures.size():
+		var duration_scale := 1.0
+		if loop and animation_textures.size() > 1 and output_index in [0, animation_textures.size() - 1]:
+			# The first and last cells straddle the same loop boundary. Giving each
+			# half a frame prevents that boundary pose from visibly dwelling twice.
+			duration_scale = LOOP_ENDPOINT_DURATION_SCALE
+		frames.add_frame(
+			animation_name,
+			animation_textures[output_index],
+			duration_scale
+		)
 
 
 static func _add_reversed_animation(frames: SpriteFrames, source_name: String, target_name: String) -> void:
@@ -1182,6 +1205,33 @@ static func _apply_chroma_key(image: Image, key_color: Color) -> void:
 		if float(dr * dr + dg * dg + db * db) <= tolerance_squared:
 			pixels[byte_index + 3] = 0
 	image.set_data(image.get_width(), image.get_height(), false, Image.FORMAT_RGBA8, pixels)
+
+
+static func _apply_frame_chroma_key(image: Image) -> void:
+	if image == null or image.is_empty():
+		return
+	image.convert(Image.FORMAT_RGBA8)
+	var width := image.get_width()
+	var height := image.get_height()
+	var pixels := image.get_data()
+	var tolerance_squared := CHROMA_KEY_TOLERANCE * CHROMA_KEY_TOLERANCE * 255.0 * 255.0
+	for y in height:
+		# The outer columns are guaranteed padding in the authored sheets and
+		# capture non-linear vertical gradients more accurately than four corners.
+		var left_byte_index := y * width * 4
+		var right_byte_index := (y * width + width - 1) * 4
+		for x in width:
+			var horizontal_weight := float(x) / float(maxi(1, width - 1))
+			var byte_index := (y * width + x) * 4
+			var key_r := lerpf(float(pixels[left_byte_index]), float(pixels[right_byte_index]), horizontal_weight)
+			var key_g := lerpf(float(pixels[left_byte_index + 1]), float(pixels[right_byte_index + 1]), horizontal_weight)
+			var key_b := lerpf(float(pixels[left_byte_index + 2]), float(pixels[right_byte_index + 2]), horizontal_weight)
+			var dr := float(pixels[byte_index]) - key_r
+			var dg := float(pixels[byte_index + 1]) - key_g
+			var db := float(pixels[byte_index + 2]) - key_b
+			if float(dr * dr + dg * dg + db * db) <= tolerance_squared:
+				pixels[byte_index + 3] = 0
+	image.set_data(width, height, false, Image.FORMAT_RGBA8, pixels)
 
 
 static func _align_frame_to_floor(image: Image, frame_foot_y: int) -> Image:

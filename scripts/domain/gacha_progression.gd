@@ -2,67 +2,76 @@ extends RefCounted
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 
-const BASE_DRAW_COST := 2
-const DRAW_COST_INCREASE_INTERVAL := 10
-const MAX_DRAW_COST := 20
+const BASE_DRAW_COST := 50
+const DRAW_COST_QUADRATIC_STEP := 10
+const MAX_DRAW_COST := 500_000
 const MAX_DUPLICATE_FAITH_REWARD := 9_000_000_000_000_000_000
 const NEW_PET_PITY_DRAWS := 5
 const MAX_BATCH_DRAWS := 10_000
-const DUPLICATE_REWARD_RATIOS := [0.0, 0.50, 0.65, 0.80, 1.00, 1.25]
+const DUPLICATE_REWARD_RATIOS := [0.0, 0.08, 0.10, 0.12, 0.15, 0.18]
 
 const PET_POOL := [
 	{
+		"pet_id": "pet1",
+		"weight": 33.333334,
+		"min_faith_rate": 0.0
+	},
+	{
 		"pet_id": "pet2",
-		"weight": 38.0,
+		"weight": 25.333333,
 		"min_faith_rate": 0.0
 	},
 	{
 		"pet_id": "pet3",
-		"weight": 27.0,
-		"min_faith_rate": 0.75
+		"weight": 18.0,
+		"min_faith_rate": 20.0
 	},
 	{
 		"pet_id": "pet4",
-		"weight": 15.0,
-		"min_faith_rate": 3.0
+		"weight": 10.0,
+		"min_faith_rate": 200.0
 	},
 	{
 		"pet_id": "pet5",
-		"weight": 8.0,
-		"min_faith_rate": 12.0
+		"weight": 5.333333,
+		"min_faith_rate": 1_000.0
 	},
 	{
 		"pet_id": "pet6",
-		"weight": 5.0,
-		"min_faith_rate": 45.0
+		"weight": 3.333333,
+		"min_faith_rate": 5_000.0
 	},
 	{
 		"pet_id": "pet7",
-		"weight": 3.0,
-		"min_faith_rate": 65.0
+		"weight": 2.0,
+		"min_faith_rate": 20_000.0
 	},
 	{
 		"pet_id": "pet8",
-		"weight": 2.0,
-		"min_faith_rate": 95.0
+		"weight": 1.333333,
+		"min_faith_rate": 75_000.0
 	},
 	{
 		"pet_id": "pet9",
-		"weight": 1.25,
-		"min_faith_rate": 145.0
+		"weight": 0.833333,
+		"min_faith_rate": 225_000.0
 	},
 	{
 		"pet_id": "pet10",
-		"weight": 0.75,
-		"min_faith_rate": 225.0
+		"weight": 0.5,
+		"min_faith_rate": 500_000.0
 	}
 ]
 
 
 static func draw_cost(draw_count: int) -> int:
 	var safe_count := maxi(0, draw_count)
-	var slow_increase := int(floor(float(safe_count) / float(DRAW_COST_INCREASE_INTERVAL)))
-	return mini(BASE_DRAW_COST + slow_increase, MAX_DRAW_COST)
+	var raw_cost := float(BASE_DRAW_COST) + (
+		float(DRAW_COST_QUADRATIC_STEP) * pow(float(safe_count), 2.0)
+	)
+	if not is_finite(raw_cost) or raw_cost >= float(MAX_DRAW_COST):
+		return MAX_DRAW_COST
+	return mini(int(round(raw_cost)), MAX_DRAW_COST)
 
 
 static func draw_cost_total(draw_count: int, draw_amount: int) -> float:
@@ -73,10 +82,7 @@ static func draw_cost_total(draw_count: int, draw_amount: int) -> float:
 	var cursor := safe_count
 	while remaining > 0:
 		var cost := draw_cost(cursor)
-		var draws_at_cost := remaining
-		if cost < MAX_DRAW_COST:
-			var next_increase := (int(floor(float(cursor) / DRAW_COST_INCREASE_INTERVAL)) + 1) * DRAW_COST_INCREASE_INTERVAL
-			draws_at_cost = mini(remaining, maxi(1, next_increase - cursor))
+		var draws_at_cost := 1 if cost < MAX_DRAW_COST else remaining
 		total += float(draws_at_cost * cost)
 		remaining -= draws_at_cost
 		cursor += draws_at_cost
@@ -108,18 +114,48 @@ static func make_unlocked_lookup(unlocked_pet_ids: Array) -> Dictionary:
 
 
 static func make_eligible_pool(faith_growth_rate: float) -> Array:
-	var safe_rate := maxf(0.0, faith_growth_rate) if is_finite(faith_growth_rate) else 0.0
+	var safe_rate := (
+		maxf(0.0, faith_growth_rate)
+		if is_finite(faith_growth_rate)
+		else 0.0
+	)
 	var eligible_pool: Array = []
 	for entry_value in PET_POOL:
-		var entry: Dictionary = entry_value
+		var entry := entry_value as Dictionary
 		if safe_rate + 0.000001 >= float(entry.get("min_faith_rate", 0.0)):
-			eligible_pool.append(entry)
+			eligible_pool.append(entry.duplicate(true))
 	return eligible_pool
+
+
+static func make_progression_pool(
+	unlocked_lookup: Dictionary,
+	faith_growth_rate := 0.0
+) -> Array:
+	var highest_owned_index := 0
+	for pool_index in PET_POOL.size():
+		var pet_id := String((PET_POOL[pool_index] as Dictionary).get("pet_id", ""))
+		if unlocked_lookup.has(pet_id):
+			highest_owned_index = maxi(highest_owned_index, pool_index)
+	var maximum_pool_index := mini(PET_POOL.size() - 1, highest_owned_index + 1)
+	var eligible_ids := {}
+	for entry_value in make_eligible_pool(faith_growth_rate):
+		var entry := entry_value as Dictionary
+		eligible_ids[String(entry.get("pet_id", ""))] = true
+	var progression_pool: Array = []
+	for pool_index in PET_POOL.size():
+		var entry := PET_POOL[pool_index] as Dictionary
+		var pet_id := String(entry.get("pet_id", ""))
+		if (
+			unlocked_lookup.has(pet_id)
+			or (pool_index <= maximum_pool_index and eligible_ids.has(pet_id))
+		):
+			progression_pool.append(entry.duplicate(true))
+	return progression_pool
 
 
 static func make_locked_pool(unlocked_lookup: Dictionary, faith_growth_rate := 0.0) -> Array:
 	var locked_pool: Array = []
-	for entry_value in make_eligible_pool(faith_growth_rate):
+	for entry_value in make_progression_pool(unlocked_lookup, faith_growth_rate):
 		var entry: Dictionary = entry_value
 		if not unlocked_lookup.has(String(entry.get("pet_id", ""))):
 			locked_pool.append(entry)
@@ -133,16 +169,24 @@ static func roll_pet_with_context(
 	pity_count := 0,
 	faith_growth_rate := 0.0
 ) -> Dictionary:
-
-	var pool := make_eligible_pool(faith_growth_rate)
-	var eligible_ids := {}
-	for eligible_value in pool:
-		eligible_ids[String((eligible_value as Dictionary).get("pet_id", ""))] = true
+	# Revalidate the batch-start candidates against the permanent faith rate on
+	# every draw. Ownership may change during a batch, but its tier ceiling may
+	# not; this prevents large pull requests from laddering through the roster.
+	var live_pool := make_progression_pool(unlocked_lookup, faith_growth_rate)
+	var frozen_locked_ids := {}
+	for entry_value in locked_pool:
+		var entry := entry_value as Dictionary
+		frozen_locked_ids[String(entry.get("pet_id", ""))] = true
+	var pool: Array = []
 	var eligible_locked_pool: Array = []
-	for locked_value in locked_pool:
-		var locked_entry := locked_value as Dictionary
-		if eligible_ids.has(String(locked_entry.get("pet_id", ""))):
-			eligible_locked_pool.append(locked_entry)
+	for entry_value in live_pool:
+		var entry := entry_value as Dictionary
+		var pet_id := String(entry.get("pet_id", ""))
+		if unlocked_lookup.has(pet_id):
+			pool.append(entry)
+		elif frozen_locked_ids.has(pet_id):
+			pool.append(entry)
+			eligible_locked_pool.append(entry)
 	if (
 		not eligible_locked_pool.is_empty()
 		and maxi(0, pity_count) >= NEW_PET_PITY_DRAWS - 1
@@ -181,6 +225,18 @@ static func get_pool_entry(pet_id: String) -> Dictionary:
 		if String(entry.get("pet_id", "")) == pet_id:
 			return entry.duplicate(true)
 	return {}
+
+
+static func get_next_progression_entry(unlocked_lookup: Dictionary) -> Dictionary:
+	var highest_owned_index := 0
+	for pool_index in PET_POOL.size():
+		var entry := PET_POOL[pool_index] as Dictionary
+		if unlocked_lookup.has(String(entry.get("pet_id", ""))):
+			highest_owned_index = maxi(highest_owned_index, pool_index)
+	var next_index := highest_owned_index + 1
+	if next_index < 0 or next_index >= PET_POOL.size():
+		return {}
+	return (PET_POOL[next_index] as Dictionary).duplicate(true)
 
 
 static func _roll_from_pool(pool: Array, unit_roll: float) -> Dictionary:

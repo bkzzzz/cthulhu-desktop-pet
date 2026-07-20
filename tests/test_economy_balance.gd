@@ -7,17 +7,13 @@ const EconomyBalance = preload("res://scripts/domain/economy_balance.gd")
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 
 const OPENING_SECONDS := 10.0
-const ACTIVE_CAMPAIGN_MIN_HOURS := 40.0
-const ACTIVE_CAMPAIGN_MAX_HOURS := 60.0
-const PASSIVE_CAMPAIGN_MIN_HOURS := 80.0
-const PASSIVE_CAMPAIGN_MAX_HOURS := 100.0
-const ROSTER_UNLOCK_MAX_MINUTES := 5.0
-const ALL_LEVEL_10_MAX_MINUTES := 8.0
-const ALL_LEVEL_20_MAX_MINUTES := 15.0
-const ALL_LEVEL_50_MAX_HOURS := 8.0
+const ACTIVE_CAMPAIGN_MIN_HOURS := 82.0
+const ACTIVE_CAMPAIGN_MAX_HOURS := 98.0
+const PASSIVE_CAMPAIGN_MIN_HOURS := 105.0
+const PASSIVE_CAMPAIGN_MAX_HOURS := 118.0
 const MAX_SIMULATION_STEPS := 2000
-const OFFERING_ACTIVE_BONUS_MIN := 0.23
-const OFFERING_ACTIVE_BONUS_MAX := 0.30
+const OFFERING_ACTIVE_BONUS_MIN := 0.115
+const OFFERING_ACTIVE_BONUS_MAX := 0.155
 
 
 static func run() -> Array[String]:
@@ -38,8 +34,8 @@ static func _check_starter_curve(failures: Array[String]) -> void:
 	var starter_rate := _pet_rate("pet1", 1)
 	if starter_rate <= 0.0 or starter_rate >= 1.0:
 		failures.append("pet1 must provide a small positive opening faith rate, got %.6f/s" % starter_rate)
-	if GachaProgression.draw_cost(0) < 1 or GachaProgression.draw_cost(0) > 5:
-		failures.append("the opening gacha price must suit a scarce click-earned currency")
+	if GachaProgression.draw_cost(0) < 25 or GachaProgression.draw_cost(0) > 75:
+		failures.append("the opening gacha price must require a short, meaningful gold setup")
 	if PetCatalog.STARTER_UNLOCKED_PETS != ["pet1"]:
 		failures.append("a fresh game must begin with only pet1 unlocked")
 	var first_upgrade_seconds := (
@@ -59,8 +55,30 @@ static func _check_starter_curve(failures: Array[String]) -> void:
 static func _check_unlock_curve(failures: Array[String]) -> void:
 	var starter_rate := _pet_rate("pet1", 1)
 	var complete_rate := 0.0
+	var previous_base_rate := -1.0
+	var previous_upgrade_base := -1
+	var previous_gold_rate := -1.0
+	var previous_combat_power := -1.0
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
-		complete_rate += _pet_rate(String(pet_id_value), 1)
+		var pet_id := String(pet_id_value)
+		var pet_data := PetCatalog.get_definition(pet_id)
+		var base_rate := float(pet_data.get("base_fps", 0.0))
+		var upgrade_base := int(pet_data.get("upgrade_cost_base", 0))
+		var gold_rate := float(pet_data.get("base_money_rate", 0.0))
+		var combat_power := float(PetCatalog.BASE_COMBAT_POWER.get(pet_id, 0.0))
+		complete_rate += _pet_rate(pet_id, 1)
+		if (
+			base_rate <= previous_base_rate
+			or upgrade_base <= previous_upgrade_base
+			or gold_rate <= previous_gold_rate
+			or combat_power <= previous_combat_power
+		):
+			failures.append("pet faith, upgrade, gold and combat bases must rise monotonically by tier")
+			break
+		previous_base_rate = base_rate
+		previous_upgrade_base = upgrade_base
+		previous_gold_rate = gold_rate
+		previous_combat_power = combat_power
 	if complete_rate <= starter_rate:
 		failures.append("unlocking additional pets must materially increase passive faith production")
 	for pet_id_value in PetCatalog.GACHA_PETS:
@@ -70,19 +88,19 @@ static func _check_unlock_curve(failures: Array[String]) -> void:
 
 static func _check_duplicate_reward(failures: Array[String]) -> void:
 	var draw_cost := 1000
-	var two_star_duplicate := GachaProgression.roll_pet(0.0, ["pet1", "pet2"], 0)
+	var two_star_duplicate := GachaProgression.roll_pet(0.8, ["pet1", "pet2"], 0)
 	var five_star_duplicate := GachaProgression.roll_pet(
-		0.89,
+		0.93,
 		PetCatalog.ACTIVE_DESKTOP_PETS,
 		0,
 		1_000_000.0
 	)
 	var two_star_reward := GachaProgression.duplicate_faith_reward(draw_cost, two_star_duplicate)
 	var five_star_reward := GachaProgression.duplicate_faith_reward(draw_cost, five_star_duplicate)
-	if two_star_reward != 650:
-		failures.append("a duplicate two-star pet must return a clear 65% faith reward")
-	if five_star_reward <= draw_cost or five_star_reward <= two_star_reward:
-		failures.append("a duplicate five-star pet must feel like a faith jackpot")
+	if two_star_reward != 100:
+		failures.append("a duplicate two-star pet must return the balanced 10% faith exchange")
+	if five_star_reward != 180 or five_star_reward <= two_star_reward:
+		failures.append("a duplicate five-star pet must return the balanced premium exchange")
 
 
 static func _check_accelerating_output(failures: Array[String]) -> void:
@@ -142,6 +160,7 @@ static func _check_campaign_curve(failures: Array[String]) -> void:
 	var active_campaign := _simulate_campaign(
 		EconomyBalance.EXPECTED_ACTIVE_FAITH_MULTIPLIER
 	)
+	var imperfect_collection_campaign := _simulate_campaign(1.0, 0.70)
 	var passive_hours := float(passive_campaign.get("elapsed_hours", INF))
 	var active_hours := float(active_campaign.get("elapsed_hours", INF))
 	if (
@@ -182,99 +201,132 @@ static func _check_campaign_curve(failures: Array[String]) -> void:
 		failures.append("campaign pet draws must never spend upgrade faith")
 	if float(passive_campaign.get("duplicate_faith_earned", 0.0)) <= 0.0:
 		failures.append("worst-case pity duplicates must return faith while unlocking")
+	if int(passive_campaign.get("draw_count", 0)) != 45:
+		failures.append("ten tiers must require the deterministic worst-case 45-draw pity path")
+	if float(imperfect_collection_campaign.get("elapsed_hours", INF)) > 120.0:
+		failures.append("70% ambient gold collection must still finish the campaign within 120 hours")
 	_check_campaign_milestones(passive_campaign, failures)
+	_check_active_unlock_milestones(active_campaign, failures)
 
 
-static func _simulate_campaign(earned_faith_multiplier := 1.0) -> Dictionary:
+static func _simulate_campaign(
+	earned_faith_multiplier := 1.0,
+	gold_collection_efficiency := 1.0
+) -> Dictionary:
 	var levels := {"pet1": 1}
 	var unlocked: Array[String] = ["pet1"]
 	var faith := 0.0
 	var gold := 0.0
 	var elapsed_seconds := 0.0
 	var draw_count := 0
+	var pity_count := 0
 	var gacha_gold_spent := 0.0
 	var duplicate_faith_earned := 0.0
 	var steps := 0
 	var milestone_hours := {
 		"roster_unlocked": INF,
+		"pet2_unlocked": INF,
+		"pet3_unlocked": INF,
+		"pet4_unlocked": INF,
+		"pet5_unlocked": INF,
+		"pet6_unlocked": INF,
+		"pet7_unlocked": INF,
+		"pet8_unlocked": INF,
+		"pet9_unlocked": INF,
+		"pet10_unlocked": INF,
 		"all_level_10": INF,
 		"all_level_20": INF,
 		"all_level_50": INF,
 		"all_level_100": INF
 	}
 
-	while (
-		unlocked.size() < PetCatalog.ACTIVE_DESKTOP_PETS.size()
-		and steps < MAX_SIMULATION_STEPS
-	):
+	while not _campaign_complete(levels, unlocked) and steps < MAX_SIMULATION_STEPS:
 		steps += 1
-		var faith_rate := _total_rate(levels, unlocked)
-		var gold_rate_per_second := _total_coin_rate(levels, unlocked) / 60.0
-		if faith_rate <= 0.0 or gold_rate_per_second <= 0.0:
+		var baseline_faith_rate := _total_rate(levels, unlocked)
+		var earned_faith_rate := (
+			baseline_faith_rate
+			* maxf(1.0, earned_faith_multiplier)
+		)
+		var gold_rate_per_second := (
+			_total_coin_rate(levels, unlocked)
+			/ 60.0
+			* clampf(gold_collection_efficiency, 0.0, 1.0)
+		)
+		if earned_faith_rate <= 0.0 or gold_rate_per_second <= 0.0:
 			break
-		var draw_amount := (
-			1
-			if draw_count == 0
-			else GachaProgression.NEW_PET_PITY_DRAWS
-		)
-		var cycle_cost := GachaProgression.draw_cost_total(draw_count, draw_amount)
-		var wait_seconds := maxf(
-			0.0,
-			(cycle_cost - gold) / gold_rate_per_second
-		)
-		faith += faith_rate * maxf(1.0, earned_faith_multiplier) * wait_seconds
-		gold = maxf(
-			0.0,
-			gold + gold_rate_per_second * wait_seconds - cycle_cost
-		)
-		elapsed_seconds += wait_seconds
-		gacha_gold_spent += cycle_cost
 
-		for draw_offset in draw_amount:
-			var draw_cost := GachaProgression.draw_cost(draw_count)
-			if draw_offset < draw_amount - 1:
+		var unlocked_lookup := GachaProgression.make_unlocked_lookup(unlocked)
+		var locked_pool := GachaProgression.make_locked_pool(
+			unlocked_lookup,
+			baseline_faith_rate
+		)
+		var next_draw_cost := float(GachaProgression.draw_cost(draw_count))
+		if not locked_pool.is_empty() and gold + 0.000001 >= next_draw_cost:
+			var result := GachaProgression.roll_pet(
+				0.0,
+				unlocked,
+				pity_count,
+				baseline_faith_rate
+			)
+			if result.is_empty():
+				break
+			gold = maxf(0.0, gold - next_draw_cost)
+			gacha_gold_spent += next_draw_cost
+			draw_count += 1
+			if bool(result.get("is_new", false)):
+				var new_pet_id := String(result.get("pet_id", ""))
+				if new_pet_id.is_empty() or unlocked.has(new_pet_id):
+					break
+				unlocked.append(new_pet_id)
+				levels[new_pet_id] = 1
+				milestone_hours["%s_unlocked" % new_pet_id] = elapsed_seconds / 3600.0
+				if unlocked.size() == PetCatalog.ACTIVE_DESKTOP_PETS.size():
+					milestone_hours["roster_unlocked"] = elapsed_seconds / 3600.0
+			else:
 				var duplicate_reward := float(
-					_two_star_duplicate_reward(draw_cost)
+					GachaProgression.duplicate_faith_reward(int(next_draw_cost), result)
 				)
 				faith += duplicate_reward
 				duplicate_faith_earned += duplicate_reward
-			draw_count += 1
+			pity_count = GachaProgression.next_pity_count(pity_count, result)
+			continue
 
-		var next_pet_id := String(
-			PetCatalog.ACTIVE_DESKTOP_PETS[unlocked.size()]
-		)
-		unlocked.append(next_pet_id)
-		levels[next_pet_id] = 1
-		if unlocked.size() == PetCatalog.ACTIVE_DESKTOP_PETS.size():
-			milestone_hours["roster_unlocked"] = elapsed_seconds / 3600.0
-
-	while not _campaign_complete(levels, unlocked) and steps < MAX_SIMULATION_STEPS:
-		steps += 1
-		var total_rate := (
-			_total_rate(levels, unlocked)
-			* maxf(1.0, earned_faith_multiplier)
-		)
 		var action := _best_upgrade_action(levels, unlocked)
-		if action.is_empty() or total_rate <= 0.0:
+		if action.is_empty():
 			break
-
 		var pet_id := String(action.get("pet_id", ""))
 		var cost := float(action.get("cost", INF))
-		var wait_seconds := maxf(0.0, (cost - faith) / total_rate)
-		faith = maxf(0.0, faith + total_rate * wait_seconds - cost)
-		elapsed_seconds += wait_seconds
-		levels[pet_id] = int(levels.get(pet_id, 1)) + 1
-		_record_campaign_milestones(
-			levels,
-			unlocked,
-			elapsed_seconds,
-			milestone_hours
+		var upgrade_wait_seconds := maxf(
+			0.0,
+			(cost - faith) / earned_faith_rate
 		)
+		var draw_wait_seconds := INF
+		if not locked_pool.is_empty():
+			draw_wait_seconds = maxf(
+				0.0,
+				(next_draw_cost - gold) / gold_rate_per_second
+			)
+		var wait_seconds := minf(upgrade_wait_seconds, draw_wait_seconds)
+		if not is_finite(wait_seconds):
+			break
+		faith += earned_faith_rate * wait_seconds
+		gold += gold_rate_per_second * wait_seconds
+		elapsed_seconds += wait_seconds
+		if upgrade_wait_seconds <= draw_wait_seconds + 0.000001:
+			faith = maxf(0.0, faith - cost)
+			levels[pet_id] = int(levels.get(pet_id, 1)) + 1
+			_record_campaign_milestones(
+				levels,
+				unlocked,
+				elapsed_seconds,
+				milestone_hours
+			)
 
 	return {
 		"completed": _campaign_complete(levels, unlocked),
 		"elapsed_hours": elapsed_seconds / 3600.0,
 		"draw_count": draw_count,
+		"pity_count": pity_count,
 		"gacha_gold_spent": gacha_gold_spent,
 		"gacha_faith_spent": 0.0,
 		"duplicate_faith_earned": duplicate_faith_earned,
@@ -319,21 +371,58 @@ static func _check_campaign_milestones(
 	var milestones: Dictionary = (
 		milestones_value if milestones_value is Dictionary else {}
 	)
-	var checks := [
-		["roster_unlocked", ROSTER_UNLOCK_MAX_MINUTES / 60.0, "full roster"],
-		["all_level_10", ALL_LEVEL_10_MAX_MINUTES / 60.0, "all pets Lv.10"],
-		["all_level_20", ALL_LEVEL_20_MAX_MINUTES / 60.0, "all pets Lv.20"],
-		["all_level_50", ALL_LEVEL_50_MAX_HOURS, "all pets Lv.50"]
+	var maximum_checks := [
+		["pet2_unlocked", 1.5, "Pet 2"],
+		["pet3_unlocked", 4.0, "Pet 3"],
+		["pet4_unlocked", 8.0, "Pet 4"],
+		["pet5_unlocked", 13.0, "Pet 5"],
+		["pet6_unlocked", 24.0, "Pet 6"],
+		["pet7_unlocked", 40.0, "Pet 7"],
+		["pet8_unlocked", 60.0, "Pet 8"],
+		["pet9_unlocked", 82.0, "Pet 9"],
+		["pet10_unlocked", 100.0, "Pet 10"]
 	]
-	for check_value in checks:
+	for check_value in maximum_checks:
 		var check: Array = check_value
 		var elapsed_hours := float(milestones.get(String(check[0]), INF))
 		var maximum_hours := float(check[1])
 		if elapsed_hours > maximum_hours:
 			failures.append(
-				"%s milestone must arrive within %.2f hours, got %.2f"
+				"%s must unlock within %.2f hours, got %.2f"
 				% [String(check[2]), maximum_hours, elapsed_hours]
 			)
+	var minimum_checks := [
+		["pet3_unlocked", 1.5, "Pet 3"],
+		["pet5_unlocked", 8.0, "Pet 5"],
+		["pet7_unlocked", 28.0, "Pet 7"],
+		["pet9_unlocked", 65.0, "Pet 9"],
+		["pet10_unlocked", 82.0, "Pet 10"]
+	]
+	for check_value in minimum_checks:
+		var check: Array = check_value
+		var elapsed_hours := float(milestones.get(String(check[0]), -INF))
+		var minimum_hours := float(check[1])
+		if elapsed_hours < minimum_hours:
+			failures.append(
+				"%s must remain gated until %.2f hours, got %.2f"
+				% [String(check[2]), minimum_hours, elapsed_hours]
+			)
+
+
+static func _check_active_unlock_milestones(
+	campaign: Dictionary,
+	failures: Array[String]
+) -> void:
+	var milestones_value: Variant = campaign.get("milestone_hours", {})
+	var milestones: Dictionary = (
+		milestones_value if milestones_value is Dictionary else {}
+	)
+	var pet10_hours := float(milestones.get("pet10_unlocked", INF))
+	if pet10_hours < 68.0 or pet10_hours > 80.0:
+		failures.append(
+			"engaged play must reach Pet 10 in the 68-80 hour late-game window, got %.2f"
+			% pet10_hours
+		)
 
 
 static func _best_upgrade_action(
@@ -358,13 +447,6 @@ static func _best_upgrade_action(
 			best_action = {"pet_id": pet_id, "cost": cost}
 
 	return best_action
-
-
-static func _two_star_duplicate_reward(draw_cost: int) -> int:
-	return GachaProgression.duplicate_faith_reward(
-		draw_cost,
-		{"pet_id": "pet2", "is_new": false}
-	)
 
 
 static func _total_rate(levels: Dictionary, unlocked: Array[String]) -> float:
@@ -403,11 +485,11 @@ static func _check_draw_price_curve(failures: Array[String]) -> void:
 		guarantee_cycle_cost += GachaProgression.draw_cost(draw_index)
 	if guarantee_cycle_cost <= GachaProgression.draw_cost(0):
 		failures.append("the full new-pet guarantee cycle must cost more than a single draw")
-	if guarantee_cycle_cost > 15:
-		failures.append("the opening guarantee cycle must remain affordable with click-earned coins")
+	if guarantee_cycle_cost < 400 or guarantee_cycle_cost > 700:
+		failures.append("the opening guarantee cycle must form a meaningful 400-700 gold objective")
 	var late_cost := GachaProgression.draw_cost(1000000)
-	if late_cost <= 0 or late_cost != GachaProgression.MAX_DRAW_COST or late_cost > 20:
-		failures.append("late-game draw costs must remain positive and capped at a small amount")
+	if late_cost <= 0 or late_cost != GachaProgression.MAX_DRAW_COST:
+		failures.append("late-game draw costs must remain positive and safely capped")
 
 
 static func _check_dynamic_offering_prices(failures: Array[String]) -> void:
