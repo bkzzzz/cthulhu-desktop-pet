@@ -85,6 +85,6 @@ The final game combines AI-assisted development with hand-built gameplay, art di
 
 ## License
 
-Copyright © 2026 Brank Ye. All rights reserved.
+Copyright © 2026 Bingkun Ye. All rights reserved.
 
 See the `LICENSE` file for details.
