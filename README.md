@@ -40,3 +40,11 @@ The desktop layer follows the active monitor's usable Windows work area and resp
 ## Windows export
 
 The repository includes a Windows export preset. Replace or update project assets as needed, export the executable into `builds/windows/`, and use that output for distribution.
+
+## Author
+
+Developed by Bingkun Ye.
+
+## License
+
+All Rights Reserved. See the [LICENSE](LICENSE) file for details.

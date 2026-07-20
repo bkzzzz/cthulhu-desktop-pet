@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="cthulu"
+config/name="cthulhu-desktop-pet"
 config/description="A desktop pet placement game"
 run/main_scene="res://scenes/Main.tscn"
 config/auto_accept_quit=false
