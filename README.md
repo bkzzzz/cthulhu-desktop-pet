@@ -26,6 +26,15 @@ The more followers you gather, the stronger your cult becomes.
 
 <img width="1023" height="120" alt="workplacePic2" src="https://github.com/user-attachments/assets/563a2ac8-4cd2-4be9-847b-b7f59c2cf3be" />
 
+---
+
+# How Codex was used
+
+During OpenAI Build Week, I developed the game in Godot 4 using Visual Studio Code with the official OpenAI Codex extension and GPT-5.6.
+
+The workflow was straightforward:  build and test gameplay in Godot, use Codex to implement new features, debug issues, refactor existing systems, and experiment with different gameplay ideas, then immediately jump back into the game for another round of playtesting.
+
+This rapid feedback loop made it much easier to experiment with combat, progression, and desktop interactions throughout development.
 
 ---
 ## Play
@@ -78,15 +87,6 @@ scripts/     Gameplay and game logic
 tests/       Automated tests
 builds/      Windows builds
 ```
-
----
-
-## AI Development
-
-During OpenAI Build Week, I developed the game in Godot 4 using Visual Studio Code with the official OpenAI Codex extension and GPT-5.6.
-
-My workflow was simple: implement and test gameplay in Godot, use Codex to solve programming problems, refactor systems, and iterate on new mechanics, then immediately return to the game for playtesting. This rapid feedback loop made it much easier to experiment with combat, progression, and desktop interactions throughout development.
-
 ---
 
 ## License
