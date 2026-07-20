@@ -21,14 +21,30 @@ The more followers you gather, the stronger your cult becomes.
 - 🥚 Unlock new pets through progression and gacha
 - 🖥️ Native Windows desktop pet experience
 <img width="1032" height="626" alt="inventoryPic" src="https://github.com/user-attachments/assets/97a72a21-9000-4ce7-9797-d1abde47e51f" />
+
 <img width="749" height="171" alt="desktopPic" src="https://github.com/user-attachments/assets/3b2e79eb-3cbf-4fe7-9f8c-d1c5dff18dbf" />
-<img width="1030" height="622" alt="googlePic3" src="https://github.com/user-attachments/assets/887e478a-6bfb-486f-99e1-32f8a498a7dd" />
+
+<img width="1023" height="120" alt="workplacePic2" src="https://github.com/user-attachments/assets/563a2ac8-4cd2-4be9-847b-b7f59c2cf3be" />
+
 
 ---
+## Play
 
-## Running the Project
+The easiest way to play is through the Windows build on itch.io.
 
-Requirements:
+**itch.io**  
+https://bkzzzz.itch.io/cthulhu-desktop-pet
+
+**Download the latest Windows build**  
+https://github.com/bkzzzz/cthulhu-desktop-pet/releases/latest
+
+> **Note for OpenAI Build Week reviewers:**  
+> A built-in **Developer Mode** is available in **Settings** to quickly access late-game content, including stronger pets, evolutions, enemy factions, and boss battles.
+
+---
+## Running from Source
+
+### Requirements
 
 - Windows 10 / 11
 - Godot 4.x
@@ -56,33 +72,22 @@ Run automated tests:
 ## Project Structure
 
 ```
-assets/      Art, UI, audio, visual effects
+assets/      Sprites, UI, audio and visual effects
 scenes/      Godot scenes
 scripts/     Gameplay and game logic
-tests/       Headless regression tests
-builds/      Exported Windows builds
-```
-
-The main entry scene is:
-
-```
-res://scenes/Main.tscn
+tests/       Automated tests
+builds/      Windows builds
 ```
 
 ---
 
-## Built During OpenAI Build Week
+## OpenAI Build Week
 
-During Build Week, Codex and GPT-5.6 were used throughout development to help:
+Cthulhu Desktop Pet is an ongoing indie game project.
 
-- implement gameplay systems
-- improve combat logic
-- balance progression
-- debug Godot scripts
-- refactor code
-- generate documentation
+For OpenAI Build Week, I used Codex and GPT-5.6 throughout development while expanding the game with a real-time battle system, enemy waves and bosses, pet evolution, additional desktop pets, progression balancing, UI improvements, and many gameplay refinements.
 
-The final game combines AI-assisted development with hand-built gameplay, art direction, balancing, and design.
+This Build Week build marks the first major playable milestone for the project.
 
 ---
 
