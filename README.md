@@ -81,13 +81,11 @@ builds/      Windows builds
 
 ---
 
-## OpenAI Build Week
+## AI Development
 
-Cthulhu Desktop Pet is an ongoing indie game project.
+During OpenAI Build Week, I developed the game in Godot 4 using Visual Studio Code with the official OpenAI Codex extension and GPT-5.6.
 
-For OpenAI Build Week, I used Codex and GPT-5.6 throughout development while expanding the game with a real-time battle system, enemy waves and bosses, pet evolution, additional desktop pets, progression balancing, UI improvements, and many gameplay refinements.
-
-This Build Week build marks the first major playable milestone for the project.
+My workflow was simple: implement and test gameplay in Godot, use Codex to solve programming problems, refactor systems, and iterate on new mechanics, then immediately return to the game for playtesting. This rapid feedback loop made it much easier to experiment with combat, progression, and desktop interactions throughout development.
 
 ---
 
