@@ -20,6 +20,9 @@ The more followers you gather, the stronger your cult becomes.
 - 🙏 Gather Faith and attract devoted followers
 - 🥚 Unlock new pets through progression and gacha
 - 🖥️ Native Windows desktop pet experience
+<img width="1032" height="626" alt="inventoryPic" src="https://github.com/user-attachments/assets/97a72a21-9000-4ce7-9797-d1abde47e51f" />
+<img width="749" height="171" alt="desktopPic" src="https://github.com/user-attachments/assets/3b2e79eb-3cbf-4fe7-9f8c-d1c5dff18dbf" />
+<img width="1030" height="622" alt="googlePic3" src="https://github.com/user-attachments/assets/887e478a-6bfb-486f-99e1-32f8a498a7dd" />
 
 ---
 
