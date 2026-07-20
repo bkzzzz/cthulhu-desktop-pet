@@ -85,4 +85,6 @@ The final game combines AI-assisted development with hand-built gameplay, art di
 
 ## License
 
-This repository is provided for Build Week demonstration purposes.
+Copyright © 2026 Brank Ye. All rights reserved.
+
+See the `LICENSE` file for details.
