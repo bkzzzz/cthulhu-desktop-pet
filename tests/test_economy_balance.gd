@@ -647,8 +647,8 @@ static func _check_dynamic_offering_prices(failures: Array[String]) -> void:
 	if starter_goods.is_empty():
 		failures.append("dynamic offering pricing must retain the catalog")
 		return
-	if int(starter_goods[0].get("price", 0)) != int(base_goods[0].get("price", 0)):
-		failures.append("the first food must retain its affordable authored opening price")
+	if int(starter_goods[0].get("price", 0)) <= int(base_goods[0].get("price", 0)):
+		failures.append("even the first food must cost meaningful time at the starter pet-money rate")
 
 	var level_one_states := {}
 	var campaign_states := {}

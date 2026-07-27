@@ -77,14 +77,23 @@ const PILGRIMAGE_GROUP_MEMBER_MAX := 5
 const PILGRIMAGE_GROUP_SPACING := 54.0
 const PILGRIMAGE_GROUP_EDGE_MARGIN := 190.0
 const PILGRIMAGE_PET_CLEARANCE := 240.0
-const PET_P_COIN_CHANCE := 0.18
+# Pilgrimages are short faith surges. Their passive multiplier grows as more
+# pilgrims are resolved, while direct encounter bursts stack timing/action
+# multipliers on top of the already-boosted production rate.
+const PILGRIMAGE_FAITH_BASE_MULTIPLIER := 3.0
+const PILGRIMAGE_FAITH_CHAIN_MAX_MULTIPLIER := 2.5
+const PILGRIMAGE_FAITH_BURST_SECONDS := 1.25
+const PILGRIMAGE_FAITH_EARLY_MULTIPLIER_MAX := 1.5
+const PILGRIMAGE_PRAYER_FAITH_MULTIPLIER := 1.25
+const PILGRIMAGE_COMPLETION_BURST_SECONDS := 4.0
+const PILGRIMAGE_COMPLETION_FAITH_MULTIPLIER := 1.5
+const PILGRIMAGE_GOLD_MULTIPLIER := 1.5
+const PILGRIMAGE_SCARE_GOLD_BASE := 34
+const PILGRIMAGE_MAX_SINGLE_GOLD_REWARD := 60
 const PET_AUTO_COIN_INTERVAL_MIN := 12.0
 const PET_AUTO_COIN_INTERVAL_MAX := 62.0
-const PET_AUTO_COIN_PILE_MIN := 4
-const PET_AUTO_COIN_PILE_MAX := 10
+const PET_AUTO_COIN_PILE_MAX := 8
 const DESKTOP_COIN_LIMIT := 96
-const CRYSTAL_UNLOCK_SCORES := {"C": 80, "S": 180, "G": 320}
-const CRYSTAL_RARITY_BONUSES := {1: 0, 2: 15, 3: 35, 4: 65, 5: 100}
 const UI_REFRESH_INTERVAL := 0.25
 # Two deliberate clicks per second add about 8% to passive production. This
 # keeps petting useful without letting autoclick-style input erase the campaign.
@@ -533,19 +542,6 @@ static func _get_loaded_final_boss_defeated(
 		return campaign_completed
 	return saved_final_boss_defeated
 
-static func _choose_crystal_drop_type(
-	pet_data: Dictionary,
-	level: int,
-	available_value: float
-) -> String:
-	var rarity := clampi(int(pet_data.get("rarity_stars", 1)), 1, 5)
-	var progression_score := maxi(1, level) + int(CRYSTAL_RARITY_BONUSES.get(rarity, 0))
-	for crystal_type in ["G", "S", "C"]:
-		if progression_score < int(CRYSTAL_UNLOCK_SCORES[crystal_type]):
-			continue
-		if available_value + 0.001 >= float(CoinDrop.get_coin_value(crystal_type)):
-			return crystal_type
-	return ""
 
 static func _get_news_broadcast_hold_seconds(headline: String) -> float:
 	return clampf(5.5 + (float(headline.length()) * 0.04), 6.0, 9.0)

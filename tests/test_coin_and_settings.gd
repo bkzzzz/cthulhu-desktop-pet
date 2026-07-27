@@ -15,7 +15,8 @@ static func run() -> Array[String]:
 	_test_coin_ground_first_pickup(failures)
 	_test_coin_collection(failures)
 	_test_pet_money_pile(failures)
-	_test_crystal_progression_gates(failures)
+	_test_denomination_drop_plans(failures)
+	_test_pet_interaction_value(failures)
 	_test_coin_retention_limits(failures)
 	_test_activity_ranges(failures)
 	_test_settings_runtime(failures)
@@ -98,45 +99,51 @@ static func _test_pet_money_pile(failures: Array[String]) -> void:
 	(main.get("_pets") as Array).append(pet)
 	main.call("_spawn_pet_coin_pile", pet, 45.0)
 	var drops := main.get("_coin_drops") as Array
-	if drops.size() < Main.PET_AUTO_COIN_PILE_MIN:
-		failures.append("an automatic pet money event must drop a visible pile of coins")
+	var expected_value := maxi(1, int(round(
+		float(main.call("_get_pet_money_value_per_minute", "pet1", 1)) * 45.0 / 60.0
+	)))
+	var dropped_value := 0
+	for drop in drops:
+		dropped_value += int(drop.get("value"))
+	if drops.is_empty() or drops.size() > Main.PET_AUTO_COIN_PILE_MAX:
+		failures.append("an automatic pet money event must use a bounded visible denomination pile")
+	if dropped_value != expected_value:
+		failures.append("visual denomination replacement must preserve the exact automatic reward value")
 	if int(main.get("_gold_coins")) != 0:
 		failures.append("automatic pet money must remain on the ground until the mouse collects it")
 	main.free()
 
 
-static func _test_crystal_progression_gates(failures: Array[String]) -> void:
-	var common_pet := {"rarity_stars": 1}
-	var rare_pet := {"rarity_stars": 5}
-	if not Main._choose_crystal_drop_type(common_pet, 1, 1000.0).is_empty():
-		failures.append("a low-level common pet must not produce crystals even with an oversized pile budget")
-	if Main._choose_crystal_drop_type(rare_pet, 1, 100.0) != "C":
-		failures.append("a sufficiently valuable rare-pet pile must unlock the copper crystal first")
-	if Main._choose_crystal_drop_type(rare_pet, 80, 250.0) != "S":
-		failures.append("silver crystals must require more rarity/level progression than copper")
-	if Main._choose_crystal_drop_type(rare_pet, 220, 500.0) != "G":
-		failures.append("gold crystals must be reserved for the rarest, most progressed pets")
-	if Main._choose_crystal_drop_type(common_pet, 320, 500.0) != "G":
-		failures.append("very high pet levels must eventually overcome low base rarity")
+static func _test_denomination_drop_plans(failures: Array[String]) -> void:
+	var plan := CoinDrop.make_drop_plan(937, 10)
+	var planned_value := 0
+	var planned_types: Array[String] = []
+	for entry in plan:
+		planned_value += int(entry.get("value", 0))
+		planned_types.append(String(entry.get("type", "")))
+	if planned_value != 937 or plan.size() > 10:
+		failures.append("denomination planning must preserve value while capping world-drop nodes")
+	for expected_type in ["G", "S", "C", "D"]:
+		if not planned_types.has(expected_type):
+			failures.append("a large reward must replace low-value animations with %s" % expected_type)
+	var huge_plan := CoinDrop.make_drop_plan(50_000, 4)
+	var huge_value := 0
+	for entry in huge_plan:
+		huge_value += int(entry.get("value", 0))
+	if huge_plan.size() > 4 or huge_value != 50_000 or String(huge_plan[0].get("type", "")) != "G":
+		failures.append("very large rewards must bundle into a few highest-value animations without losing money")
 
+
+static func _test_pet_interaction_value(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
 	main.set("_pet_window_size", Vector2i(1200, 720))
-	(main.get("_pet_states") as Dictionary)["pet10"] = {"upgrade_level": 300}
-	var pet10 := DesktopPetActor.new()
-	pet10.setup("pet10", Vector2i(1200, 720), 0.0, 1200.0, 500.0, 704.0, false)
-	main.add_child(pet10)
-	(main.get("_pets") as Array).append(pet10)
-	main.call("_spawn_pet_coin_pile", pet10, 600.0)
-	var found_crystal := false
-	for drop in main.get("_coin_drops") as Array:
-		if String(drop.get("coin_type")) in ["C", "S", "G"]:
-			found_crystal = true
-			break
-	if not found_crystal:
-		failures.append("a high-level late-roster pet must produce a crystal in a qualifying pile")
-	if int(main.get("_gold_coins")) != 0:
-		failures.append("crystals must remain collectible drops instead of directly crediting money")
+	var pet := DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1200, 720), 0.0, 1200.0, 500.0, 704.0, false)
+	main.add_child(pet)
+	var drop := main.call("_spawn_pet_coin", pet) as Node2D
+	if drop == null or String(drop.get("coin_type")) != "R" or int(drop.get("value")) != 1:
+		failures.append("every pet interaction must give exactly one lowest-value coin")
 	main.free()
 
 
@@ -348,6 +355,11 @@ static func _test_believer_drop_signal(failures: Array[String]) -> void:
 
 
 static func _test_believer_prayer_animation_and_reward(failures: Array[String]) -> void:
+	if (
+		BelieverActor.PILGRIMAGE_PRAY_REWARD_MAX >= CoinDrop.get_coin_value("D")
+		or BelieverActor.PILGRIMAGE_PRAY_REWARD_MIN <= BelieverActor.NORMAL_PRAY_REWARD_MIN
+	):
+		failures.append("pilgrimage prayer rewards must be modest but still exceed ordinary prayer rewards")
 	var believer := BelieverActor.new()
 	believer.setup_visible(Vector2i(820, 420), 400.0)
 	var sprite := believer.get_node_or_null("BelieverSprite") as AnimatedSprite2D
@@ -371,10 +383,10 @@ static func _test_believer_prayer_animation_and_reward(failures: Array[String]) 
 	believer.call("_finish_prayer")
 	if (
 		reward_counts.size() != 1
-		or reward_counts[0] < BelieverActor.NORMAL_PRAY_COIN_MIN
-		or reward_counts[0] > BelieverActor.NORMAL_PRAY_COIN_MAX
+		or reward_counts[0] < BelieverActor.NORMAL_PRAY_REWARD_MIN
+		or reward_counts[0] > BelieverActor.NORMAL_PRAY_REWARD_MAX
 	):
-		failures.append("a completed ordinary prayer must emit one multi-D-coin reward")
+		failures.append("a completed ordinary prayer must emit one small total money reward")
 	believer.free()
 
 	var main := Main.new()
@@ -384,13 +396,15 @@ static func _test_believer_prayer_animation_and_reward(failures: Array[String]) 
 		failures.append("a fleeing believer must leave no coins")
 	main.call("_on_believer_prayed", null, Vector2(300.0, 200.0), 6)
 	var drops := main.get("_coin_drops") as Array
-	if drops.size() != 6:
-		failures.append("a prayer reward must create every promised expensive coin")
-	else:
-		for drop in drops:
-			if String(drop.get("coin_type")) != "D":
-				failures.append("prayer rewards must use the expensive D coin")
-				break
+	var prayer_value := 0
+	for drop in drops:
+		prayer_value += int(drop.get("value"))
+	if drops.is_empty() or drops.size() > 3 or prayer_value != 6:
+		failures.append("a prayer must preserve its small total reward using at most three denomination animations")
+	for drop in drops:
+		if String(drop.get("coin_type")) in ["D", "C", "S", "G"]:
+			failures.append("a small prayer reward must not masquerade as an expensive coin")
+			break
 	main.free()
 
 
@@ -486,7 +500,29 @@ static func _test_pilgrimage_event_lifecycle(failures: Array[String]) -> void:
 		if not bool(believer.call("is_pilgrimage_member")):
 			failures.append("every believer spawned by the pilgrimage batch must be event-scoped")
 			break
-	main.call("_finish_pilgrimage", false)
+	var opening_multiplier := float(main.call("_get_active_pilgrimage_faith_multiplier"))
+	if not is_equal_approx(opening_multiplier, Main.PILGRIMAGE_FAITH_BASE_MULTIPLIER):
+		failures.append("pilgrimages must begin with their advertised passive faith surge multiplier")
+	var faith_before := float(main.get("_faith_points"))
+	main.call("_on_believer_prayed", believers[0], believers[0].position, 10)
+	if float(main.get("_faith_points")) <= faith_before:
+		failures.append("resolving a pilgrim must immediately grant a production-scaled faith burst")
+	if float(main.call("_get_active_pilgrimage_faith_multiplier")) <= opening_multiplier:
+		failures.append("pilgrimage faith multipliers must chain upward as more pilgrims are resolved")
+	main.call("_on_believer_scared_away", believers[1], believers[1].position)
+	var dropped_gold := 0
+	for drop in main.get("_coin_drops") as Array:
+		dropped_gold += int(drop.get("value"))
+	var expected_gold := int(round(
+		10.0 * Main.PILGRIMAGE_GOLD_MULTIPLIER
+		+ float(Main.PILGRIMAGE_SCARE_GOLD_BASE) * Main.PILGRIMAGE_GOLD_MULTIPLIER
+	))
+	if dropped_gold != expected_gold:
+		failures.append("pilgrimage prayers and scares must use the higher event gold multiplier without losing denomination value")
+	var faith_before_completion := float(main.get("_faith_points"))
+	main.call("_finish_pilgrimage", true)
+	if float(main.get("_faith_points")) <= faith_before_completion:
+		failures.append("finishing a pilgrimage early must pay an additional multiplied faith burst")
 	if bool(main.get("_pilgrimage_active")) or float(main.get("_next_pilgrimage_at")) <= 0.0:
 		failures.append("finishing a pilgrimage must restore normal play and schedule a later event")
 	main.free()

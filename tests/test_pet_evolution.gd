@@ -81,6 +81,8 @@ static func _test_evolution_assets_and_frames(failures: Array[String]) -> void:
 		failures.append("base pet1 walk art must be registered as authored facing left")
 	if not bool(PetCatalog.get_definition("pet1").get("attack_faces_right", false)):
 		failures.append("base pet1 attack art must retain its independently authored right facing")
+	if bool(PetCatalog.get_definition("pet3").get("attack_faces_right", true)):
+		failures.append("base pet3 spider attack art must be registered as authored facing left")
 	if bool(PetCatalog.get_definition("pet6").get("faces_right", true)):
 		failures.append("base pet6 idle/walk art must remain authored facing left")
 	if bool(PetCatalog.get_definition("pet6").get("attack_faces_right", true)):
@@ -136,6 +138,19 @@ static func _test_form_specific_authored_facing(failures: Array[String]) -> void
 	if pet1_sprite != null and pet1_sprite.flip_h:
 		failures.append("base pet1's right-authored attack must retain its right-target orientation")
 	base_pet1.free()
+
+	var base_pet3 := DesktopPetActor.new()
+	base_pet3.setup("pet3", Vector2i(1000, 720), 0.0, 1000.0, 600.0, 704.0, false, false, 50)
+	base_pet3.set_battle_mode(true)
+	var pet3_sprite := base_pet3.get_node_or_null("pet3Sprite") as AnimatedSprite2D
+	base_pet3.play_battle_attack_toward(-1.0)
+	if pet3_sprite == null or pet3_sprite.animation != "attack" or pet3_sprite.flip_h:
+		failures.append("base pet3's left-authored attack must stay unflipped toward a left-side enemy")
+	base_pet3.call("_on_animation_finished")
+	base_pet3.play_battle_attack_toward(1.0)
+	if pet3_sprite != null and not pet3_sprite.flip_h:
+		failures.append("base pet3's left-authored attack must flip toward a right-side enemy")
+	base_pet3.free()
 
 	var evolved_pet6 := DesktopPetActor.new()
 	evolved_pet6.setup("pet6", Vector2i(1000, 720), 0.0, 1000.0, 600.0, 704.0, false, true, 100)

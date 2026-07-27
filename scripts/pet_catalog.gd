@@ -254,7 +254,7 @@ const DEFINITIONS := {
 		"attack": "res://assets/NewCharacters/pet3/pet3Attack.png",
 		"attack_columns": 4,
 		"attack_rows": 3,
-		"attack_faces_right": true,
+		"attack_faces_right": false,
 		"attack_frame_foot_y": 172,
 		"burrow": "res://assets/NewCharacters/pet3/pet3Burrow.png"
 	},

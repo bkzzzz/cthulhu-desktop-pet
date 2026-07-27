@@ -26,7 +26,6 @@ const SHOP_SLOT_RECTS := [
 
 var _root: Control
 var _page_label: Label
-var _coin_balance_icon: TextureRect
 var _coin_balance_label: Label
 var _result_label: Label
 var _info_panel: PanelContainer
@@ -87,8 +86,6 @@ func set_language(language_code: String) -> void:
 	_language = LanguageSettings.sanitize(language_code)
 	theme = LanguageSettings.make_ui_theme(_language)
 	title = "Shop" if _language == "en" else "商店"
-	if _result_label != null:
-		_result_label.text = "Click an item to buy" if _language == "en" else "点击商品购买"
 	_refresh_page()
 
 
@@ -119,6 +116,7 @@ func set_purchase_result(good_id: String, success: bool, message: String) -> voi
 	if _result_label == null:
 		return
 	_result_label.text = message
+	_result_label.visible = not message.strip_edges().is_empty()
 	_result_label.add_theme_color_override("font_color", Color(0.78, 1.0, 0.62, 1.0) if success else Color(1.0, 0.58, 0.46, 1.0))
 	_refresh_page()
 
@@ -136,7 +134,18 @@ func _normalize_good(good: Dictionary) -> Dictionary:
 	if good_id.is_empty():
 		return {}
 	if String(good.get("kind", "")) == OfferingCatalog.KIND:
-		return OfferingCatalog.normalize_offering(good)
+		var offering := OfferingCatalog.normalize_offering(good)
+		if offering.is_empty():
+			return {}
+		var authored_price := maxi(1, int(offering.get("price", 1)))
+		offering["base_price"] = maxi(
+			authored_price,
+			int(good.get("base_price", authored_price))
+		)
+		# set_goods receives the trusted runtime catalog. Preserve its hidden
+		# production-rate price instead of normalizing back to the authored floor.
+		offering["price"] = maxi(authored_price, int(good.get("price", authored_price)))
+		return offering
 
 	var normalized_good := good.duplicate(true)
 	normalized_good["id"] = good_id
@@ -256,12 +265,13 @@ func _create_page_controls() -> void:
 	_root.add_child(right_arrow)
 
 	_page_label = Label.new()
-	_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_page_label.name = "ShopPageIndicator"
+	_page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_page_label.position = Vector2(438.0, 904.0)
-	_page_label.size = Vector2(240.0, 92.0)
+	_page_label.position = Vector2(902.0, 121.0)
+	_page_label.size = Vector2(96.0, 44.0)
 	_page_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_page_label.add_theme_font_size_override("font_size", 36)
+	_page_label.add_theme_font_size_override("font_size", 26)
 	_page_label.add_theme_color_override("font_color", Color(0.96, 0.86, 0.58, 1.0))
 	_page_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
 	_page_label.add_theme_constant_override("outline_size", 5)
@@ -288,7 +298,9 @@ func _create_close_button() -> void:
 
 func _create_result_label() -> void:
 	_result_label = Label.new()
-	_result_label.text = "点击商品购买"
+	_result_label.name = "ShopPurchaseResult"
+	_result_label.text = ""
+	_result_label.visible = false
 	_result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_result_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_result_label.position = Vector2(360.0, 870.0)
@@ -302,22 +314,12 @@ func _create_result_label() -> void:
 
 
 func _create_coin_balance() -> void:
-	_coin_balance_icon = TextureRect.new()
-	_coin_balance_icon.name = "ShopCurrencyIcon"
-	_coin_balance_icon.position = Vector2(610.0, 177.0)
-	_coin_balance_icon.size = Vector2(36.0, 36.0)
-	_coin_balance_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_coin_balance_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_coin_balance_icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_coin_balance_icon.mouse_filter = Control.MOUSE_FILTER_PASS
-	_root.add_child(_coin_balance_icon)
-
 	_coin_balance_label = Label.new()
 	_coin_balance_label.name = "ShopGoldBalance"
 	_coin_balance_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_coin_balance_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_coin_balance_label.position = Vector2(650.0, 170.0)
-	_coin_balance_label.size = Vector2(315.0, 50.0)
+	_coin_balance_label.position = Vector2(610.0, 170.0)
+	_coin_balance_label.size = Vector2(355.0, 50.0)
 	_coin_balance_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_coin_balance_label.add_theme_font_size_override("font_size", 28)
 	_coin_balance_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.34, 1.0))
@@ -403,18 +405,12 @@ func _refresh_page() -> void:
 	_page = clampi(_page, 0, page_count - 1)
 
 	if _page_label != null:
-		_page_label.text = (
-			"PAGE %d / %d" % [_page + 1, page_count]
-			if _language == "en"
-			else "第 %d / %d 页" % [_page + 1, page_count]
-		)
+		_page_label.text = "%d/%d" % [_page + 1, page_count]
 	if _coin_balance_label != null:
-		_coin_balance_label.text = CurrencyDisplay.format_compact(_coin_balance)
+		var balance_text := CurrencyDisplay.format_compact(_coin_balance)
+		_coin_balance_label.text = balance_text
 		_coin_balance_label.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_balance, _language)
-	if _coin_balance_icon != null:
-		_coin_balance_icon.texture = CurrencyDisplay.make_icon_texture(_coin_balance)
-		_coin_balance_icon.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_balance, _language)
-
+		_fit_coin_balance_text(balance_text)
 	var page_start := _page * GOODS_PER_PAGE
 	for slot_index in _slot_controls.size():
 		var good_index := page_start + slot_index
@@ -445,14 +441,10 @@ func _refresh_page() -> void:
 		name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
 		price_label.text = ("PRICE  %s" if _language == "en" else "价格 %s") % CurrencyDisplay.format_compact(price)
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
-		owned_label.text = (
-			("%ds · ×%s" if _language == "en" else "%d秒 · ×%s") % [
-				int(round(float(good.get("duration_seconds", 60.0)))),
-				_format_multiplier(float(good.get("multiplier", 1.0)))
-			]
-			if offering
-			else (("OWNED %d" if _language == "en" else "已拥有 %d") % owned)
-		)
+		# Food descriptions already explain duration and multiplier. Keep cards
+		# visually quiet and reserve this small line for durable inventory only.
+		owned_label.visible = has_good and not offering
+		owned_label.text = ("OWNED %d" if _language == "en" else "已拥有 %d") % owned
 
 
 func _get_page_count() -> int:
@@ -490,11 +482,7 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	_info_name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
 	_info_desc_label.text = String(display_good.get("description", ""))
 	if OfferingCatalog.is_offering(good):
-		_info_price_label.text = ("PRICE: %s    BOOST: %ds ×%s" if _language == "en" else "价格：%s    加速：%d秒 ×%s") % [
-			CurrencyDisplay.format_compact(int(good.get("price", 0))),
-			int(round(float(good.get("duration_seconds", 60.0)))),
-			_format_multiplier(float(good.get("multiplier", 1.0)))
-		]
+		_info_price_label.text = ("PRICE: %s" if _language == "en" else "价格：%s") % CurrencyDisplay.format_compact(int(good.get("price", 0)))
 	else:
 		_info_price_label.text = ("PRICE: %s    OWNED: %d" if _language == "en" else "价格：%s    已拥有：%d") % [
 			CurrencyDisplay.format_compact(int(good.get("price", 0))),
@@ -507,13 +495,17 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	_info_panel.visible = true
 
 
-static func _format_multiplier(value: float) -> String:
-	var text := String.num(maxf(1.0, value), 2)
-	while text.contains(".") and text.ends_with("0"):
-		text = text.left(text.length() - 1)
-	if text.ends_with("."):
-		text = text.left(text.length() - 1)
-	return text
+func _fit_coin_balance_text(text: String) -> void:
+	if _coin_balance_label == null:
+		return
+	var font := _coin_balance_label.get_theme_font("font")
+	var font_size := 28
+	var available_width := _coin_balance_label.size.x - 8.0
+	while font != null and font_size > 14:
+		if font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size).x <= available_width:
+			break
+		font_size -= 1
+	_coin_balance_label.add_theme_font_size_override("font_size", font_size)
 
 
 static func _format_compact_number(value: float) -> String:

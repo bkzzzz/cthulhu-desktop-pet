@@ -3,7 +3,7 @@ extends RefCounted
 const MAX_HISTORY := 80
 const MAX_HEADLINE_LENGTH := 220
 const RECENT_TEMPLATE_LIMIT := 6
-const NEWS_COPY_VERSION := 6
+const NEWS_COPY_VERSION := 7
 const AMBIENT_INTERVAL_MIN_SECONDS := 240.0
 const AMBIENT_INTERVAL_MAX_SECONDS := 360.0
 
@@ -140,8 +140,8 @@ const EVENT_TEMPLATES := {
 		{"id": "event_offering_conversion", "text": "教团完成“{item}”主题招募活动，14名工作人员将负责筹备下一场。"}
 	],
 	"upgrade": [
-		{"id": "event_upgrade_index", "text": "教团筹备工作达到第{level}级，8名成员开始负责附近街区的招募。"},
-		{"id": "event_upgrade_radius", "text": "教团完成第{level}级扩建，新设2个活动区并新增17名登记信众。"}
+		{"id": "event_upgrade_index", "text": "教众登记更新：教团当前共有{followers}名信众，其中8名成员开始负责附近街区的招募。"},
+		{"id": "event_upgrade_radius", "text": "教众登记更新：教团当前共有{followers}名信众，新设2个活动区并安排17名志愿者值守。"}
 	],
 	"gacha": [
 		{"id": "event_gacha_relic", "text": "教团为“{item}”举行见面会，7名志愿者负责接待访客并介绍入团方式。"},
@@ -327,7 +327,7 @@ static func _make_ambient_headline_en(scope: int, context: Dictionary, detail_ro
 
 
 static func _make_event_headline_en(event_type: String, context: Dictionary) -> String:
-	var level := maxi(1, int(context.get("level", 1)))
+	var followers := format_number_en(maxf(0.0, float(context.get("followers", 0.0))))
 	match event_type:
 		"petting": return "A street recruitment drive welcomed new residents and trained volunteers for the next gathering."
 		"burrow": return "Volunteers secured an underground storehouse and opened a supply route to a nearby chapter."
@@ -336,7 +336,7 @@ static func _make_event_headline_en(event_type: String, context: Dictionary) -> 
 		"wall_crawl": return "Recruitment teams placed new signs across several high-rise buildings."
 		"hide": return "A rapid recruitment operation established new storage and meeting points."
 		"offering": return "A gathering centered on a new offering attracted members and volunteers."
-		"upgrade": return "Cult preparations reached level %d, opening new activity areas and recruitment posts." % level
+		"upgrade": return "Follower registry update: the cult now has %s registered followers, with new volunteers assigned to recruitment posts." % followers
 		"gacha": return "The cult welcomed a newly summoned companion at a public gathering and began a recruitment campaign."
 		_: return "Cult activity increased as new volunteers joined local chapters."
 

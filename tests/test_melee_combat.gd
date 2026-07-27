@@ -81,13 +81,18 @@ static func _test_melee_chases_while_ranged_holds(failures: Array[String]) -> vo
 	second_enemy.setup("villager2", Vector2(melee.position.x + 20.0, 704.0), 704.0, 1.0, melee.position.x + 20.0)
 	main.add_child(second_enemy)
 	(main.get("_battle_enemies") as Array).append(second_enemy)
-	if main.call("_get_battle_target_for_pet", melee) != locked_target:
-		failures.append("melee target selection must not oscillate between enemies every frame")
+	if main.call("_get_battle_target_for_pet", melee) != second_enemy:
+		failures.append("pets must replace an old target when another target becomes nearer")
+	if locked_target == second_enemy:
+		failures.append("nearest-target test must begin with a genuinely different cached enemy")
 
 	melee.position.x = 270.0
 	var candidates: Array[Node2D] = [ranged, melee]
-	if main.call("_get_nearest_battle_pet", enemy, candidates) != melee:
+	if main.call("_get_battle_target_for_enemy", enemy, candidates) != melee:
 		failures.append("a player-positioned front-line melee pet must intercept enemy targeting before rear pets")
+	ranged.position = enemy.position + Vector2(4.0, 0.0)
+	if main.call("_get_battle_target_for_enemy", enemy, candidates) != ranged:
+		failures.append("enemies must immediately replace their target when another living pet becomes nearer")
 
 	melee.play_battle_attack_toward(-1.0)
 	var melee_sprite := melee.get_node_or_null("pet1Sprite") as AnimatedSprite2D
@@ -364,6 +369,19 @@ static func _test_two_sided_knockback(failures: Array[String]) -> void:
 	if pet.position.x >= 500.0:
 		failures.append("right-side enemies must knock pets away toward the left")
 	main.free()
+
+	var bounded_enemy := EnemyActor.new()
+	bounded_enemy.setup("villager1", Vector2(120.0, 704.0), 704.0, 1.0, 120.0, 1000.0)
+	var visual_margin := float(bounded_enemy.call("_get_battle_visual_half_width"))
+	bounded_enemy.position.x = visual_margin + 2.0
+	bounded_enemy.take_damage(0.0, 500.0, Vector2(-900.0, -220.0), -1.0)
+	if bounded_enemy.position.x < visual_margin - 0.01:
+		failures.append("enemy knockback must stop with the complete sprite inside the left desktop edge")
+	bounded_enemy.position.x = 1000.0 - visual_margin - 2.0
+	bounded_enemy.take_damage(0.0, 500.0, Vector2(900.0, -220.0), 1.0)
+	if bounded_enemy.position.x > 1000.0 - visual_margin + 0.01:
+		failures.append("enemy knockback must stop with the complete sprite inside the right desktop edge")
+	bounded_enemy.free()
 
 
 static func _test_pet5_form_specific_rolling(failures: Array[String]) -> void:

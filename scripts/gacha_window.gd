@@ -8,7 +8,9 @@ const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 
-const WINDOW_SIZE := Vector2i(570, 798)
+const GACHA_FRAME_SIZE := Vector2(570.0, 798.0)
+const DRAW_AMOUNT_FOOTER_RECT := Rect2(24.0, 806.0, 522.0, 140.0)
+const WINDOW_SIZE := Vector2i(570, 954)
 const CONTENT_WIDTH := 538.0
 const GACHA_UI_TEXTURE := "res://assets/ui/gacha/gachaUI.png"
 const GACHA_MACHINE_TEXTURE := "res://assets/ui/gacha/gacha.png"
@@ -56,7 +58,7 @@ var _progress_label: Label
 var _draw_amount_buttons: Dictionary = {}
 var _custom_draw_input: LineEdit
 var _custom_draw_row: Control
-var _selected_draw_preset := 1
+var _selected_draw_preset := 10
 var _updating_custom_input := false
 var _machine_view: TextureRect
 var _machine_stage: Control
@@ -180,15 +182,18 @@ func _create_content() -> void:
 
 	var background := TextureRect.new()
 	background.name = "GachaBackground"
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	background.position = Vector2.ZERO
+	background.size = GACHA_FRAME_SIZE
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	background.stretch_mode = TextureRect.STRETCH_SCALE
 	background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	background.texture = load(GACHA_UI_TEXTURE) as Texture2D
 	root.add_child(background)
 
 	var margin := MarginContainer.new()
+	margin.position = Vector2.ZERO
+	margin.size = GACHA_FRAME_SIZE
 	margin.add_theme_constant_override("margin_left", 16)
 	margin.add_theme_constant_override("margin_top", 10)
 	margin.add_theme_constant_override("margin_right", 16)
@@ -266,20 +271,26 @@ func _create_content() -> void:
 	_progress_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	content.add_child(_progress_label)
 
-	var amount_card := PanelContainer.new()
-	amount_card.name = "DrawAmountCard"
-	amount_card.custom_minimum_size = Vector2(CONTENT_WIDTH - 56.0, 86.0)
-	amount_card.add_theme_stylebox_override(
+	_create_draw_amount_footer(root)
+
+
+func _create_draw_amount_footer(root: Control) -> void:
+	var amount_footer := PanelContainer.new()
+	amount_footer.name = "DrawAmountFooter"
+	amount_footer.position = DRAW_AMOUNT_FOOTER_RECT.position
+	amount_footer.size = DRAW_AMOUNT_FOOTER_RECT.size
+	amount_footer.custom_minimum_size = DRAW_AMOUNT_FOOTER_RECT.size
+	amount_footer.add_theme_stylebox_override(
 		"panel",
-		_make_button_style(Color(0.025, 0.075, 0.06, 0.96), Color(0.32, 0.38, 0.22, 0.9), false)
+		_make_button_style(Color(0.015, 0.052, 0.043, 0.98), Color(0.54, 0.48, 0.25, 0.92), false)
 	)
-	content.add_child(amount_card)
+	root.add_child(amount_footer)
 	var amount_margin := MarginContainer.new()
-	amount_margin.add_theme_constant_override("margin_left", 12)
-	amount_margin.add_theme_constant_override("margin_top", 8)
-	amount_margin.add_theme_constant_override("margin_right", 12)
-	amount_margin.add_theme_constant_override("margin_bottom", 8)
-	amount_card.add_child(amount_margin)
+	amount_margin.add_theme_constant_override("margin_left", 16)
+	amount_margin.add_theme_constant_override("margin_top", 9)
+	amount_margin.add_theme_constant_override("margin_right", 16)
+	amount_margin.add_theme_constant_override("margin_bottom", 9)
+	amount_footer.add_child(amount_margin)
 	var amount_content := VBoxContainer.new()
 	amount_content.add_theme_constant_override("separation", 7)
 	amount_margin.add_child(amount_content)
@@ -291,13 +302,13 @@ func _create_content() -> void:
 	amount_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	amount_row.add_theme_constant_override("separation", 7)
 	amount_content.add_child(amount_row)
-	for amount in [1, 10, 100, 1000, -1]:
+	for amount in [10, 100, -1]:
 		var amount_button := Button.new()
 		amount_button.name = "DrawAmount%s" % ("Custom" if amount < 0 else str(amount))
 		amount_button.text = "自定义" if amount < 0 else "×%d" % amount
-		amount_button.custom_minimum_size = Vector2(86.0 if amount < 0 else 69.0, 35.0)
+		amount_button.custom_minimum_size = Vector2(142.0, 38.0)
 		amount_button.toggle_mode = true
-		amount_button.button_pressed = amount == 1
+		amount_button.button_pressed = amount == 10
 		amount_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		amount_button.add_theme_font_size_override("font_size", 15)
 		amount_button.pressed.connect(_on_draw_amount_preset_pressed.bind(amount))
@@ -313,7 +324,7 @@ func _create_content() -> void:
 	_custom_draw_row.add_child(custom_label)
 	_custom_draw_input = LineEdit.new()
 	_custom_draw_input.name = "CustomDrawAmount"
-	_custom_draw_input.custom_minimum_size = Vector2(154.0, 35.0)
+	_custom_draw_input.custom_minimum_size = Vector2(210.0, 38.0)
 	_custom_draw_input.placeholder_text = "1 - %d" % GachaProgression.MAX_BATCH_DRAWS
 	_custom_draw_input.text = "100"
 	_custom_draw_input.max_length = 7

@@ -304,6 +304,16 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 	var background := window.get_node_or_null("GachaRoot/GachaBackground") as TextureRect
 	if background == null or background.texture == null:
 		failures.append("the supplied gacha UI must render as the window background")
+	elif background.size != GachaWindow.GACHA_FRAME_SIZE:
+		failures.append("the authored gacha frame must keep its original aspect below the detached draw controls")
+	var amount_footer := window.get_node_or_null("GachaRoot/DrawAmountFooter") as PanelContainer
+	if amount_footer == null:
+		failures.append("gacha draw choices must live in a dedicated footer")
+	elif (
+		amount_footer.position.y < GachaWindow.GACHA_FRAME_SIZE.y
+		or amount_footer.position.y + amount_footer.size.y > float(GachaWindow.WINDOW_SIZE.y)
+	):
+		failures.append("the gacha draw footer must sit fully below the illustrated machine frame")
 	var machine: TextureRect = window.get("_machine_view")
 	if machine == null or machine.texture == null:
 		failures.append("the gacha machine must remain a visible static UI layer")
@@ -322,12 +332,12 @@ static func _check_static_machine_and_eggs(failures: Array[String]) -> void:
 			failures.append("eggs must render above the UI background and below the machine face")
 			break
 	var amount_buttons: Dictionary = window.get("_draw_amount_buttons")
-	if amount_buttons.size() != 5:
-		failures.append("gacha must offer 1, 10, 100, 1000 and custom draw counts")
+	if amount_buttons.size() != 3 or not amount_buttons.has(10) or not amount_buttons.has(100) or not amount_buttons.has(-1):
+		failures.append("gacha must expose only the focused 10, 100 and custom draw choices")
 	else:
-		window.call("_on_draw_amount_preset_pressed", 1000)
-		if int(window.call("_selected_draw_amount")) != 1000:
-			failures.append("the 1000-draw option must request all one thousand rolls")
+		window.call("_on_draw_amount_preset_pressed", 100)
+		if int(window.call("_selected_draw_amount")) != 100:
+			failures.append("the 100-draw preset must request one hundred rolls")
 		window.call("_on_draw_amount_preset_pressed", -1)
 		var custom_input: LineEdit = window.get("_custom_draw_input")
 		custom_input.text = "23abc7"

@@ -337,17 +337,6 @@ func _on_enemy_projectile_impacted(
 func _get_battle_visual_power(rarity: int, level: int) -> float:
 	return _battle_controller._get_battle_visual_power(rarity, level)
 
-func _roll_melee_launch(rarity: int, level: int) -> bool:
-	return _battle_controller._roll_melee_launch(rarity, level)
-
-func _try_launch_enemy_group(
-	_attacker: Node2D,
-	primary: Node2D,
-	visual_power: float,
-	launch_direction: float
-) -> void:
-	_battle_controller._try_launch_enemy_group(_attacker, primary, visual_power, launch_direction)
-
 func _spawn_pet_projectile(
 	pet: Node2D,
 	pet_id: String,
@@ -385,6 +374,9 @@ func _attach_battle_health_bar(actor: Node2D, current_health: float, maximum_hea
 
 func _get_nearest_battle_pet(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
 	return _battle_controller._get_nearest_battle_pet(enemy, candidates)
+
+func _get_battle_target_for_enemy(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
+	return _battle_controller._get_battle_target_for_enemy(enemy, candidates)
 
 func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 	return _battle_controller._get_nearest_battle_enemy(pet)
@@ -467,11 +459,26 @@ func _make_desktop_coin_capacity(incoming_count: int) -> void:
 func _on_coin_collected(actor: Node2D, coin_type: String, value: int) -> void:
 	_coin_controller._on_coin_collected(actor, coin_type, value)
 
-func _on_believer_scared_away(_actor: Node2D, _drop_position: Vector2) -> void:
-	_coin_controller._on_believer_scared_away(_actor, _drop_position)
+func _on_believer_scared_away(actor: Node2D, drop_position: Vector2) -> void:
+	var reward_value: int = int(_events_controller._resolve_pilgrimage_encounter(
+		actor,
+		drop_position,
+		false,
+		0
+	))
+	_coin_controller._on_believer_scared_away(actor, drop_position, reward_value)
 
-func _on_believer_prayed(_actor: Node2D, drop_position: Vector2, coin_count: int) -> void:
-	_coin_controller._on_believer_prayed(_actor, drop_position, coin_count)
+func _on_believer_prayed(actor: Node2D, drop_position: Vector2, reward_value: int) -> void:
+	var adjusted_reward: int = int(_events_controller._resolve_pilgrimage_encounter(
+		actor,
+		drop_position,
+		true,
+		reward_value
+	))
+	_coin_controller._on_believer_prayed(actor, drop_position, adjusted_reward)
+
+func _get_active_pilgrimage_faith_multiplier() -> float:
+	return _events_controller._get_active_pilgrimage_faith_multiplier()
 
 func _create_news_broadcast() -> void:
 	_presentation_controller._create_news_broadcast()

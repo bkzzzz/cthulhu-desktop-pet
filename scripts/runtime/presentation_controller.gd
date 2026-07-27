@@ -1,7 +1,7 @@
 extends "res://scripts/runtime/main_context.gd"
 
 const VICTORY_LOOT_DELAY_SECONDS := 0.12
-const VICTORY_LOOT_MIN_DROPS := 9
+const VICTORY_LOOT_MIN_DROPS := 1
 const VICTORY_LOOT_MAX_DROPS := 16
 const VICTORY_LOOT_SPILL_SECONDS := 1.65
 const VICTORY_LOOT_HOLD_SECONDS := 1.25
@@ -249,9 +249,8 @@ func _spawn_victory_loot_burst(gold_amount: int) -> void:
 
 
 func _get_victory_loot_drop_count(gold_amount: int) -> int:
-	var magnitude := log(maxf(1.0, float(gold_amount))) / log(10.0)
 	return clampi(
-		VICTORY_LOOT_MIN_DROPS + int(floor(magnitude)),
+		CoinDrop.make_drop_plan(gold_amount, VICTORY_LOOT_MAX_DROPS).size(),
 		VICTORY_LOOT_MIN_DROPS,
 		VICTORY_LOOT_MAX_DROPS
 	)
@@ -275,23 +274,11 @@ func _get_victory_loot_origin() -> Vector2:
 
 
 func _get_victory_loot_type(gold_amount: int, drop_index: int) -> String:
-	var primary_kind := String(CurrencyDisplay.get_primary_display(gold_amount).get(
-		"kind",
-		CurrencyDisplay.GOLD_KIND
-	))
-	match primary_kind:
-		CurrencyDisplay.GRAY_CRYSTAL_KIND:
-			return "S" if drop_index % 3 != 1 else "G"
-		CurrencyDisplay.YELLOW_CRYSTAL_KIND:
-			return "G" if drop_index % 3 != 1 else "C"
-		CurrencyDisplay.RED_CRYSTAL_KIND:
-			return "C" if drop_index % 3 != 1 else "D"
-		_:
-			if gold_amount >= 50:
-				return "D" if drop_index % 4 != 1 else "P"
-			if gold_amount >= 5:
-				return "P" if drop_index % 3 != 1 else "R"
-			return "R"
+	var plan := CoinDrop.make_drop_plan(gold_amount, VICTORY_LOOT_MAX_DROPS)
+	if plan.is_empty():
+		return "R"
+	var safe_index := clampi(drop_index, 0, plan.size() - 1)
+	return String(plan[safe_index].get("type", "R"))
 
 
 func _prune_victory_loot_drops() -> void:

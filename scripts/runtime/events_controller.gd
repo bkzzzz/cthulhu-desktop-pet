@@ -3,6 +3,11 @@ extends "res://scripts/runtime/main_context.gd"
 const ENCOUNTER_REWARD_KEY := "_encounter_reward_budget"
 const ENCOUNTER_DIFFICULTY_KEY := "_encounter_difficulty_scale"
 
+var _pilgrimage_total_member_count := 0
+var _pilgrimage_resolved_count := 0
+var _pilgrimage_faith_earned := 0.0
+var _pilgrimage_gold_dropped := 0
+
 func _update_believers() -> void:
 	_cleanup_believers()
 	var threat_positions = _get_believer_threat_positions()
@@ -244,6 +249,10 @@ func _start_pilgrimage() -> void:
 
 	_pilgrimage_active = true
 	_pilgrimage_ends_at = _host._get_now_seconds() + PILGRIMAGE_DURATION_SECONDS
+	_pilgrimage_total_member_count = 0
+	_pilgrimage_resolved_count = 0
+	_pilgrimage_faith_earned = 0.0
+	_pilgrimage_gold_dropped = 0
 	_host._update_actor_window_bounds()
 	_set_pet_autonomy_paused(true)
 
@@ -288,6 +297,21 @@ func _start_pilgrimage() -> void:
 func _finish_pilgrimage(resolved_early: bool) -> void:
 	if not _pilgrimage_active:
 		return
+	if resolved_early:
+		var completion_faith := maxf(
+			1.0,
+			float(_host._get_faith_growth_rate())
+			* PILGRIMAGE_COMPLETION_BURST_SECONDS
+			* PILGRIMAGE_COMPLETION_FAITH_MULTIPLIER
+		)
+		_host._grant_faith(completion_faith)
+		_pilgrimage_faith_earned += completion_faith
+		_host._show_faith_change_popup(
+			Vector2(float(_pet_window_size.x) * 0.5, float(_pet_window_size.y) * 0.45),
+			completion_faith
+		)
+		_host._refresh_faith_display()
+		_host._request_save()
 	_pilgrimage_active = false
 	_pilgrimage_ends_at = 0.0
 	if _pilgrimage_status_label != null:
@@ -323,11 +347,25 @@ func _finish_pilgrimage(resolved_early: bool) -> void:
 		if _language == "en"
 		else "剩余教徒已经散去"
 	)
+	var reward_summary := (
+		"FAITH SURGE +%d · MONEY DROPPED %s"
+		if _language == "en"
+		else "信仰暴增 +%d · 金钱掉落 %s"
+	) % [int(round(_pilgrimage_faith_earned)), CurrencyDisplay.format_compact(_pilgrimage_gold_dropped)]
+	subtitle = "%s · %s" % [subtitle, reward_summary]
 	_host._show_pilgrimage_broadcast(title, subtitle, {
 		"title_en": "PILGRIMAGE COMPLETE" if resolved_early else "PILGRIMAGE ENDED",
-		"subtitle_en": "Every group was confronted" if resolved_early else "The remaining cultists dispersed",
+		"subtitle_en": "%s · FAITH SURGE +%d · MONEY DROPPED %s" % [
+			"Every group was confronted" if resolved_early else "The remaining cultists dispersed",
+			int(round(_pilgrimage_faith_earned)),
+			CurrencyDisplay.format_compact(_pilgrimage_gold_dropped)
+		],
 		"title_zh": "朝圣结束",
-		"subtitle_zh": "所有教徒小组均已完成遭遇" if resolved_early else "剩余教徒已经散去"
+		"subtitle_zh": "%s · 信仰暴增 +%d · 金钱掉落 %s" % [
+			"所有教徒小组均已完成遭遇" if resolved_early else "剩余教徒已经散去",
+			int(round(_pilgrimage_faith_earned)),
+			CurrencyDisplay.format_compact(_pilgrimage_gold_dropped)
+		]
 	})
 	_host._publish_news({
 		"category": "公告",
@@ -363,6 +401,67 @@ func _spawn_pilgrimage_believer(
 	believer.connect("prayed", Callable(_host, "_on_believer_prayed"))
 	add_child(believer)
 	_believers.append(believer)
+	if _pilgrimage_active:
+		_pilgrimage_total_member_count += 1
+
+
+func _get_active_pilgrimage_faith_multiplier() -> float:
+	if not _pilgrimage_active:
+		return 1.0
+	var progress := clampf(
+		float(_pilgrimage_resolved_count) / float(maxi(1, _pilgrimage_total_member_count)),
+		0.0,
+		1.0
+	)
+	var chain_multiplier := lerpf(1.0, PILGRIMAGE_FAITH_CHAIN_MAX_MULTIPLIER, progress)
+	return PILGRIMAGE_FAITH_BASE_MULTIPLIER * chain_multiplier
+
+
+func _resolve_pilgrimage_encounter(
+	actor: Node2D,
+	drop_position: Vector2,
+	prayed: bool,
+	base_gold_value: int
+) -> int:
+	var safe_base_gold := maxi(0, base_gold_value)
+	if (
+		not _pilgrimage_active
+		or actor == null
+		or not is_instance_valid(actor)
+		or not actor.has_method("is_pilgrimage_member")
+		or not bool(actor.call("is_pilgrimage_member"))
+	):
+		return safe_base_gold if prayed else 0
+	if bool(actor.get_meta("pilgrimage_reward_resolved", false)):
+		return 0
+	actor.set_meta("pilgrimage_reward_resolved", true)
+	_pilgrimage_resolved_count += 1
+
+	var seconds_remaining := maxf(0.0, _pilgrimage_ends_at - float(_host._get_now_seconds()))
+	var time_ratio := clampf(seconds_remaining / PILGRIMAGE_DURATION_SECONDS, 0.0, 1.0)
+	var early_multiplier := lerpf(1.0, PILGRIMAGE_FAITH_EARLY_MULTIPLIER_MAX, time_ratio)
+	var action_multiplier := PILGRIMAGE_PRAYER_FAITH_MULTIPLIER if prayed else 1.0
+	var faith_burst := maxf(
+		1.0,
+		float(_host._get_faith_growth_rate())
+		* PILGRIMAGE_FAITH_BURST_SECONDS
+		* early_multiplier
+		* action_multiplier
+	)
+	_host._grant_faith(faith_burst)
+	_host._show_faith_change_popup(drop_position, faith_burst)
+	_host._refresh_faith_display()
+	_host._request_save()
+	_pilgrimage_faith_earned += faith_burst
+
+	var event_gold_base := safe_base_gold if prayed else PILGRIMAGE_SCARE_GOLD_BASE
+	var adjusted_gold := clampi(
+		int(round(float(event_gold_base) * PILGRIMAGE_GOLD_MULTIPLIER)),
+		1,
+		PILGRIMAGE_MAX_SINGLE_GOLD_REWARD
+	)
+	_pilgrimage_gold_dropped += adjusted_gold
+	return adjusted_gold
 
 func _get_pilgrimage_group_centers(group_count: int) -> Array[float]:
 	var centers: Array[float] = []
@@ -438,11 +537,12 @@ func _update_pilgrimage_status(now: float) -> void:
 		return
 	var seconds_left = maxi(0, int(ceil(_pilgrimage_ends_at - now)))
 	var pending_count = _get_pending_pilgrim_count()
+	var faith_multiplier := _get_active_pilgrimage_faith_multiplier()
 	_pilgrimage_status_label.text = (
-		"PILGRIMAGE  %02d:%02d  ·  %d REMAINING"
+		"PILGRIMAGE  %02d:%02d  ·  %d REMAINING  ·  FAITH ×%.1f"
 		if _language == "en"
-		else "朝圣  %02d:%02d  ·  剩余 %d 人"
-	) % [int(seconds_left / 60), seconds_left % 60, pending_count]
+		else "朝圣  %02d:%02d  ·  剩余 %d 人  ·  信仰 ×%.1f"
+	) % [int(seconds_left / 60), seconds_left % 60, pending_count, faith_multiplier]
 	_pilgrimage_status_label.visible = _pilgrimage_active
 
 func _set_pet_autonomy_paused(paused: bool) -> void:

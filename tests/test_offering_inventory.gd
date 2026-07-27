@@ -119,6 +119,12 @@ static func _test_shop_goods(failures: Array[String]) -> void:
 		failures.append("shop normalization must preserve valid offering metadata")
 	if float(fish.get("multiplier", 0.0)) <= 1.0 or int(fish.get("price", 0)) > 40:
 		failures.append("shop lookup must preserve the affordable timed boost metadata")
+	var dynamically_priced := goods.duplicate(true)
+	dynamically_priced[0]["base_price"] = int(dynamically_priced[0].get("price", 1))
+	dynamically_priced[0]["price"] = 125
+	shop.set_goods(dynamically_priced)
+	if int(shop.get_good("red_fruit").get("price", 0)) != 125:
+		failures.append("shop normalization must preserve the hidden production-rate price")
 	shop.free()
 
 
@@ -128,11 +134,21 @@ static func _test_shop_balance_display(failures: Array[String]) -> void:
 	shop.set_coin_balance(1_250_000_000)
 	var balance_label := shop.get("_coin_balance_label") as Label
 	var close_button := shop.get_node_or_null("ShopRoot/CloseShop") as TextureButton
+	var page_label := shop.get("_page_label") as Label
+	var result_label := shop.get("_result_label") as Label
+	if shop.get_node_or_null("ShopRoot/ShopCurrencyIcon") != null:
+		failures.append("the optimized shop header must not retain the redundant coin icon")
+	if result_label == null or result_label.visible or not result_label.text.is_empty():
+		failures.append("the shop must not show an obvious click-an-item instruction")
+	if page_label == null or page_label.text != "1/2":
+		failures.append("the shop page indicator must use only the compact current/total format")
+	elif page_label.position.y >= float(ShopWindow.SHOP_SLOT_RECTS[0].position.y):
+		failures.append("the compact shop page indicator must live in the upper-right header")
 	if balance_label == null:
 		failures.append("the shop must create a visible gold balance")
 	else:
-		if balance_label.text != "1.25 YC":
-			failures.append("the shop balance must replace billion-scale gold with yellow crystals")
+		if balance_label.text != "$ 1,250,000,000":
+			failures.append("the shop balance must show the same single money account as the drawer")
 		if balance_label.horizontal_alignment != HORIZONTAL_ALIGNMENT_RIGHT:
 			failures.append("the shop balance must align its amount to the right")
 		if balance_label.position.x <= float(ShopWindow.WINDOW_SIZE.x) * 0.5:
@@ -140,10 +156,23 @@ static func _test_shop_balance_display(failures: Array[String]) -> void:
 		if close_button != null and balance_label.position.x + balance_label.size.x >= close_button.position.x:
 			failures.append("the right-aligned shop balance must leave room for the close control")
 	shop.set_language("en")
-	if balance_label != null and balance_label.text != "1.25 YC":
-		failures.append("changing shop language must preserve crystal denomination display")
+	if balance_label != null and balance_label.text != "$ 1,250,000,000":
+		failures.append("changing shop language must preserve the single account balance")
+	if page_label != null and page_label.text != "1/2":
+		failures.append("changing shop language must not restore the PAGE prefix")
+	shop.set_purchase_result("red_fruit", true, "Purchased")
+	if result_label == null or not result_label.visible or result_label.text != "Purchased":
+		failures.append("real purchase feedback must remain available after removing the default instruction")
 	if ShopWindow._format_compact_number(1_000_000_000_000_000.0) != "1.00Qa":
 		failures.append("the shop balance formatter must remain compact at quadrillion-scale progression")
+	var offering_sub_labels: Array = shop.get("_slot_owned_labels")
+	if not offering_sub_labels.is_empty() and (offering_sub_labels[0] as Label).visible:
+		failures.append("offering cards must hide the redundant duration and multiplier subtitle")
+	var red_fruit := shop.get_good("red_fruit")
+	shop.call("_show_info_panel", red_fruit, Vector2(200.0, 200.0))
+	var info_price := shop.get("_info_price_label") as Label
+	if info_price != null and ("BOOST" in info_price.text or "×" in info_price.text):
+		failures.append("the shop detail footer must leave boost copy to the item description")
 	shop.free()
 
 
@@ -209,12 +238,31 @@ static func _test_pet_specific_timed_buff(failures: Array[String]) -> void:
 		failures.append("feeding must activate the catalog multiplier on the target pet")
 	if not is_equal_approx(float(main.call("_get_pet_offering_multiplier", "pet2")), 1.0):
 		failures.append("feeding one pet must not boost any other pet")
+	var drawer := SideDrawer.new()
+	drawer.call("_create_drawer_window")
+	drawer.set("_drawer_open", true)
+	var boost_entries: Array[Dictionary] = main.call("_get_pet_upgrade_entries")
+	drawer.refresh_pet_upgrades(boost_entries)
+	var boost_auras: Dictionary = drawer.get("_upgrade_boost_auras")
+	var pet1_aura := boost_auras.get("pet1") as Control
+	var pet2_aura := boost_auras.get("pet2") as Control
+	var faith_aura := drawer.get("_faith_boost_aura") as Control
+	if pet1_aura == null or not pet1_aura.visible:
+		failures.append("the boosted pet row must display its glow and dispersing rune aura")
+	if pet2_aura != null and pet2_aura.visible:
+		failures.append("an unboosted pet row must not inherit another pet's aura")
+	if faith_aura == null or not faith_aura.visible:
+		failures.append("any active pet boost must add a glow and dispersing runes to the main faith number")
 	var buffs: Dictionary = main.get("_pet_offering_buffs")
 	var pet1_buff: Dictionary = buffs.get("pet1", {})
 	pet1_buff["expires_at"] = float(main.call("_get_now_seconds")) - 1.0
 	main.call("_update_pet_offering_buffs")
 	if not is_equal_approx(float(main.call("_get_faith_growth_rate")), base_rate):
 		failures.append("an expired offering boost must restore the pet's normal production")
+	drawer.refresh_pet_upgrades(main.call("_get_pet_upgrade_entries"))
+	if (pet1_aura != null and pet1_aura.visible) or (faith_aura != null and faith_aura.visible):
+		failures.append("boost auras must turn off as soon as their timed offering expires")
+	drawer.free()
 	main.free()
 
 

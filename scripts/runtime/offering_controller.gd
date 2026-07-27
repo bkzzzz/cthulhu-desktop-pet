@@ -411,11 +411,6 @@ func _show_coin_change_popup(anchor: Vector2, amount: int, coin_type := "") -> v
 	if amount == 0:
 		return
 	var prefix = "+" if amount > 0 else "-"
-	var type_hint = (
-		" %s" % CoinDrop.get_drop_label(coin_type, _language)
-		if not coin_type.is_empty() and amount > 0
-		else ""
-	)
 	var color = Color(1.0, 0.84, 0.32, 1.0) if amount > 0 else Color(1.0, 0.58, 0.46, 1.0)
 	if amount > 0:
 		match coin_type:
@@ -427,7 +422,7 @@ func _show_coin_change_popup(anchor: Vector2, amount: int, coin_type := "") -> v
 				color = Color(1.0, 0.92, 0.24, 1.0)
 	_show_status_popup(
 		anchor,
-		("%s%s%s" if _language == "en" else "%s%s%s") % [prefix, CurrencyDisplay.format_compact(absi(amount)), type_hint],
+		"%s%s" % [prefix, CurrencyDisplay.format_compact(absi(amount))],
 		color
 	)
 

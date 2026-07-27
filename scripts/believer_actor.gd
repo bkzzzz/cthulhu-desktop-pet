@@ -2,7 +2,7 @@ extends Node2D
 
 signal exited(actor: Node2D)
 signal scared_away(actor: Node2D, drop_position: Vector2)
-signal prayed(actor: Node2D, drop_position: Vector2, coin_count: int)
+signal prayed(actor: Node2D, drop_position: Vector2, reward_value: int)
 
 const IDLE_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerIdle1.png"
 const WALK_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerWalk1.png"
@@ -33,10 +33,10 @@ const PRAY_ANIMATION_SPEED := 8.0
 const PRAY_DURATION_SECONDS := 2.0
 const NORMAL_PRAY_CHANCE := 0.42
 const PILGRIMAGE_PRAY_CHANCE := 0.58
-const NORMAL_PRAY_COIN_MIN := 5
-const NORMAL_PRAY_COIN_MAX := 8
-const PILGRIMAGE_PRAY_COIN_MIN := 8
-const PILGRIMAGE_PRAY_COIN_MAX := 12
+const NORMAL_PRAY_REWARD_MIN := 2
+const NORMAL_PRAY_REWARD_MAX := 4
+const PILGRIMAGE_PRAY_REWARD_MIN := 6
+const PILGRIMAGE_PRAY_REWARD_MAX := 10
 const NATURAL_LEAVE_MIN_SECONDS := 26.0
 const NATURAL_LEAVE_MAX_SECONDS := 52.0
 
@@ -58,7 +58,7 @@ var _natural_leave_time := 0.0
 var _scare_grace_time := 0.0
 var _entrance_delay := 0.0
 var _pray_time := 0.0
-var _prayer_reward_count := 0
+var _prayer_reward_value := 0
 var _prayer_chance := NORMAL_PRAY_CHANCE
 var _pilgrimage_member := false
 var _reaction_resolved := false
@@ -315,9 +315,9 @@ func _start_praying() -> void:
 	_state = BelieverState.PRAY
 	_reaction_resolved = true
 	_pray_time = PRAY_DURATION_SECONDS
-	_prayer_reward_count = _rng.randi_range(
-		PILGRIMAGE_PRAY_COIN_MIN if _pilgrimage_member else NORMAL_PRAY_COIN_MIN,
-		PILGRIMAGE_PRAY_COIN_MAX if _pilgrimage_member else NORMAL_PRAY_COIN_MAX
+	_prayer_reward_value = _rng.randi_range(
+		PILGRIMAGE_PRAY_REWARD_MIN if _pilgrimage_member else NORMAL_PRAY_REWARD_MIN,
+		PILGRIMAGE_PRAY_REWARD_MAX if _pilgrimage_member else NORMAL_PRAY_REWARD_MAX
 	)
 	_sprite.play("pray")
 
@@ -325,9 +325,9 @@ func _start_praying() -> void:
 func _finish_prayer() -> void:
 	if _state != BelieverState.PRAY:
 		return
-	var reward_count := maxi(1, _prayer_reward_count)
-	_prayer_reward_count = 0
-	prayed.emit(self, position + Vector2(0.0, -54.0), reward_count)
+	var reward_value := maxi(1, _prayer_reward_value)
+	_prayer_reward_value = 0
+	prayed.emit(self, position + Vector2(0.0, -54.0), reward_value)
 	_start_walk_out()
 
 

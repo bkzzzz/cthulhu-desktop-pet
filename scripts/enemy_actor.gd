@@ -154,6 +154,7 @@ const LOOP_ENDPOINT_DURATION_SCALE := 0.5
 static var _frames_cache := {}
 static var _alignment_cache := {}
 static var _run_half_width_cache := {}
+static var _battle_half_width_cache := {}
 static var _warmed_enemy_ids := {}
 static var _chroma_shader: Shader
 
@@ -167,6 +168,7 @@ static func warm_up(enemy_ids: Array) -> void:
 		var probe = script_resource.new()
 		probe.setup(warm_enemy_id, Vector2.ZERO, 720.0, 1.0, 120.0)
 		probe.call("_get_run_visual_half_width")
+		probe.call("_get_battle_visual_half_width")
 		probe.call("_get_animation_alignment", "attack", float(DEFINITIONS[warm_enemy_id].get("attack_visual_scale", 1.0)))
 		probe.free()
 		_warmed_enemy_ids[warm_enemy_id] = true
@@ -193,6 +195,7 @@ var _entered := false
 var _entry_x := 120.0
 var _entry_side := -1
 var _ground_y := 0.0
+var _battlefield_width := 0.0
 var _visual_scale := 0.84
 var _attack_visual_scale := 1.0
 var _attack_windup_seconds := 0.58
@@ -220,9 +223,6 @@ var _swallow_start_sprite_rotation := 0.0
 var _swallow_progress := 0.0
 var _swallow_duration := 0.55
 var _swallow_arc_height := 72.0
-var _launched := false
-var _launch_velocity := Vector2.ZERO
-var _launch_spin := 0.0
 var _hit_reaction_remaining := 0.0
 var _hit_reaction_direction := -1.0
 var _is_boss := false
@@ -235,7 +235,8 @@ func setup(
 	spawn_position: Vector2,
 	ground_y: float,
 	power_scale := 1.0,
-	entry_x := 120.0
+	entry_x := 120.0,
+	battlefield_width := -1.0
 ) -> void:
 	enemy_id = new_enemy_id if DEFINITIONS.has(new_enemy_id) else "villager1"
 	var data: Dictionary = DEFINITIONS[enemy_id]
@@ -259,6 +260,7 @@ func setup(
 	_projectiles_per_attack = maxi(1, int(data.get("projectiles_per_attack", 1)))
 	_projectile_spread = maxf(0.0, float(data.get("projectile_spread", 0.0)))
 	_ground_y = ground_y
+	_battlefield_width = maxf(0.0, battlefield_width)
 	_entry_x = entry_x
 	_entry_side = 1 if spawn_position.x > entry_x else -1
 	position = spawn_position
@@ -272,9 +274,6 @@ func _process(delta: float) -> void:
 	if _sprite == null:
 		return
 	var safe_delta := maxf(0.0, delta)
-	if _launched:
-		_update_launched(safe_delta)
-		return
 	if _being_swallowed:
 		_update_swallowed(safe_delta)
 		return
@@ -347,33 +346,31 @@ func set_target(target: Node2D) -> void:
 func take_damage(
 	amount: float,
 	knockback := 12.0,
-	launch_velocity := Vector2.ZERO,
+	_launch_velocity := Vector2.ZERO,
 	knockback_direction := -1.0
 ) -> void:
 	if _dead:
 		return
 	health -= maxf(0.0, amount)
 	var battlefield_width := _get_battlefield_width()
+	var visual_margin := minf(_get_battle_visual_half_width(), battlefield_width * 0.5)
 	var safe_knockback_direction := -1.0 if knockback_direction < 0.0 else 1.0
 	_hit_reaction_remaining = HIT_REACTION_SECONDS
 	_hit_reaction_direction = safe_knockback_direction
 	position.x = clampf(
 		position.x + safe_knockback_direction * maxf(0.0, knockback),
-		-20.0,
-		battlefield_width + 20.0
+		visual_margin,
+		battlefield_width - visual_margin
 	)
 	_flash_red()
 	if _health_bar != null and is_instance_valid(_health_bar):
 		_health_bar.call("set_health", health, max_health)
 	_update_boss_phase()
 	if health <= 0.0:
-		if launch_velocity.length_squared() > 1.0:
-			launch_offscreen(launch_velocity)
-		else:
-			_dead = true
-			if _sprite != null:
-				_sprite.visible = false
-			defeated.emit(self, _reward_count)
+		_dead = true
+		if _sprite != null:
+			_sprite.visible = false
+		defeated.emit(self, _reward_count)
 
 
 func get_health() -> float:
@@ -421,32 +418,12 @@ func is_being_swallowed() -> bool:
 	return _being_swallowed
 
 
-func launch_offscreen(velocity: Vector2) -> void:
-	if _dead or _being_swallowed:
-		return
-	health = 0.0
-	_dead = true
-	_launched = true
-	if _health_bar != null:
-		_health_bar.visible = false
-	_launch_velocity = velocity if velocity.length_squared() > 1.0 else Vector2(-720.0, -210.0)
-	_launch_spin = _rng.randf_range(-8.0, 8.0)
-	_attack_pending = false
-	_target = null
-	_battle_state = "launched"
-	defeated.emit(self, _reward_count)
-
-
-func is_launched() -> bool:
-	return _launched
-
-
 func is_defeated() -> bool:
 	return _dead or _being_swallowed
 
 
 func is_targetable() -> bool:
-	return not _dead and not _being_swallowed and not _launched
+	return not _dead and not _being_swallowed
 
 
 func has_entered_battlefield() -> bool:
@@ -492,6 +469,38 @@ func _get_run_visual_half_width() -> float:
 	# The hit squash can briefly widen the sprite during its entrance.
 	var safe_half_width := maxf(12.0, ceilf(widest_extent * 1.08 + 4.0))
 	_run_half_width_cache[enemy_id] = safe_half_width
+	return safe_half_width
+
+
+func _get_battle_visual_half_width() -> float:
+	if _battle_half_width_cache.has(enemy_id):
+		return float(_battle_half_width_cache[enemy_id])
+	if _sprite == null or _sprite.sprite_frames == null:
+		return 48.0
+	var widest_extent := 0.0
+	for animation_name in ["run", "attack"]:
+		if not _sprite.sprite_frames.has_animation(animation_name):
+			continue
+		var animation_scale := _attack_visual_scale if animation_name == "attack" else 1.0
+		var effective_scale := _visual_scale * animation_scale
+		var alignment_x := _get_animation_alignment(animation_name, animation_scale).x
+		for frame_index in _sprite.sprite_frames.get_frame_count(animation_name):
+			var frame_texture := _sprite.sprite_frames.get_frame_texture(animation_name, frame_index)
+			var frame_image := _get_atlas_frame_image(frame_texture)
+			if frame_image == null or frame_image.is_empty():
+				continue
+			var bounds := _get_visible_bounds(frame_image)
+			if bounds.size == Vector2i.ZERO:
+				continue
+			var half_frame_width := float(frame_image.get_width()) * 0.5
+			var raw_left := (float(bounds.position.x) - half_frame_width) * effective_scale
+			var raw_right := (float(bounds.position.x + bounds.size.x) - half_frame_width) * effective_scale
+			widest_extent = maxf(widest_extent, absf(alignment_x + raw_left))
+			widest_extent = maxf(widest_extent, absf(alignment_x + raw_right))
+			widest_extent = maxf(widest_extent, absf(alignment_x - raw_left))
+			widest_extent = maxf(widest_extent, absf(alignment_x - raw_right))
+	var safe_half_width := maxf(12.0, ceilf(widest_extent * 1.08 + 4.0))
+	_battle_half_width_cache[enemy_id] = safe_half_width
 	return safe_half_width
 
 
@@ -831,15 +840,7 @@ func _update_swallowed(delta: float) -> void:
 		swallowed.emit(self, _reward_count)
 
 
-func _update_launched(delta: float) -> void:
-	position += _launch_velocity * delta
-	_launch_velocity.y += 720.0 * delta
-	if _sprite != null:
-		_sprite.rotation += _launch_spin * delta
-	var battlefield_width := _get_battlefield_width()
-	if position.x < -260.0 or position.x > battlefield_width + 260.0 or position.y > _ground_y + 260.0:
-		queue_free()
-
-
 func _get_battlefield_width() -> float:
+	if _battlefield_width > 0.0:
+		return _battlefield_width
 	return maxf(1.0, get_viewport_rect().size.x) if is_inside_tree() else 1920.0

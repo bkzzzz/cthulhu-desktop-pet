@@ -14,6 +14,7 @@ signal drawer_opened
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
+const BoostAura = preload("res://scripts/boost_aura.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 
@@ -148,6 +149,7 @@ var _menu_drag_start_pointer := Vector2.ZERO
 var _menu_drag_pointer_offset := Vector2.ZERO
 
 var _faith_value_label: Label
+var _faith_boost_aura: Control
 var _faith_title_label: Label
 var _faith_growth_value_label: Label
 var _coin_icon: TextureRect
@@ -167,6 +169,7 @@ var _upgrade_last_levels := {}
 var _upgrade_affordables := {}
 var _upgrade_recovery_rings := {}
 var _upgrade_icons := {}
+var _upgrade_boost_auras := {}
 var _ui_theme: Theme
 var _ui_font: Font
 var _upgrade_row_texture: Texture2D
@@ -247,6 +250,8 @@ func refresh_pet_upgrades(entries: Array) -> void:
 	if _drawer_window != null and not _drawer_window.visible and not _drawer_open:
 		return
 
+	var any_boost_active := false
+	var strongest_boost := 1.0
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var entry: Dictionary = entries_by_id.get(pet_id, {})
@@ -258,6 +263,15 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		var name_label := _upgrade_name_labels.get(pet_id) as Label
 		var level := _get_upgrade_level(entry)
 		var recovering := bool(entry.get("recovering", false))
+		var offering_multiplier := maxf(1.0, float(entry.get("offering_multiplier", 1.0)))
+		var offering_seconds := maxf(0.0, float(entry.get("offering_seconds_remaining", 0.0)))
+		var boost_active := offering_multiplier > 1.001 and offering_seconds > 0.0
+		any_boost_active = any_boost_active or boost_active
+		if boost_active:
+			strongest_boost = maxf(strongest_boost, offering_multiplier)
+		var boost_aura := _upgrade_boost_auras.get(pet_id) as Control
+		if boost_aura != null:
+			boost_aura.call("set_boost", boost_active, offering_multiplier)
 		if name_label != null:
 			_set_fitted_label_text(
 				name_label,
@@ -313,6 +327,8 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		var bonus_label := _upgrade_bonus_labels.get(pet_id) as Label
 		if bonus_label != null:
 			_set_fitted_label_text(bonus_label, _get_upgrade_growth_text(entry), 17, 11, 18)
+
+	_set_any_boost_visual(any_boost_active, strongest_boost)
 
 	if _upgrade_detail_window != null and _upgrade_detail_window.visible and not _upgrade_detail_pet_id.is_empty():
 		if _upgrade_detail_source_button != null and is_instance_valid(_upgrade_detail_source_button):
@@ -828,6 +844,13 @@ func _make_faith_adder_stage() -> Control:
 	button.position = Vector2((DRAWER_CONTENT_WIDTH - ADDER_SIZE.x) * 0.5, 20.0)
 	stage.add_child(button)
 
+	_faith_boost_aura = BoostAura.new()
+	_faith_boost_aura.name = "FaithBoostAura"
+	_faith_boost_aura.position = Vector2((DRAWER_CONTENT_WIDTH - 400.0) * 0.5, 256.0)
+	_faith_boost_aura.size = Vector2(400.0, 126.0)
+	_faith_boost_aura.call("setup", BoostAura.AuraMode.FAITH_COUNTER)
+	stage.add_child(_faith_boost_aura)
+
 	_faith_value_label = Label.new()
 	_faith_value_label.name = "FaithValue"
 	_faith_value_label.text = _format_number(_faith_count, false, true)
@@ -1005,6 +1028,7 @@ func _make_upgrade_column() -> Control:
 	_upgrade_affordables.clear()
 	_upgrade_recovery_rings.clear()
 	_upgrade_icons.clear()
+	_upgrade_boost_auras.clear()
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		column.add_child(_make_pet_upgrade_row(String(pet_id_value)))
 	for index in UPGRADE_LOCKED_ROWS:
@@ -1025,6 +1049,13 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	button.mouse_exited.connect(_on_upgrade_row_hovered.bind(pet_id, button, false))
 	button.pressed.connect(_on_pet_upgrade_pressed.bind(pet_id, button))
 	_upgrade_buttons[pet_id] = button
+
+	var boost_aura: Control = BoostAura.new()
+	boost_aura.name = "%sBoostAura" % pet_id
+	boost_aura.size = UPGRADE_ROW_SIZE
+	boost_aura.call("setup", BoostAura.AuraMode.PET_ROW)
+	button.add_child(boost_aura)
+	_upgrade_boost_auras[pet_id] = boost_aura
 
 	button.add_child(_make_upgrade_profile_box(pet_id, pet_data))
 
@@ -1207,6 +1238,11 @@ func _fit_font_to_text(control: Control, text: String, max_size: int, min_size: 
 	var font_size := max_size
 	var font := _get_ui_font()
 	var available_width := control.size.x - 8.0
+	if control == _coin_value_label:
+		# The account uses one exact, comma-separated number.  The HBox reports
+		# its old intrinsic width during a balance refresh, so cap the measuring
+		# width to the actual drawer space left beside the coin icon.
+		available_width = minf(available_width, DRAWER_CONTENT_WIDTH - 60.0)
 	if font != null and available_width > 0.0:
 		while font_size > min_size:
 			var text_width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size).x
@@ -1432,8 +1468,27 @@ func _set_upgrade_row_locked_state(pet_id: String, locked: bool) -> void:
 	var recovery_ring := _upgrade_recovery_rings.get(pet_id) as Control
 	if recovery_ring != null:
 		recovery_ring.visible = false
+	var boost_aura := _upgrade_boost_auras.get(pet_id) as Control
+	if boost_aura != null:
+		boost_aura.call("set_boost", false, 1.0)
 	_upgrade_last_levels.erase(pet_id)
 	_upgrade_affordables[pet_id] = false
+
+
+func _set_any_boost_visual(active: bool, strongest_multiplier: float) -> void:
+	if _faith_boost_aura != null:
+		_faith_boost_aura.call("set_boost", active, strongest_multiplier)
+	if _faith_value_label != null:
+		_faith_value_label.add_theme_color_override(
+			"font_color",
+			Color(1.0, 0.94, 0.52, 1.0) if active else Color(0.88, 1.0, 0.78, 1.0)
+		)
+		_faith_value_label.add_theme_constant_override("outline_size", 6 if active else 4)
+	if _faith_growth_value_label != null:
+		_faith_growth_value_label.add_theme_color_override(
+			"font_color",
+			Color(0.90, 1.0, 0.52, 1.0) if active else Color(0.78, 1.0, 0.7, 1.0)
+		)
 
 
 func _on_upgrade_row_hovered(pet_id: String, button: Control, hovered: bool) -> void:

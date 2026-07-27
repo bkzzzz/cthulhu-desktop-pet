@@ -18,7 +18,7 @@ func _render_previews() -> void:
 	var initial_path := OS.get_user_data_dir().path_join("gacha_initial_preview.png")
 	window.get_texture().get_image().save_png(initial_path)
 	window.call("_apply_egg_shuffle_step", 0)
-	window.call("_on_draw_amount_preset_pressed", 1000)
+	window.call("_on_draw_amount_preset_pressed", 100)
 	window.call("_update_draw_button")
 	await process_frame
 	var shuffle_path := OS.get_user_data_dir().path_join("gacha_shuffle_preview.png")

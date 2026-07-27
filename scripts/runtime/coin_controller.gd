@@ -57,41 +57,35 @@ func _spawn_pet_coin_pile(actor: Node2D, interval_seconds: float) -> void:
 		return
 	var level = PetProgression.progression_level(_host._get_pet_state(pet_id))
 	var rate_per_minute = _host._get_pet_money_value_per_minute(pet_id, level)
-	var target_value = maxf(
-		float(PET_AUTO_COIN_PILE_MIN),
+	var target_value := maxi(1, int(round(
 		rate_per_minute * maxf(1.0, interval_seconds) / 60.0
-	)
-	var pile_count = clampi(
-		int(ceil(target_value / 8.0)),
-		PET_AUTO_COIN_PILE_MIN,
-		PET_AUTO_COIN_PILE_MAX
-	)
+	)))
 	var drop_anchor = actor.position + Vector2(0.0, -64.0)
 	if actor.has_method("get_emotion_anchor"):
 		drop_anchor = actor.call("get_emotion_anchor")
-	var remaining_value = target_value
-	var crystal_budget = maxf(0.0, target_value - float(maxi(0, pile_count - 1)))
-	var crystal_type = _choose_crystal_drop_type(
-		PetCatalog.get_definition(pet_id),
-		level,
-		crystal_budget
-	)
-	for coin_index in pile_count:
-		var slots_left = pile_count - coin_index
-		var average_value = remaining_value / float(maxi(1, slots_left))
-		var coin_type = "R"
-		if coin_index == 0 and not crystal_type.is_empty():
-			coin_type = crystal_type
-		elif average_value >= 24.0:
-			coin_type = "D"
-		elif average_value >= 3.0:
-			coin_type = "P"
-		remaining_value = maxf(0.0, remaining_value - float(CoinDrop.get_coin_value(coin_type)))
-		var spread_weight = float(coin_index) - float(pile_count - 1) * 0.5
-		_spawn_coin(coin_type, drop_anchor + Vector2(
-			spread_weight * 13.0 + _rng.randf_range(-8.0, 8.0),
-			_rng.randf_range(-14.0, 10.0)
-		))
+	_spawn_value_as_coins(target_value, drop_anchor, PET_AUTO_COIN_PILE_MAX)
+
+func _spawn_value_as_coins(
+	total_value: int,
+	drop_anchor: Vector2,
+	max_drop_count := 8
+) -> Array[Node2D]:
+	var spawned: Array[Node2D] = []
+	var plan := CoinDrop.make_drop_plan(total_value, max_drop_count)
+	for drop_index in plan.size():
+		var drop_data: Dictionary = plan[drop_index]
+		var spread_weight := float(drop_index) - float(plan.size() - 1) * 0.5
+		var coin := _spawn_coin(
+			String(drop_data.get("type", "R")),
+			drop_anchor + Vector2(
+				spread_weight * 13.0 + _rng.randf_range(-8.0, 8.0),
+				_rng.randf_range(-14.0, 10.0)
+			)
+		)
+		if coin != null and is_instance_valid(coin):
+			coin.call("set_drop_value", int(drop_data.get("value", 0)))
+			spawned.append(coin)
+	return spawned
 
 func _update_coin_drops() -> void:
 	for index in range(_coin_drops.size() - 1, -1, -1):
@@ -101,11 +95,10 @@ func _update_coin_drops() -> void:
 func _spawn_pet_coin(actor: Node2D) -> Node2D:
 	if actor == null or not is_instance_valid(actor):
 		return null
-	var coin_type = "P" if _rng.randf() < PET_P_COIN_CHANCE else "R"
 	var spawn_position = actor.position + Vector2(0.0, -72.0)
 	if actor.has_method("get_emotion_anchor"):
 		spawn_position = actor.call("get_emotion_anchor")
-	return _spawn_coin(coin_type, spawn_position)
+	return _spawn_coin("R", spawn_position)
 
 func _spawn_coin(coin_type: String, spawn_position: Vector2) -> Node2D:
 	_make_desktop_coin_capacity(1)
@@ -144,15 +137,25 @@ func _on_coin_collected(actor: Node2D, coin_type: String, value: int) -> void:
 	_host._refresh_coin_display()
 	_host._show_coin_change_popup(popup_position, safe_value, coin_type)
 
-func _on_believer_scared_away(_actor: Node2D, _drop_position: Vector2) -> void:
-	pass
+func _on_believer_scared_away(
+	_actor: Node2D,
+	drop_position: Vector2,
+	reward_value := 0
+) -> void:
+	var safe_value := clampi(
+		int(reward_value),
+		0,
+		PILGRIMAGE_MAX_SINGLE_GOLD_REWARD
+	)
+	if safe_value > 0:
+		_spawn_value_as_coins(safe_value, drop_position, 3)
 
-func _on_believer_prayed(_actor: Node2D, drop_position: Vector2, coin_count: int) -> void:
-	var safe_count = clampi(coin_count, 1, BelieverActor.PILGRIMAGE_PRAY_COIN_MAX)
-	for coin_index in safe_count:
-		var spread_weight = float(coin_index) - (float(safe_count - 1) * 0.5)
-		var coin_position = drop_position + Vector2(
-			spread_weight * 11.0 + _rng.randf_range(-7.0, 7.0),
-			_rng.randf_range(-12.0, 8.0)
-		)
-		_spawn_coin("D", coin_position)
+func _on_believer_prayed(_actor: Node2D, drop_position: Vector2, reward_value: int) -> void:
+	var safe_value := clampi(
+		reward_value,
+		0,
+		PILGRIMAGE_MAX_SINGLE_GOLD_REWARD
+	)
+	if safe_value <= 0:
+		return
+	_spawn_value_as_coins(safe_value, drop_position, 3)

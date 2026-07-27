@@ -2,9 +2,10 @@ extends "res://scripts/runtime/main_context.gd"
 
 const ENCOUNTER_REWARD_KEY := "_encounter_reward_budget"
 const ENCOUNTER_DIFFICULTY_KEY := "_encounter_difficulty_scale"
-const BATTLE_GOLD_REWARD_MINUTES := 0.60
-const BATTLE_GOLD_REWARD_MIN_MINUTES := 0.50
-const BATTLE_GOLD_REWARD_MAX_MINUTES := 0.75
+const BATTLE_GOLD_REWARD_MINUTES := 1.80
+const BATTLE_GOLD_REWARD_MIN_MINUTES := 1.50
+const BATTLE_GOLD_REWARD_MAX_MINUTES := 2.25
+const BATTLE_GOLD_REWARD_OPENING_FLOOR := 150.0
 const BATTLE_FAITH_REWARD_BASE_SECONDS := 12.0
 const BATTLE_FAITH_REWARD_MIN_SECONDS := 10.0
 const BATTLE_FAITH_REWARD_MAX_SECONDS := 16.0
@@ -201,13 +202,13 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 		BATTLE_GOLD_REWARD_MIN_MINUTES,
 		BATTLE_GOLD_REWARD_MAX_MINUTES
 	)
-	var opening_gold_floor := 50.0 * difficulty_factor
+	var opening_gold_floor := BATTLE_GOLD_REWARD_OPENING_FLOOR * difficulty_factor
 	var victory_gold := _safe_battle_reward_int(maxf(
 		opening_gold_floor,
 		potential_coin_rate * gold_minutes
 	))
-	reward_budget["gold"] = victory_gold
-	reward_budget["enemy_gold"] = 0
+	var enemy_gold := maxi(0, int(reward_budget.get("enemy_gold", 0)))
+	reward_budget["gold"] = _safe_battle_reward_int(float(enemy_gold + victory_gold))
 	reward_budget["victory_gold"] = victory_gold
 
 	var faith_seconds := clampf(
@@ -343,7 +344,7 @@ func _update_battle(delta: float) -> void:
 	for enemy in _battle_enemies:
 		if not is_instance_valid(enemy):
 			continue
-		var target = _get_nearest_battle_pet(enemy, alive_pets)
+		var target = _get_battle_target_for_enemy(enemy, alive_pets)
 		if enemy.has_method("set_target"):
 			enemy.call("set_target", target)
 
@@ -412,20 +413,8 @@ func _update_battle(delta: float) -> void:
 			var visual_power = _get_battle_visual_power(rarity, level)
 			_spawn_pet_projectile(pet, pet_id, enemy_target, signf(attack_direction), damage, knockback, visual_power)
 		elif enemy_target.has_method("take_damage"):
-			var visual_power = _get_battle_visual_power(rarity, level)
-			var current_health = float(enemy_target.call("get_health")) if enemy_target.has_method("get_health") else INF
-			var launch_defeat = current_health <= damage and _roll_melee_launch(rarity, level)
 			var hit_direction := -1.0 if enemy_target.position.x < pet.position.x else 1.0
-			if launch_defeat:
-				var launch_direction = hit_direction
-				var launch_velocity = Vector2(
-					launch_direction * (720.0 + visual_power * 58.0),
-					-190.0 - visual_power * 16.0
-				)
-				enemy_target.call("take_damage", damage, knockback, launch_velocity, hit_direction)
-				_try_launch_enemy_group(pet, enemy_target, visual_power, launch_direction)
-			else:
-				enemy_target.call("take_damage", damage, knockback, Vector2.ZERO, hit_direction)
+			enemy_target.call("take_damage", damage, knockback, Vector2.ZERO, hit_direction)
 		var next_attack_delay = _rng.randf_range(0.95, 1.35)
 		if pet.has_method("get_battle_attack_duration"):
 			next_attack_delay = maxf(
@@ -549,7 +538,8 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 			spawn_position,
 			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS),
 			era_scale * wave_scale,
-			entry_x
+			entry_x,
+			float(_pet_window_size.x)
 		)
 		enemy.connect("attack_landed", Callable(self, "_on_enemy_attack_landed"))
 		enemy.connect("projectile_requested", Callable(self, "_on_enemy_projectile_requested"))
@@ -626,41 +616,6 @@ func _on_enemy_projectile_impacted(
 
 func _get_battle_visual_power(rarity: int, level: int) -> float:
 	return clampf(float(rarity) + log(float(maxi(1, level))) / log(10.0) * 0.72, 1.0, 7.5)
-
-func _roll_melee_launch(rarity: int, level: int) -> bool:
-	var chance = clampf(
-		0.07 + float(rarity) * 0.035 + log(float(maxi(1, level))) / log(10.0) * 0.045,
-		0.10,
-		0.42
-	)
-	return _rng.randf() < chance
-
-func _try_launch_enemy_group(
-	_attacker: Node2D,
-	primary: Node2D,
-	visual_power: float,
-	launch_direction: float
-) -> void:
-	if visual_power < 4.7 or _rng.randf() > clampf(0.20 + (visual_power - 4.7) * 0.12, 0.20, 0.58):
-		return
-	var remaining = clampi(1 + int(floor((visual_power - 4.7) * 0.72)), 1, 3)
-	for enemy in _battle_enemies.duplicate():
-		if remaining <= 0:
-			break
-		if not is_instance_valid(enemy) or enemy == primary:
-			continue
-		if enemy.has_method("is_defeated") and bool(enemy.call("is_defeated")):
-			continue
-		if enemy.position.distance_to(primary.position) > 185.0:
-			continue
-		if not enemy.has_method("launch_offscreen"):
-			continue
-		var vertical_variation = _rng.randf_range(-245.0, -150.0)
-		enemy.call(
-			"launch_offscreen",
-			Vector2(launch_direction * (680.0 + visual_power * 52.0), vertical_variation)
-		)
-		remaining -= 1
 
 func _spawn_pet_projectile(
 	pet: Node2D,
@@ -770,11 +725,22 @@ func _get_nearest_battle_pet(enemy: Node2D, candidates: Array[Node2D]) -> Node2D
 	var nearest: Node2D
 	var nearest_distance = INF
 	for pet in candidates:
-		var distance = absf(pet.position.x - enemy.position.x)
+		if pet == null or not is_instance_valid(pet) or pet.is_queued_for_deletion():
+			continue
+		var distance = pet.position.distance_squared_to(enemy.position)
 		if distance < nearest_distance:
 			nearest_distance = distance
 			nearest = pet
 	return nearest
+
+
+func _get_battle_target_for_enemy(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
+	# Re-evaluate every update instead of preserving an earlier target. Dragging a
+	# pet across the line or losing a frontliner immediately changes enemy aggro.
+	if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
+		return null
+	return _get_nearest_battle_pet(enemy, candidates)
+
 
 func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 	var nearest: Node2D
@@ -784,7 +750,7 @@ func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
 			continue
 		if not _is_battle_enemy_targetable(enemy):
 			continue
-		var distance = absf(pet.position.x - enemy.position.x)
+		var distance = pet.position.distance_squared_to(enemy.position)
 		if distance < nearest_distance:
 			nearest_distance = distance
 			nearest = enemy
@@ -809,18 +775,6 @@ func _get_battle_target_for_pet(pet: Node2D) -> Node2D:
 	if pet == null or not is_instance_valid(pet):
 		return null
 	var actor_key = str(pet.get_instance_id())
-	# Validate stale Object variants before casting cached targets.
-	var current_target_value: Variant = _battle_pet_enemy_targets.get(actor_key, null)
-	if is_instance_valid(current_target_value):
-		var current_target = current_target_value as Node2D
-		if (
-			current_target != null
-			and not current_target.is_queued_for_deletion()
-			and _battle_enemies.has(current_target)
-			and _is_battle_enemy_targetable(current_target)
-		):
-			return current_target
-	_battle_pet_enemy_targets.erase(actor_key)
 	var next_target = _get_nearest_battle_enemy(pet)
 	if next_target == null:
 		_battle_pet_enemy_targets.erase(actor_key)
@@ -900,8 +854,6 @@ func _on_enemy_defeated(enemy: Node2D, reward_count: int) -> void:
 	_battle_enemies.erase(enemy)
 	_clear_battle_target_locks_for_enemy(enemy)
 	_spawn_battle_reward(defeat_position, reward_count)
-	if enemy.has_method("is_launched") and bool(enemy.call("is_launched")):
-		return
 	_spawn_smoke_effect(defeat_position)
 	enemy.queue_free()
 
@@ -928,7 +880,7 @@ func _spawn_battle_reward(drop_position: Vector2, reward_count: int) -> void:
 		or _coin_drops.size() >= DESKTOP_COIN_LIMIT
 	):
 		return
-	var visual_type := "D" if reward_count >= 50 else "P" if reward_count >= 5 else "R"
+	var visual_type := CoinDrop.get_visual_type_for_value(reward_count)
 	var visual_coin: Node2D = _host._spawn_coin(
 		visual_type,
 		drop_position + Vector2(

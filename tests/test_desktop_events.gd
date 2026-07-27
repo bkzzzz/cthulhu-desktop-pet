@@ -39,20 +39,20 @@ static func _test_victory_loot_burst(failures: Array[String]) -> void:
 	main.call("_spawn_victory_loot_burst", 2_500_000)
 	var presentation: Node = main.get("_presentation_controller")
 	var drops: Array = presentation.get("_victory_loot_drops")
-	if drops.size() < 9 or drops.size() > 16:
-		failures.append("victory loot must create a rich but bounded celebration burst")
+	if drops.size() < Main.PresentationController.VICTORY_LOOT_MIN_DROPS or drops.size() > Main.PresentationController.VICTORY_LOOT_MAX_DROPS:
+		failures.append("victory loot must create a denomination-compressed, bounded celebration burst")
 	if not (main.get("_coin_drops") as Array).is_empty():
 		failures.append("victory celebration drops must not evict or join collectible desktop currency")
-	var found_crystal := false
+	var found_high_denomination := false
 	for drop_value in drops:
 		var drop := drop_value as Node2D
 		if int(drop.get("value")) != 0 or not bool(drop.get_meta("victory_loot_visual", false)):
 			failures.append("victory loot visuals must never duplicate the settled gold reward")
 			break
 		if String(drop.get("coin_type")) in ["C", "S", "G"]:
-			found_crystal = true
-	if not found_crystal:
-		failures.append("high-value victory loot must use the imported crystal denominations")
+			found_high_denomination = true
+	if not found_high_denomination:
+		failures.append("high-value victory loot must use the imported high-denomination animations")
 	if Main.PresentationController.VICTORY_LOOT_DELAY_SECONDS <= 0.0:
 		failures.append("victory loot must wait until after the notification panel entrance")
 	for _frame in 150:
@@ -335,14 +335,13 @@ static func _test_enemy_projectiles_and_special_defeats(failures: Array[String])
 	intercepting_pet.free()
 
 	var enemy := EnemyActor.new()
-	enemy.setup("villager1", Vector2(180.0, 400.0), 400.0, 1.0, 180.0)
-	enemy.launch_offscreen(Vector2(-800.0, -220.0))
-	if not bool(enemy.call("is_launched")):
-		failures.append("melee finishing blows must be able to launch enemies offscreen")
-	var launch_start := enemy.position
-	enemy.call("_process", 0.1)
-	if enemy.position == launch_start:
-		failures.append("launched enemies must visibly fly instead of disappearing immediately")
+	enemy.setup("villager1", Vector2(180.0, 400.0), 400.0, 1.0, 180.0, 1000.0)
+	var visual_margin := float(enemy.call("_get_battle_visual_half_width"))
+	enemy.take_damage(0.0, 900.0, Vector2(-800.0, -220.0), -1.0)
+	if enemy.position.x < visual_margin - 0.01:
+		failures.append("strong finishing knockback must stop at the visible desktop boundary")
+	if enemy.has_method("launch_offscreen") or enemy.has_method("is_launched"):
+		failures.append("combat must no longer expose an offscreen enemy-launch state")
 	enemy.free()
 	target.free()
 
@@ -486,6 +485,10 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 		failures.append("one advanced carry pet must create extra enemy pressure beyond equal spread-out roster power")
 	if int(high_budget.get("gold", 0)) <= int(low_budget.get("gold", 0)):
 		failures.append("battle gold rewards must rise with potential coin income")
+	if int(low_budget.get("enemy_gold", 0)) <= 0:
+		failures.append("battle settlement must include the defeated enemies' authored money value")
+	if int(low_budget.get("gold", 0)) < int(Main.BattleController.BATTLE_GOLD_REWARD_OPENING_FLOOR * 0.80):
+		failures.append("even an opening battle must pay a substantial money reward")
 	if int(high_budget.get("faith", 0)) <= int(low_budget.get("faith", 0)):
 		failures.append("battle faith rewards must rise with baseline faith growth")
 	if int(low_budget.get("faith", 0)) < int(floor(low_manual_click_gain * 5.0)):

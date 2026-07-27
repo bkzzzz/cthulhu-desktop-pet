@@ -18,8 +18,7 @@ const COIN_VALUES := {
 	"S": 250,
 	"G": 500
 }
-const CRYSTAL_NAMES_ZH := {"C": "铜晶", "S": "银晶", "G": "金晶"}
-const CRYSTAL_NAMES_EN := {"C": "COPPER CRYSTAL", "S": "SILVER CRYSTAL", "G": "GOLD CRYSTAL"}
+const DENOMINATION_ORDER := ["G", "S", "C", "D", "P", "R"]
 const SHEET_FRAMES := 5
 const CRYSTAL_SHEET_FRAMES := 4
 const COIN_SCALE := 2.65
@@ -69,11 +68,44 @@ static func get_sheet_frame_count(type_id: String) -> int:
 	return CRYSTAL_SHEET_FRAMES if type_id.to_upper() in ["C", "S", "G"] else SHEET_FRAMES
 
 
-static func get_drop_label(type_id: String, language_code := "en") -> String:
-	var safe_type := type_id.to_upper()
-	if language_code == "zh":
-		return String(CRYSTAL_NAMES_ZH.get(safe_type, safe_type))
-	return String(CRYSTAL_NAMES_EN.get(safe_type, safe_type))
+static func get_visual_type_for_value(drop_value: int) -> String:
+	var safe_value := maxi(1, drop_value)
+	for type_id in DENOMINATION_ORDER:
+		if safe_value >= get_coin_value(type_id):
+			return type_id
+	return "R"
+
+
+static func make_drop_plan(total_value: int, max_drop_count := 10) -> Array[Dictionary]:
+	var remaining := maxi(0, total_value)
+	var drop_limit := maxi(1, max_drop_count)
+	var plan: Array[Dictionary] = []
+	if remaining <= 0:
+		return plan
+	for type_id in DENOMINATION_ORDER:
+		var denomination := get_coin_value(type_id)
+		while remaining >= denomination and plan.size() < drop_limit:
+			if plan.size() == drop_limit - 1:
+				plan.append({
+					"type": get_visual_type_for_value(remaining),
+					"value": remaining
+				})
+				remaining = 0
+				break
+			plan.append({"type": type_id, "value": denomination})
+			remaining -= denomination
+		if remaining <= 0:
+			break
+	if remaining > 0:
+		if plan.is_empty():
+			plan.append({"type": get_visual_type_for_value(remaining), "value": remaining})
+		else:
+			plan.back()["value"] = int(plan.back().get("value", 0)) + remaining
+	return plan
+
+
+func set_drop_value(drop_value: int) -> void:
+	value = maxi(0, drop_value)
 
 
 func setup(type_id: String, start_position: Vector2, window_size: Vector2i, ground_y: float) -> void:

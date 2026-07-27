@@ -4,9 +4,11 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 
 const CAMPAIGN_LEVEL_TARGET := 100
-const BASELINE_COIN_RATE_PER_MINUTE := 10.0
 const EXPECTED_ACTIVE_FAITH_MULTIPLIER := 1.25
 
+# Each point of production multiplier costs roughly this many minutes of the
+# player's current pet-money output. The rate itself is deliberately not
+# surfaced in the shop; only the resulting friendly-rounded account price is.
 const OFFERING_PRICE_MINUTES_PER_BONUS := 2.20
 
 
@@ -59,10 +61,7 @@ static func dynamic_offering_price(
 	multiplier: float,
 	potential_coin_rate: float
 ) -> int:
-	var scalable_rate := maxf(
-		0.0,
-		maxf(0.0, potential_coin_rate) - BASELINE_COIN_RATE_PER_MINUTE
-	)
+	var scalable_rate := maxf(0.0, potential_coin_rate)
 	var income_minutes := (
 		maxf(0.0, multiplier - 1.0)
 		* OFFERING_PRICE_MINUTES_PER_BONUS

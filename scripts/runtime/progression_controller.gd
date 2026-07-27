@@ -271,6 +271,7 @@ func _get_pet_offering_seconds_remaining(pet_id: String, now := -1.0) -> float:
 	var current_time = _host._get_now_seconds() if now < 0.0 else now
 	return maxf(0.0, float((buff_value as Dictionary).get("expires_at", 0.0)) - current_time)
 
+
 func _update_pet_offering_buffs() -> void:
 	if _pet_offering_buffs.is_empty():
 		return
@@ -286,7 +287,13 @@ func _update_pet_offering_buffs() -> void:
 		_pet_upgrade_stats_dirty = true
 
 func _get_total_faith_multiplier() -> float:
-	return GLOBAL_FAITH_MULTIPLIER * BUFF_FAITH_MULTIPLIER
+	var pilgrimage_multiplier := 1.0
+	if _host != null and _host.has_method("_get_active_pilgrimage_faith_multiplier"):
+		pilgrimage_multiplier = maxf(
+			1.0,
+			float(_host.call("_get_active_pilgrimage_faith_multiplier"))
+		)
+	return GLOBAL_FAITH_MULTIPLIER * BUFF_FAITH_MULTIPLIER * pilgrimage_multiplier
 
 func _get_pet_display_name(pet_id: String) -> String:
 	var state = _get_pet_state(pet_id)
@@ -820,12 +827,13 @@ func _on_pet_upgrade_requested(pet_id: String) -> void:
 	_sync_deployed_pet_level(pet_id)
 	_pet_upgrade_stats_dirty = true
 	_host._refresh_pet_stats(true)
+	_host._sync_shop_state()
 	_host._try_queue_news_event(
 		"upgrade",
-		{"level": PetProgression.progression_level(state)},
-		"upgrade:%s" % pet_id,
-		40.0,
-		0.45
+		{},
+		"membership:registry",
+		240.0,
+		0.18
 	)
 	_host._request_save()
 

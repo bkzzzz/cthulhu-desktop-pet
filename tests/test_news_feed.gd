@@ -140,14 +140,14 @@ static func _test_event_templates(failures: Array[String]) -> void:
 	for template_roll in [0.0, 0.75]:
 		var upgrade: Dictionary = feed.make_event(
 			"upgrade",
-			{"pet_name": PET_NAME_SENTINEL, "level": 12},
+			{"pet_name": PET_NAME_SENTINEL, "level": 12, "followers": 456.0},
 			template_roll
 		)
 		var upgrade_text := String(upgrade.get("headline", ""))
-		if upgrade_text.contains(PET_NAME_SENTINEL) or not upgrade_text.contains("12"):
-			failures.append("every upgrade news template must report the level without the pet name")
-		if upgrade_text.contains("种群") or upgrade_text.contains("{level}"):
-			failures.append("upgrade news must not retain population or unresolved level wording")
+		if upgrade_text.contains(PET_NAME_SENTINEL) or not upgrade_text.contains("456"):
+			failures.append("upgrade-triggered news must report the current follower count without the pet name")
+		if upgrade_text.contains("级") or upgrade_text.contains("{level}"):
+			failures.append("upgrade-triggered news must not expose abstract cult levels")
 	if not feed.make_event("evolution", {"pet_name": PET_NAME_SENTINEL}, 0.0).is_empty():
 		failures.append("removed evolution events must not produce news")
 	if not feed.make_event("unknown", {}, 0.0).is_empty():
