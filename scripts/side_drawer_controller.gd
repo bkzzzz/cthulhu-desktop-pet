@@ -149,6 +149,7 @@ var _menu_drag_start_pointer := Vector2.ZERO
 var _menu_drag_pointer_offset := Vector2.ZERO
 
 var _faith_value_label: Label
+var _faith_boost_glow_label: Label
 var _faith_boost_aura: Control
 var _faith_title_label: Label
 var _faith_growth_value_label: Label
@@ -158,6 +159,8 @@ var _faith_count := 0.0
 var _coin_count := 0
 var _follower_count := 0
 var _faith_growth_rate := 0.0
+var _faith_boost_active := false
+var _faith_boost_growth_tween: Tween
 var _follower_growth_rate := 0.0
 var _upgrade_entries := []
 var _upgrade_buttons := {}
@@ -225,8 +228,14 @@ func refresh_faith(faith_count: float, growth_rate: float) -> void:
 		if _faith_value_label.text != next_faith_text:
 			var needs_refit := _faith_value_label.text.length() != next_faith_text.length()
 			_faith_value_label.text = next_faith_text
+			if _faith_boost_glow_label != null:
+				_faith_boost_glow_label.text = next_faith_text
 			if needs_refit:
 				_fit_font_to_text(_faith_value_label, _faith_value_label.text, FAITH_COUNTER_VALUE_FONT_MAX, FAITH_COUNTER_VALUE_FONT_MIN, 7)
+				if _faith_boost_glow_label != null:
+					_fit_font_to_text(_faith_boost_glow_label, next_faith_text, FAITH_COUNTER_VALUE_FONT_MAX, FAITH_COUNTER_VALUE_FONT_MIN, 7)
+			if _faith_boost_active:
+				_play_boosted_faith_growth_pulse()
 
 	if _faith_growth_value_label != null:
 		var next_growth_text := "+%s%s" % [_format_number(_faith_growth_rate, true), RATE_SUFFIX]
@@ -851,6 +860,23 @@ func _make_faith_adder_stage() -> Control:
 	_faith_boost_aura.call("setup", BoostAura.AuraMode.FAITH_COUNTER)
 	stage.add_child(_faith_boost_aura)
 
+	_faith_boost_glow_label = Label.new()
+	_faith_boost_glow_label.name = "FaithBoostDigitGlow"
+	_faith_boost_glow_label.text = _format_number(_faith_count, false, true)
+	_faith_boost_glow_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_faith_boost_glow_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_faith_boost_glow_label.position = Vector2((DRAWER_CONTENT_WIDTH - 300.0) * 0.5, 282.0)
+	_faith_boost_glow_label.size = Vector2(300.0, 72.0)
+	_faith_boost_glow_label.pivot_offset = _faith_boost_glow_label.size * 0.5
+	_faith_boost_glow_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_faith_boost_glow_label.visible = false
+	_faith_boost_glow_label.add_theme_font_size_override("font_size", FAITH_COUNTER_VALUE_FONT_MAX)
+	_faith_boost_glow_label.add_theme_color_override("font_color", Color(0.72, 1.0, 0.28, 0.42))
+	_faith_boost_glow_label.add_theme_color_override("font_outline_color", Color(0.44, 1.0, 0.12, 0.42))
+	_faith_boost_glow_label.add_theme_constant_override("outline_size", 16)
+	stage.add_child(_faith_boost_glow_label)
+	_fit_font_to_text(_faith_boost_glow_label, _faith_boost_glow_label.text, FAITH_COUNTER_VALUE_FONT_MAX, FAITH_COUNTER_VALUE_FONT_MIN, 7)
+
 	_faith_value_label = Label.new()
 	_faith_value_label.name = "FaithValue"
 	_faith_value_label.text = _format_number(_faith_count, false, true)
@@ -1330,7 +1356,7 @@ func _apply_language_theme() -> void:
 	for display_label in [_menu_hint, _era_label]:
 		if display_label != null:
 			display_label.add_theme_font_override("font", display_font)
-	for numeric_label in [_faith_value_label, _faith_growth_value_label, _coin_value_label]:
+	for numeric_label in [_faith_value_label, _faith_boost_glow_label, _faith_growth_value_label, _coin_value_label]:
 		if numeric_label != null:
 			numeric_label.add_theme_font_override("font", numeric_display_font)
 
@@ -1476,19 +1502,57 @@ func _set_upgrade_row_locked_state(pet_id: String, locked: bool) -> void:
 
 
 func _set_any_boost_visual(active: bool, strongest_multiplier: float) -> void:
+	_faith_boost_active = active
 	if _faith_boost_aura != null:
 		_faith_boost_aura.call("set_boost", active, strongest_multiplier)
+	if _faith_boost_glow_label != null:
+		_faith_boost_glow_label.visible = active
 	if _faith_value_label != null:
 		_faith_value_label.add_theme_color_override(
 			"font_color",
 			Color(1.0, 0.94, 0.52, 1.0) if active else Color(0.88, 1.0, 0.78, 1.0)
 		)
-		_faith_value_label.add_theme_constant_override("outline_size", 6 if active else 4)
+		_faith_value_label.add_theme_color_override(
+			"font_outline_color",
+			Color(0.30, 0.82, 0.10, 0.96) if active else Color(0.02, 0.03, 0.02, 1.0)
+		)
+		_faith_value_label.add_theme_color_override(
+			"font_shadow_color",
+			Color(0.48, 1.0, 0.16, 0.72) if active else Color(0.0, 0.0, 0.0, 0.0)
+		)
+		_faith_value_label.add_theme_constant_override("outline_size", 10 if active else 4)
+		_faith_value_label.add_theme_constant_override("shadow_outline_size", 12 if active else 0)
 	if _faith_growth_value_label != null:
 		_faith_growth_value_label.add_theme_color_override(
 			"font_color",
 			Color(0.90, 1.0, 0.52, 1.0) if active else Color(0.78, 1.0, 0.7, 1.0)
 		)
+
+
+func _play_boosted_faith_growth_pulse() -> void:
+	if _faith_boost_glow_label == null or not _faith_boost_active:
+		return
+	if _faith_boost_growth_tween != null and _faith_boost_growth_tween.is_valid():
+		_faith_boost_growth_tween.kill()
+	_faith_boost_glow_label.scale = Vector2(1.13, 1.18)
+	_faith_boost_glow_label.modulate = Color(1.0, 1.0, 0.66, 0.95)
+	_faith_boost_growth_tween = create_tween()
+	_faith_boost_growth_tween.set_trans(Tween.TRANS_EXPO)
+	_faith_boost_growth_tween.set_ease(Tween.EASE_OUT)
+	_faith_boost_growth_tween.tween_property(
+		_faith_boost_glow_label,
+		"scale",
+		Vector2.ONE,
+		0.16
+	)
+	_faith_boost_growth_tween.parallel().tween_property(
+		_faith_boost_glow_label,
+		"modulate",
+		Color(1.0, 1.0, 1.0, 0.58),
+		0.20
+	)
+	if _faith_boost_aura != null:
+		_faith_boost_aura.call("notify_growth")
 
 
 func _on_upgrade_row_hovered(pet_id: String, button: Control, hovered: bool) -> void:

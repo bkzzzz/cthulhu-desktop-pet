@@ -247,12 +247,15 @@ static func _test_pet_specific_timed_buff(failures: Array[String]) -> void:
 	var pet1_aura := boost_auras.get("pet1") as Control
 	var pet2_aura := boost_auras.get("pet2") as Control
 	var faith_aura := drawer.get("_faith_boost_aura") as Control
+	var digit_glow := drawer.get("_faith_boost_glow_label") as Label
 	if pet1_aura == null or not pet1_aura.visible:
 		failures.append("the boosted pet row must display its glow and dispersing rune aura")
 	if pet2_aura != null and pet2_aura.visible:
 		failures.append("an unboosted pet row must not inherit another pet's aura")
 	if faith_aura == null or not faith_aura.visible:
 		failures.append("any active pet boost must add a glow and dispersing runes to the main faith number")
+	if digit_glow == null or not digit_glow.visible:
+		failures.append("the boosted faith number itself must emit a visible digit-shaped glow")
 	var buffs: Dictionary = main.get("_pet_offering_buffs")
 	var pet1_buff: Dictionary = buffs.get("pet1", {})
 	pet1_buff["expires_at"] = float(main.call("_get_now_seconds")) - 1.0

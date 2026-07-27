@@ -48,7 +48,8 @@ func _render_previews() -> void:
 	drawer.refresh_pet_upgrades(entries)
 	drawer.call("_toggle_drawer")
 	await process_frame
-	await create_timer(0.24).timeout
+	drawer.refresh_faith(1_296_880.0, 842.5)
+	await create_timer(0.07).timeout
 	var drawer_window := drawer.get("_drawer_window") as Window
 	var boost_path := ProjectSettings.globalize_path(OUTPUT_DIR.path_join("menu_boost_aura_preview.png"))
 	drawer_window.get_texture().get_image().save_png(boost_path)
