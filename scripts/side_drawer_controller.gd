@@ -161,6 +161,7 @@ var _coin_count := 0
 var _follower_count := 0
 var _faith_growth_rate := 0.0
 var _faith_boost_active := false
+var _faith_boost_growth_tween: Tween
 var _follower_growth_rate := 0.0
 var _upgrade_entries := []
 var _upgrade_buttons := {}
@@ -888,6 +889,7 @@ func _make_faith_adder_stage() -> Control:
 	_faith_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_faith_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 300.0) * 0.5, 282.0)
 	_faith_value_label.size = Vector2(300.0, 72.0)
+	_faith_value_label.pivot_offset = _faith_value_label.size * 0.5
 	_faith_value_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	_faith_value_label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_faith_value_label.add_theme_font_size_override("font_size", FAITH_COUNTER_VALUE_FONT_MAX)
@@ -1514,6 +1516,13 @@ func _set_any_boost_visual(active: bool, strongest_multiplier: float) -> void:
 	# need theme invalidation when that active/inactive state actually changes.
 	if not visual_state_changed:
 		return
+	if not active:
+		if _faith_boost_growth_tween != null and _faith_boost_growth_tween.is_valid():
+			_faith_boost_growth_tween.kill()
+		if _faith_value_label != null:
+			_faith_value_label.scale = Vector2.ONE
+		if _faith_boost_glow_label != null:
+			_faith_boost_glow_label.scale = Vector2.ONE
 	if _faith_boost_glow_label != null:
 		_faith_boost_glow_label.visible = active
 	if _faith_value_label != null:
@@ -1541,10 +1550,31 @@ func _set_any_boost_visual(active: bool, strongest_multiplier: float) -> void:
 func _play_boosted_faith_growth_pulse() -> void:
 	if _faith_boost_glow_label == null or not _faith_boost_active:
 		return
-	# The animated rune layer carries the burst. Keeping this label steady avoids
-	# allocating and replacing a Tween for every income tick.
-	_faith_boost_glow_label.scale = Vector2.ONE
-	_faith_boost_glow_label.modulate = Color(1.0, 1.0, 0.76, 0.64)
+	if _faith_boost_growth_tween != null and _faith_boost_growth_tween.is_valid():
+		_faith_boost_growth_tween.kill()
+	# Keep the boost readable through one brisk number bounce rather than a
+	# cloud of particles. The active tween is replaced instead of accumulating.
+	_faith_boost_glow_label.scale = Vector2(1.08, 1.12)
+	_faith_boost_glow_label.modulate = Color(1.0, 1.0, 0.62, 0.92)
+	if _faith_value_label != null:
+		_faith_value_label.scale = Vector2(1.055, 1.08)
+	_faith_boost_growth_tween = create_tween()
+	_faith_boost_growth_tween.set_trans(Tween.TRANS_BACK)
+	_faith_boost_growth_tween.set_ease(Tween.EASE_OUT)
+	_faith_boost_growth_tween.tween_property(_faith_boost_glow_label, "scale", Vector2.ONE, 0.18)
+	_faith_boost_growth_tween.parallel().tween_property(
+		_faith_boost_glow_label,
+		"modulate",
+		Color(1.0, 1.0, 0.76, 0.64),
+		0.20
+	)
+	if _faith_value_label != null:
+		_faith_boost_growth_tween.parallel().tween_property(
+			_faith_value_label,
+			"scale",
+			Vector2.ONE,
+			0.18
+		)
 	if _faith_boost_aura != null:
 		_faith_boost_aura.call("notify_growth")
 
