@@ -856,9 +856,17 @@ func _on_activity_range_changed(range_mode: String) -> void:
 	_host._request_save()
 
 func _on_debug_economy_requested(faith_points: float, gold_coins: int) -> void:
-	_faith_points = clampf(faith_points, 0.0, 1_000_000_000_000_000.0)
+	var safe_faith_points := clampf(faith_points, 0.0, 1_000_000_000_000_000.0)
+	var safe_gold_coins := clampi(gold_coins, 0, 1_000_000_000_000_000)
+	if (
+		is_equal_approx(_faith_points, safe_faith_points)
+		and _gold_coins == safe_gold_coins
+		and _lifetime_faith >= safe_faith_points
+	):
+		return
+	_faith_points = safe_faith_points
 	_lifetime_faith = maxf(_lifetime_faith, _faith_points)
-	_gold_coins = clampi(gold_coins, 0, 1_000_000_000_000_000)
+	_gold_coins = safe_gold_coins
 	_pet_upgrade_stats_dirty = true
 	_host._refresh_pet_stats(true)
 	_host._refresh_faith_display()
@@ -876,9 +884,17 @@ func _on_debug_economy_requested(faith_points: float, gold_coins: int) -> void:
 	_host._request_save()
 
 func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float) -> void:
-	_debug_enemy_power_scale = clampf(enemy_power_scale, 0.0, 1_000_000_000_000_000.0)
-	_debug_game_speed = clampf(game_speed, 0.1, 20.0)
-	Engine.time_scale = _debug_game_speed
+	var safe_enemy_power_scale := clampf(enemy_power_scale, 0.0, 1_000_000_000_000_000.0)
+	var safe_game_speed := clampf(game_speed, 0.1, 20.0)
+	var changed := (
+		not is_equal_approx(_debug_enemy_power_scale, safe_enemy_power_scale)
+		or not is_equal_approx(_debug_game_speed, safe_game_speed)
+	)
+	_debug_enemy_power_scale = safe_enemy_power_scale
+	_debug_game_speed = safe_game_speed
+	Engine.time_scale = safe_game_speed
+	if not changed:
+		return
 	if _settings_window != null and _settings_window.has_method("refresh_debug_values"):
 		_settings_window.call(
 			"refresh_debug_values",
@@ -900,8 +916,9 @@ func _on_debug_era_requested(era_index: int) -> void:
 	_host._refresh_era_display(true)
 	_host._schedule_next_pilgrimage(_host._get_now_seconds(), true)
 	_host._schedule_next_battle(_host._get_now_seconds(), true)
+	if _side_drawer != null and _side_drawer.has_method("refresh_playtime"):
+		_side_drawer.call("refresh_playtime", _total_runtime_seconds)
 	if _settings_window != null:
-		_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
 		_settings_window.refresh_debug_era(EraProgression.get_era_index(_get_era_runtime_seconds()))
 	_host._request_save()
 
@@ -913,14 +930,21 @@ func _get_debug_pet_levels() -> Dictionary:
 	return levels
 
 func _on_debug_pet_levels_requested(levels: Dictionary) -> void:
+	var levels_changed := false
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id = String(pet_id_value)
 		if not levels.has(pet_id):
 			continue
 		var state = _get_pet_state(pet_id)
-		state["upgrade_level"] = clampi(int(levels[pet_id]), 1, PetProgression.MAX_LEVEL)
+		var requested_level := clampi(int(levels[pet_id]), 1, PetProgression.MAX_LEVEL)
+		if PetProgression.progression_level(state) == requested_level:
+			continue
+		state["upgrade_level"] = requested_level
 		_pet_states[pet_id] = state
-	_apply_automatic_evolution_thresholds()
+		levels_changed = true
+	var evolution_changed := _apply_automatic_evolution_thresholds()
+	if not levels_changed and not evolution_changed:
+		return
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		_sync_deployed_pet_level(String(pet_id_value))
 	_pet_upgrade_stats_dirty = true
@@ -932,6 +956,9 @@ func _on_debug_pet_levels_requested(levels: Dictionary) -> void:
 func _on_debug_event_requested(event_type: String) -> void:
 	if event_type not in ["pilgrimage", "battle"]:
 		return
+	# Debug buttons submit their current values before dispatching the event. The
+	# no-op guards above avoid rebuilding every panel when those values are unchanged.
+	_host._cancel_battle_asset_warmup()
 	if _event_invitation != null and is_instance_valid(_event_invitation):
 		_event_invitation.queue_free()
 	_event_invitation = null
@@ -939,7 +966,7 @@ func _on_debug_event_requested(event_type: String) -> void:
 	if _pilgrimage_active:
 		_host._finish_pilgrimage(false)
 	if _battle_active:
-		_host._finish_battle(true)
+		_host._cancel_battle_for_debug()
 	_host._spawn_event_invitation(event_type)
 
 func _on_language_changed(language_code: String) -> void:

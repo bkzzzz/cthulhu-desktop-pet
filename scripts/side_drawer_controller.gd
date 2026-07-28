@@ -29,6 +29,7 @@ const DRAWER_CONTENT_TOP_MARGIN := 46
 const ERA_LABEL_HEIGHT := 34.0
 const ERA_LABEL_WIDTH := DRAWER_CONTENT_WIDTH - 56.0
 const MENU_WINDOW_SIZE := Vector2i(228, 150)
+const PLAYTIME_LABEL_SIZE := Vector2(114.0, 22.0)
 const MENU_TO_DRAWER_GAP := 2
 const MENU_DRAG_THRESHOLD := 6.0
 const RATE_SUFFIX := "/s"
@@ -106,6 +107,7 @@ const BOOKMARK_LABEL_SIZE := Vector2(124.0, 82.0)
 var _menu_window: Window
 var _menu_button: TextureButton
 var _menu_hint: Label
+var _playtime_label: Label
 var _drawer_window: Window
 var _drawer_root: Control
 var _bookmark_container: VBoxContainer
@@ -179,6 +181,7 @@ var _upgrade_row_texture: Texture2D
 var _menu_hit_images := {}
 var _bookmark_labels := {}
 var _language := LanguageSettings.DEFAULT_LANGUAGE
+var _playtime_seconds := 0.0
 var _rng := RandomNumberGenerator.new()
 var _symbol_effect_textures: Array[Texture2D] = []
 var _adder_symbol_burst_cooldown := 0.0
@@ -378,6 +381,11 @@ func refresh_era(display_text: String) -> void:
 		_era_label.text = display_text
 
 
+func refresh_playtime(total_seconds: float) -> void:
+	_playtime_seconds = maxf(0.0, total_seconds)
+	_refresh_playtime_label()
+
+
 func refresh_followers(follower_count: int, growth_rate: float) -> void:
 	_follower_count = maxi(0, follower_count)
 	_follower_growth_rate = maxf(0.0, growth_rate)
@@ -409,6 +417,7 @@ func set_language(language_code: String) -> void:
 		_menu_window.title = "Menu" if _language == "en" else "菜单栏"
 	if _menu_hint != null:
 		_menu_hint.text = "MENU" if _language == "en" else "菜单栏"
+	_refresh_playtime_label()
 	if _upgrade_detail_window != null:
 		_upgrade_detail_window.title = "Pet Details" if _language == "en" else "宠物详情"
 	if _upgrade_detail_name_edit != null:
@@ -495,9 +504,9 @@ func _create_toggle_button() -> void:
 
 	_menu_hint = Label.new()
 	_menu_hint.text = "菜单栏"
-	_menu_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_menu_hint.position = Vector2(_menu_button.position.x, 5)
-	_menu_hint.size = Vector2(_menu_button.size.x, 24)
+	_menu_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_menu_hint.position = _menu_button.position + Vector2(8.0, -5.0)
+	_menu_hint.size = Vector2(76.0, 24.0)
 	_menu_hint.visible = false
 	_menu_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_menu_hint.z_index = 3
@@ -506,6 +515,24 @@ func _create_toggle_button() -> void:
 	_menu_hint.add_theme_color_override("font_outline_color", Color(0.04, 0.02, 0.03, 1.0))
 	_menu_hint.add_theme_constant_override("outline_size", 4)
 	menu_root.add_child(_menu_hint)
+
+	_playtime_label = Label.new()
+	_playtime_label.name = "PlaytimeLabel"
+	_playtime_label.position = Vector2(
+		float(MENU_WINDOW_SIZE.x) - PLAYTIME_LABEL_SIZE.x - 6.0,
+		4.0
+	)
+	_playtime_label.size = PLAYTIME_LABEL_SIZE
+	_playtime_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_playtime_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_playtime_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_playtime_label.z_index = 4
+	_playtime_label.add_theme_font_size_override("font_size", 13)
+	_playtime_label.add_theme_color_override("font_color", Color(0.96, 0.86, 0.62, 0.96))
+	_playtime_label.add_theme_color_override("font_outline_color", Color(0.035, 0.02, 0.03, 0.96))
+	_playtime_label.add_theme_constant_override("outline_size", 3)
+	menu_root.add_child(_playtime_label)
+	_refresh_playtime_label()
 	_menu_window.mouse_passthrough_polygon = PackedVector2Array([
 		_menu_button.position,
 		_menu_button.position + Vector2(_menu_button.size.x, 0.0),
@@ -1284,6 +1311,25 @@ func _fit_font_to_text(control: Control, text: String, max_size: int, min_size: 
 		font_size = maxi(min_size, max_size - int(ceil(float(extra_chars) * 2.5)))
 
 	control.add_theme_font_size_override("font_size", font_size)
+
+
+func _refresh_playtime_label() -> void:
+	if _playtime_label == null:
+		return
+	var prefix := "PLAY" if _language == "en" else "时长"
+	var next_text := "%s %s" % [prefix, _format_playtime(_playtime_seconds)]
+	if _playtime_label.text == next_text:
+		return
+	_playtime_label.text = next_text
+	_fit_font_to_text(_playtime_label, next_text, 13, 10, 16)
+
+
+static func _format_playtime(seconds: float) -> String:
+	var total := maxi(0, int(floor(maxf(0.0, seconds))))
+	var hours := total / 3600
+	var minutes := (total % 3600) / 60
+	var remaining_seconds := total % 60
+	return "%02d:%02d:%02d" % [hours, minutes, remaining_seconds]
 
 
 func _format_number(value: float, keep_fraction := false, whole_units := false) -> String:

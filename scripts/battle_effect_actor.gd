@@ -56,17 +56,28 @@ static var _explosion_frame_cache := {}
 
 static func warm_up(pet_ids: Array) -> void:
 	for pet_id_value in pet_ids:
-		var pet_id := String(pet_id_value)
-		if PROJECTILE_CONFIG.has(pet_id):
-			_get_projectile_frames(pet_id, PROJECTILE_CONFIG[pet_id])
-		var evolved_key := "%s_evolved" % pet_id
-		if PROJECTILE_CONFIG.has(evolved_key):
-			var evolved_config: Dictionary = PROJECTILE_CONFIG[evolved_key]
-			_get_projectile_frames(evolved_key, evolved_config)
-			if evolved_config.has("launch_sheet"):
-				_get_launch_frames(evolved_key, evolved_config)
+		warm_up_pet(String(pet_id_value))
 	for tier in EXPLOSION_CONFIG.size():
-		_get_explosion_frames(tier, EXPLOSION_CONFIG[tier])
+		warm_up_explosion(tier)
+
+
+static func warm_up_pet(pet_id: String) -> void:
+	if PROJECTILE_CONFIG.has(pet_id):
+		_get_projectile_frames(pet_id, PROJECTILE_CONFIG[pet_id])
+	var evolved_key := "%s_evolved" % pet_id
+	if not PROJECTILE_CONFIG.has(evolved_key):
+		return
+	var evolved_config: Dictionary = PROJECTILE_CONFIG[evolved_key]
+	_get_projectile_frames(evolved_key, evolved_config)
+	if evolved_config.has("launch_sheet"):
+		_get_launch_frames(evolved_key, evolved_config)
+
+
+static func warm_up_explosion(tier: int) -> void:
+	if tier < 0 or tier >= EXPLOSION_CONFIG.size():
+		return
+	var config: Dictionary = EXPLOSION_CONFIG[tier]
+	_get_explosion_frames(tier, config)
 
 var _mode := ""
 var _target: Node2D

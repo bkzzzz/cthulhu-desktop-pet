@@ -28,6 +28,7 @@ static func run() -> Array[String]:
 	_test_battle_activity_override(failures)
 	_test_inventory_deploy_during_events(failures)
 	_test_battle_starts_first_wave(failures)
+	_test_debug_battle_replacement_is_silent(failures)
 	_test_battle_timeout_is_defeat(failures)
 	return failures
 
@@ -171,6 +172,13 @@ static func _test_era_progression(failures: Array[String]) -> void:
 static func _test_enemy_roles_and_frames(failures: Array[String]) -> void:
 	if String(EnemyActor.DEFINITIONS["soldier1"].get("move", "")) != "res://assets/enemyCharacter/soldiers/soldier1Run.png":
 		failures.append("soldier1 must use the newly imported run sheet instead of its idle sheet")
+	if (
+		not is_equal_approx(EnemyActor.get_health_multiplier("villager1"), 1.50)
+		or not is_equal_approx(EnemyActor.get_damage_multiplier("modern2"), 1.15)
+		or not is_equal_approx(EnemyActor.get_damage_multiplier("outerspace1"), 1.0)
+		or not is_equal_approx(EnemyActor.get_health_multiplier("final_boss"), 1.0)
+	):
+		failures.append("standard waves must be tougher while barrage enemies and the final boss retain their tuned damage windows")
 	var ranged_ids := ["soldier2", "victorian1", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]
 	for enemy_id in ["villager1", "villager2", "soldier1", "soldier2", "victorian1", "victorian2", "victorian_boss", "modern2", "modern3", "outerspace1", "outerspace2", "outerspace3"]:
 		var enemy := EnemyActor.new()
@@ -462,6 +470,13 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 		failures.append("enemy count must rise gradually across low, mid, and high pet levels")
 	if mid_wave_max > 4 or high_wave_max > 6:
 		failures.append("campaign pressure must cap mid-level waves at four and high-level waves at six enemies")
+	var veteran_schedule := BattleBalance.build_wave_schedule(
+		EraProgression.get_wave_schedule(0.0),
+		80.0,
+		false
+	)
+	if veteran_schedule.is_empty() or int((veteran_schedule[0] as Dictionary).get("types", []).size()) != 5:
+		failures.append("veteran campaign rosters must add a third reinforcement before the level-100 cap")
 	if strong_difficulty <= weak_difficulty:
 		failures.append("stronger pets must produce stronger enemy stats for the same wave composition")
 	var carry_schedule: Array[Dictionary] = [{"types": ["villager1", "villager2"]}]
@@ -489,12 +504,18 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 		failures.append("battle settlement must include the defeated enemies' authored money value")
 	if int(low_budget.get("gold", 0)) < int(Main.BattleController.BATTLE_GOLD_REWARD_OPENING_FLOOR * 0.80):
 		failures.append("even an opening battle must pay a substantial money reward")
+	if Main.BattleController.BATTLE_GOLD_REWARD_MIN_MINUTES < 12.0:
+		failures.append("low-frequency battles must be valued at at least twelve minutes of gold production")
 	if int(high_budget.get("faith", 0)) <= int(low_budget.get("faith", 0)):
 		failures.append("battle faith rewards must rise with baseline faith growth")
-	if int(low_budget.get("faith", 0)) < int(floor(low_manual_click_gain * 5.0)):
-		failures.append("even an opening battle reward must be worth at least five Adder clicks")
-	if int(low_budget.get("faith", 0)) < int(floor(low_baseline_faith_rate * 10.0)):
-		failures.append("battle faith rewards must cover at least ten seconds of baseline production")
+	if int(low_budget.get("faith", 0)) < int(floor(
+		low_manual_click_gain * Main.BattleController.BATTLE_FAITH_REWARD_MANUAL_CLICKS
+	)):
+		failures.append("even an opening battle reward must cover the designed manual-faith value")
+	if int(low_budget.get("faith", 0)) < int(floor(
+		low_baseline_faith_rate * Main.BattleController.BATTLE_FAITH_REWARD_MIN_SECONDS
+	)):
+		failures.append("battle faith rewards must cover at least one minute of baseline production")
 
 	for drop_index in 12:
 		main.call("_spawn_battle_reward", Vector2(300.0 + float(drop_index), 420.0), 50)
@@ -521,6 +542,53 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 	main.call("_finish_battle", true)
 	if int(main.get("_gold_coins")) != settled_gold:
 		failures.append("victory settlement must grant its authoritative reward exactly once")
+	state["upgrade_level"] = 99
+	(main.get("_pet_states") as Dictionary)["pet1"] = state
+	var late_difficulty := float(main.call("_get_base_battle_difficulty_scale"))
+	var late_budget: Dictionary = main.call("_get_battle_reward_budget", late_difficulty)
+	var late_baseline_rate := float(main.call("_get_baseline_faith_growth_rate"))
+	var late_manual_click_gain := float(main.call("_get_manual_faith_click_gain", 1))
+	var late_next_upgrade_cost := Main.EconomyBalance.next_upgrade_cost(
+		main.get("_unlocked_pet_ids") as Array,
+		main.get("_pet_states") as Dictionary,
+		Main.EconomyBalance.CAMPAIGN_LEVEL_TARGET
+	)
+	var late_difficulty_factor := clampf(
+		pow(maxf(0.20, late_difficulty), 0.12),
+		0.80,
+		1.20
+	)
+	var late_base_reward := maxi(
+		int(round(5.0 * late_difficulty_factor)),
+		maxi(
+			int(round(
+				late_manual_click_gain
+				* Main.BattleController.BATTLE_FAITH_REWARD_MANUAL_CLICKS
+				* maxf(1.0, late_difficulty_factor)
+			)),
+			int(round(
+				late_baseline_rate
+				* clampf(
+					Main.BattleController.BATTLE_FAITH_REWARD_BASE_SECONDS * late_difficulty_factor,
+					Main.BattleController.BATTLE_FAITH_REWARD_MIN_SECONDS,
+					Main.BattleController.BATTLE_FAITH_REWARD_MAX_SECONDS
+				)
+			))
+		)
+	)
+	var expected_late_upgrade_floor := mini(
+		int(round(
+			float(late_next_upgrade_cost)
+			* Main.BattleController.BATTLE_FAITH_REWARD_UPGRADE_FRACTION
+			* late_difficulty_factor
+		)),
+		int(round(
+			float(late_base_reward)
+			* Main.BattleController.BATTLE_FAITH_REWARD_MAX_BASE_MULTIPLIER
+		))
+	)
+	if int(late_budget.get("faith", 0)) < maxi(late_base_reward, expected_late_upgrade_floor):
+		failures.append("late battles must award a visible, capped fraction of the next faith upgrade")
 	main.set("_persistence_enabled", false)
 	main.free()
 
@@ -577,7 +645,12 @@ static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
 		for wave_value in schedule:
 			var wave_health := 0.0
 			for enemy_id_value in (wave_value as Dictionary).get("types", []):
-				wave_health += float(EnemyActor.DEFINITIONS[String(enemy_id_value)].get("hp", 1.0)) * health_scale
+				var enemy_id := String(enemy_id_value)
+				wave_health += (
+					float(EnemyActor.DEFINITIONS[enemy_id].get("hp", 1.0))
+					* EnemyActor.get_health_multiplier(enemy_id)
+					* health_scale
+				)
 			strongest_wave_health = maxf(strongest_wave_health, wave_health)
 		var estimated_clear_seconds := strongest_wave_health / maxf(0.001, estimated_dps)
 		if difficulty < 0.25 or difficulty > 4.5:
@@ -585,9 +658,9 @@ static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
 				"the %.0fh combat checkpoint must stay inside the adaptive difficulty envelope, got %.2f"
 				% [float(checkpoint.get("hours", 0.0)), difficulty]
 			)
-		if estimated_clear_seconds < 2.0 or estimated_clear_seconds > 12.0:
+		if estimated_clear_seconds < 5.0 or estimated_clear_seconds > 16.0:
 			failures.append(
-				"the %.0fh strongest wave must remain a clearable 2-12 seconds, estimated %.2f"
+				"the %.0fh strongest wave must remain a clearable 5-16 seconds, estimated %.2f"
 				% [float(checkpoint.get("hours", 0.0)), estimated_clear_seconds]
 			)
 
@@ -1007,6 +1080,36 @@ static func _test_battle_starts_first_wave(failures: Array[String]) -> void:
 		if bool(child.get_meta("battle_runtime", false)) and not child.is_queued_for_deletion():
 			failures.append("battle cleanup must remove every enemy/effect node, including actors already erased from combat arrays")
 			break
+	main.free()
+
+
+static func _test_debug_battle_replacement_is_silent(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	main.set("_gold_coins", 321)
+	main.set("_faith_points", 654.0)
+	main.set("_battle_active", true)
+	main.set("_active_battle_difficulty_scale", 1.0)
+	main.set("_battle_wave_schedule", [{"time": 0.0, "types": ["villager1"]}])
+	var battlefield := main.get("_battle_controller") as Node
+	var enemy := EnemyActor.new()
+	enemy.setup("villager1", Vector2(180.0, 704.0), 704.0, 1.0, 180.0, 1200.0)
+	enemy.set_meta("battle_runtime", true)
+	if battlefield != null:
+		battlefield.add_child(enemy)
+	(main.get("_battle_enemies") as Array).append(enemy)
+
+	main.call("_on_debug_event_requested", "battle")
+	if int(main.get("_gold_coins")) != 321 or not is_equal_approx(float(main.get("_faith_points")), 654.0):
+		failures.append("replacing a debug battle must never settle the old fight as a victory")
+	if bool(main.get("_battle_active")) or main.get("_event_invitation") == null:
+		failures.append("replacing a debug battle must quietly clear the old field before dropping one new invitation")
+	if battlefield != null:
+		for child in battlefield.get_children():
+			if child is AnimatedSprite2D and not child.is_queued_for_deletion():
+				failures.append("debug battle replacement must not spawn a synchronous smoke burst")
+				break
 	main.free()
 
 

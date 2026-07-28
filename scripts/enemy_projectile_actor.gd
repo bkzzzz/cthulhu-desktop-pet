@@ -24,6 +24,7 @@ const OFFSCREEN_CLEANUP_MARGIN := 180.0
 static var _arrow_texture: Texture2D
 static var _bullet_texture: Texture2D
 static var _bullet_shader: Shader
+static var _bullet_material: ShaderMaterial
 
 
 static func warm_up() -> void:
@@ -34,6 +35,13 @@ static func warm_up() -> void:
 	if _bullet_shader == null:
 		_bullet_shader = Shader.new()
 		_bullet_shader.code = BULLET_CHROMA_SHADER
+	if _bullet_material == null:
+		_bullet_material = ShaderMaterial.new()
+		_bullet_material.shader = _bullet_shader
+		if _bullet_texture != null:
+			var image := _bullet_texture.get_image()
+			if image != null and not image.is_empty():
+				_bullet_material.set_shader_parameter("key_color", image.get_pixel(0, 0))
 
 var projectile_kind := "arrow"
 var _target: Node2D
@@ -185,13 +193,7 @@ func _create_sprite() -> void:
 			_sprite.modulate = Color(0.48, 0.86, 1.0)
 		elif projectile_kind == "outer_bolt":
 			_sprite.modulate = Color(0.34, 0.78, 1.0)
-		var material := ShaderMaterial.new()
-		material.shader = _bullet_shader
-		if _sprite.texture != null:
-			var image := _sprite.texture.get_image()
-			if image != null and not image.is_empty():
-				material.set_shader_parameter("key_color", image.get_pixel(0, 0))
-		_sprite.material = material
+		_sprite.material = _bullet_material
 	add_child(_sprite)
 
 

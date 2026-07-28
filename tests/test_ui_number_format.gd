@@ -7,6 +7,8 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	if SideDrawer.RATE_SUFFIX != "/s":
 		failures.append("all growth rates must use the /s suffix")
+	if SideDrawer._format_playtime(3723.9) != "01:02:03":
+		failures.append("the menu playtime must format total runtime as HH:MM:SS")
 	if SideDrawer.MENU_WINDOW_SIZE.x > int(SideDrawer.MENU_ICON_SIZE.x) + 16:
 		failures.append("the menu handle must not reserve the removed altar's desktop space")
 	if SideDrawer.MENU_WINDOW_SIZE.y > int(SideDrawer.MENU_ICON_SIZE.y) + 16:
@@ -192,6 +194,26 @@ static func run() -> Array[String]:
 	var menu_window := formatter.get("_menu_window") as Window
 	if menu_window == null or menu_window.get_node_or_null("MenuHandleRoot/CultAltar") != null:
 		failures.append("the desktop menu handle must not create the removed altar")
+	var menu_root: Control = null
+	if menu_window != null:
+		menu_root = menu_window.get_node_or_null("MenuHandleRoot") as Control
+	var playtime_label: Label = null
+	if menu_root != null:
+		playtime_label = menu_root.get_node_or_null("PlaytimeLabel") as Label
+	if playtime_label == null:
+		failures.append("the desktop menu handle must expose a persistent playtime label")
+	else:
+		formatter.call("refresh_playtime", 3723.9)
+		if (
+			playtime_label.get_parent() != menu_root
+			or playtime_label.mouse_filter != Control.MOUSE_FILTER_IGNORE
+			or playtime_label.z_index <= 2
+			or playtime_label.position.y > 8.0
+			or playtime_label.position.x + playtime_label.size.x > float(SideDrawer.MENU_WINDOW_SIZE.x)
+		):
+			failures.append("the persistent playtime must sit inertly in the menu handle's upper-right corner")
+		if drawer_root != null and drawer_root.find_child("PlaytimeLabel", true, false) != null:
+			failures.append("the persistent playtime must not be placed inside the opened drawer UI")
 	formatter.call("set_language", "en")
 	var detail_window := formatter.get("_upgrade_detail_window") as Window
 	if menu_window == null or menu_window.title != "Menu":
@@ -200,6 +222,11 @@ static func run() -> Array[String]:
 		failures.append("the native pet-detail title must switch to English")
 	if detail_name_edit == null or detail_name_edit.placeholder_text != "Pet name" or "输入" in detail_name_edit.tooltip_text:
 		failures.append("the pet-detail rename controls must switch fully to English")
+	if playtime_label == null or playtime_label.text != "PLAY 01:02:03":
+		failures.append("the menu playtime must show the persisted total in English")
+	formatter.call("set_language", "zh")
+	if playtime_label == null or playtime_label.text != "时长 01:02:03":
+		failures.append("the menu playtime must localize without leaving the menu handle")
 	formatter.free()
 	return failures
 

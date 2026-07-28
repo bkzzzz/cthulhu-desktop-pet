@@ -487,9 +487,9 @@ func _get_era_runtime_seconds() -> float:
 		_total_runtime_seconds,
 		EraProgression.get_era_start_runtime_seconds(_era_floor_index)
 	)
-var _settings_refresh_timer: float:
-	get: return _state._settings_refresh_timer
-	set(value): _state._settings_refresh_timer = value
+var _playtime_refresh_timer: float:
+	get: return _state._playtime_refresh_timer
+	set(value): _state._playtime_refresh_timer = value
 var _pet_activity_range: String:
 	get: return _state._pet_activity_range
 	set(value): _state._pet_activity_range = value

@@ -331,6 +331,7 @@ func _create_side_drawer() -> void:
 	if _loaded_menu_handle_anchor >= 0.0:
 		_side_drawer.set_menu_handle_anchor(_loaded_menu_handle_anchor)
 	_side_drawer.setup()
+	_side_drawer.refresh_playtime(_total_runtime_seconds)
 	if not _carried_offering.is_empty():
 		_host._set_offering_cursor(String(_carried_offering.get("texture", "")))
 		_host._update_offering_input_window()
@@ -409,7 +410,6 @@ func _create_settings_window() -> void:
 	_settings_window.reset_game_requested.connect(_host._reset_game_progress)
 	_settings_window.quit_requested.connect(_host._on_quit_requested)
 	_settings_window.setup(_pet_activity_range, _language)
-	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
 	_settings_window.refresh_debug_values(_faith_points, _gold_coins, _debug_enemy_power_scale, _debug_game_speed, _host._get_debug_pet_levels())
 	_settings_window.refresh_debug_era(EraProgression.get_era_index(_get_era_runtime_seconds()))
 
@@ -513,14 +513,14 @@ func _sync_gacha_state() -> void:
 		_host._get_baseline_faith_growth_rate()
 	)
 
-func _update_settings_runtime(delta: float) -> void:
-	if _settings_window == null:
+func _update_playtime_display(delta: float) -> void:
+	if _side_drawer == null or not _side_drawer.has_method("refresh_playtime"):
 		return
-	_settings_refresh_timer += maxf(0.0, delta)
-	if _settings_refresh_timer < 0.5:
+	_playtime_refresh_timer += maxf(0.0, delta)
+	if _playtime_refresh_timer < 0.5:
 		return
-	_settings_refresh_timer = 0.0
-	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
+	_playtime_refresh_timer = 0.0
+	_side_drawer.call("refresh_playtime", _total_runtime_seconds)
 
 func _initialize_news_feed() -> void:
 	_news_feed.restore(_loaded_news_state, _host._get_faith_growth_rate(), _follower_count)
@@ -697,7 +697,6 @@ func _on_news_requested() -> void:
 func _on_settings_requested() -> void:
 	if _settings_window == null:
 		return
-	_settings_window.refresh_runtime(_session_runtime_seconds, _total_runtime_seconds)
 	if _settings_window.has_method("refresh_debug_values"):
 		_settings_window.call(
 			"refresh_debug_values",

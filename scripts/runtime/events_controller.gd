@@ -131,6 +131,7 @@ func _update_event_invitations() -> void:
 		_event_invitation = null
 		_pending_battle_difficulty_scale = -1.0
 		_battle_wave_schedule.clear()
+		_host._cancel_battle_asset_warmup()
 	if _event_invitation != null:
 		return
 	if _total_runtime_seconds < BATTLE_UNLOCK_RUNTIME_SECONDS:
@@ -195,7 +196,7 @@ func _spawn_event_invitation(event_type: String) -> void:
 	add_child(invite)
 	_event_invitation = invite
 	if event_type == "battle":
-		_host.call_deferred("_warm_battle_assets", _battle_wave_schedule.duplicate(true))
+		_host._schedule_battle_asset_warmup(_battle_wave_schedule)
 
 func _on_event_invitation_accepted(event_type: String) -> void:
 	_event_invitation = null
@@ -215,6 +216,7 @@ func _on_event_invitation_discarded(event_type: String) -> void:
 	if event_type == "battle":
 		_pending_battle_difficulty_scale = -1.0
 		_battle_wave_schedule.clear()
+		_host._cancel_battle_asset_warmup()
 	_reschedule_declined_event(event_type)
 	_host._publish_news({
 		"category": "公告",
@@ -227,6 +229,7 @@ func _on_event_invitation_expired(event_type: String) -> void:
 	if event_type == "battle":
 		_pending_battle_difficulty_scale = -1.0
 		_battle_wave_schedule.clear()
+		_host._cancel_battle_asset_warmup()
 	_reschedule_declined_event(event_type)
 
 func _reschedule_declined_event(event_type: String) -> void:

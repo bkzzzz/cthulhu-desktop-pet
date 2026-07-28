@@ -202,10 +202,10 @@ static func _test_activity_ranges(failures: Array[String]) -> void:
 
 
 static func _test_settings_runtime(failures: Array[String]) -> void:
-	if SettingsWindow._format_duration(3661.9) != "01:01:01":
-		failures.append("settings must format current and total runtime as HH:MM:SS")
 	var settings := SettingsWindow.new()
 	settings.setup("right", "not-a-language")
+	if settings.has_method("refresh_runtime"):
+		failures.append("settings must not retain the moved runtime-display API")
 	if settings.get_activity_range() != "right" or settings.get_language() != "en":
 		failures.append("settings must restore the range and default malformed or missing language values to English")
 	if settings.theme == null or not settings.theme.default_font is SystemFont:
@@ -224,6 +224,25 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 			failures.append("the settings close control must sit visibly inside the content panel")
 		if not close_button.get_theme_stylebox("normal") is StyleBoxFlat:
 			failures.append("the settings close control must have a visible normal-state background")
+
+	var credits_button := settings.get("_credits_button") as Button
+	var credits_panel := settings.get("_credits_panel") as PanelContainer
+	var credits_copy := settings.get("_credits_copy_label") as Label
+	if credits_button == null or credits_panel == null or credits_copy == null:
+		failures.append("settings must expose an in-game credits and license entry")
+	else:
+		settings.call("_open_credits_panel")
+		if not credits_panel.visible:
+			failures.append("the credits entry must open its license panel")
+		if (
+			not credits_copy.text.contains("Super Pixel Projectiles Pack 2")
+			or not credits_copy.text.contains("Will Tice")
+			or not credits_copy.text.contains("https://untiedgames.com/files/license.txt")
+		):
+			failures.append("the credits panel must retain the projectile pack author and license URI")
+		settings.close_window()
+		if credits_panel.visible:
+			failures.append("closing settings must also close its credits panel")
 
 	var reset_button := settings.get("_debug_reset_button") as Button
 	var reset_confirmation := settings.get("_reset_confirmation") as ConfirmationDialog
@@ -250,16 +269,11 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 			failures.append("Chinese settings must switch to a CJK-capable system font")
 		if reset_button.text != "重置全部进度" or reset_confirmation.cancel_button_text != "取消":
 			failures.append("the reset confirmation workflow must localize its Chinese destructive-action copy")
+		if credits_button.text != "资源鸣谢与许可" or not credits_copy.text.contains("作者：Will Tice"):
+			failures.append("the credits entry must localize without dropping legal attribution")
 		settings.set_language("en")
 		if settings.theme == null or not settings.theme.default_font is SystemFont:
 			failures.append("switching settings back to English must restore the readable body font")
-	settings.refresh_runtime(61.0, 3723.0)
-	var session_label := settings.get("_session_value_label") as Label
-	var total_label := settings.get("_total_value_label") as Label
-	if session_label == null or session_label.text != "00:01:01":
-		failures.append("settings must display the current session runtime")
-	if total_label == null or total_label.text != "01:02:03":
-		failures.append("settings must display the persisted total runtime")
 	settings.refresh_debug_values(12345.0, 6789, 2.5, 3.0, {"pet1": 100, "pet6": 246})
 	var faith_spin := settings.get("_debug_faith_spin") as SpinBox
 	var coin_spin := settings.get("_debug_coin_spin") as SpinBox

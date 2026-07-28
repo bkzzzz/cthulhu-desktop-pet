@@ -2,23 +2,42 @@ extends "res://scripts/runtime/main_context.gd"
 
 const ENCOUNTER_REWARD_KEY := "_encounter_reward_budget"
 const ENCOUNTER_DIFFICULTY_KEY := "_encounter_difficulty_scale"
-const BATTLE_GOLD_REWARD_MINUTES := 1.80
-const BATTLE_GOLD_REWARD_MIN_MINUTES := 1.50
-const BATTLE_GOLD_REWARD_MAX_MINUTES := 2.25
-const BATTLE_GOLD_REWARD_OPENING_FLOOR := 150.0
-const BATTLE_FAITH_REWARD_BASE_SECONDS := 12.0
-const BATTLE_FAITH_REWARD_MIN_SECONDS := 10.0
-const BATTLE_FAITH_REWARD_MAX_SECONDS := 16.0
-const BATTLE_FAITH_REWARD_MANUAL_CLICKS := 5.0
+# Battles are deliberately infrequent, high-attention encounters. Their payout
+# should feel like a real event instead of replacing only a few passive ticks.
+const BATTLE_GOLD_REWARD_MINUTES := 18.0
+const BATTLE_GOLD_REWARD_MIN_MINUTES := 12.0
+const BATTLE_GOLD_REWARD_MAX_MINUTES := 24.0
+const BATTLE_GOLD_REWARD_OPENING_FLOOR := 600.0
+const BATTLE_FAITH_REWARD_BASE_SECONDS := 90.0
+const BATTLE_FAITH_REWARD_MIN_SECONDS := 60.0
+const BATTLE_FAITH_REWARD_MAX_SECONDS := 120.0
+const BATTLE_FAITH_REWARD_MANUAL_CLICKS := 40.0
+const BATTLE_FAITH_REWARD_UPGRADE_FRACTION := 0.10
+const BATTLE_FAITH_REWARD_MAX_BASE_MULTIPLIER := 20.0
 const BATTLE_REWARD_VISUAL_DROP_LIMIT := 8
 const MAX_BATTLE_REWARD_VALUE := 9_000_000_000_000_000_000
 const FINAL_BOSS_GOLD_REWARD_MULTIPLIER := 5.0
 const FINAL_BOSS_FAITH_REWARD_MULTIPLIER := 3.0
 
 var _battle_visual_reward_drops := 0
+var _battle_warm_generation := 0
 
 
-func _warm_battle_assets(schedule: Array) -> void:
+func _schedule_battle_asset_warmup(schedule: Array) -> void:
+	_battle_warm_generation += 1
+	call_deferred("_warm_battle_assets", schedule.duplicate(true), _battle_warm_generation)
+
+
+func _cancel_battle_asset_warmup() -> void:
+	_battle_warm_generation += 1
+
+
+func _warm_battle_assets(schedule: Array, generation := -1) -> void:
+	if generation < 0:
+		_battle_warm_generation += 1
+		generation = _battle_warm_generation
+	if generation != _battle_warm_generation:
+		return
 	var enemy_ids: Array[String] = []
 	for wave_value in schedule:
 		var wave: Dictionary = wave_value
@@ -27,11 +46,31 @@ func _warm_battle_assets(schedule: Array) -> void:
 			if not enemy_ids.has(enemy_id):
 				enemy_ids.append(enemy_id)
 	for enemy_id in enemy_ids:
-		EnemyActor.warm_up([enemy_id])
+		for stage in ["frames", "run_width", "battle_width"]:
+			if generation != _battle_warm_generation:
+				return
+			EnemyActor.warm_up_stage(enemy_id, stage)
+			if is_inside_tree():
+				await get_tree().process_frame
+	for pet_id in _deployed_pet_ids:
+		if generation != _battle_warm_generation:
+			return
+		BattleEffectActor.warm_up_pet(String(pet_id))
 		if is_inside_tree():
 			await get_tree().process_frame
-	BattleEffectActor.warm_up(_deployed_pet_ids)
+	for tier in BattleEffectActor.EXPLOSION_CONFIG.size():
+		if generation != _battle_warm_generation:
+			return
+		BattleEffectActor.warm_up_explosion(tier)
+		if is_inside_tree():
+			await get_tree().process_frame
+	if generation != _battle_warm_generation:
+		return
 	EnemyProjectileActor.warm_up()
+	if is_inside_tree():
+		await get_tree().process_frame
+	if generation == _battle_warm_generation:
+		_get_smoke_frames()
 
 
 func _get_battle_average_pet_level() -> float:
@@ -181,6 +220,11 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 		if _host._is_endless_mode()
 		else EconomyBalance.CAMPAIGN_LEVEL_TARGET
 	)
+	var next_upgrade_cost := EconomyBalance.next_upgrade_cost(
+		_unlocked_pet_ids,
+		_pet_states,
+		level_cap
+	)
 	var baseline_faith_rate: float = float(_host._get_baseline_faith_growth_rate())
 	var manual_click_gain: float = float(_host._get_manual_faith_click_gain(1))
 	var reward_budget := BattleBalance.reward_budget(
@@ -188,7 +232,7 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 		difficulty,
 		baseline_faith_rate,
 		potential_coin_rate,
-		EconomyBalance.next_upgrade_cost(_unlocked_pet_ids, _pet_states, level_cap),
+		next_upgrade_cost,
 		_host._is_endless_mode(),
 		manual_click_gain
 	)
@@ -225,10 +269,22 @@ func _get_battle_reward_budget(difficulty: float) -> Dictionary:
 	var production_faith_floor := _safe_battle_reward_int(
 		baseline_faith_rate * faith_seconds
 	)
-	reward_budget["faith"] = maxi(
+	var base_faith_reward := maxi(
 		opening_faith_floor,
 		maxi(manual_faith_floor, production_faith_floor)
 	)
+	var upgrade_faith_floor := _safe_battle_reward_int(
+		float(next_upgrade_cost)
+		* BATTLE_FAITH_REWARD_UPGRADE_FRACTION
+		* difficulty_factor
+	)
+	var capped_upgrade_faith_floor := mini(
+		upgrade_faith_floor,
+		_safe_battle_reward_int(
+			float(base_faith_reward) * BATTLE_FAITH_REWARD_MAX_BASE_MULTIPLIER
+		)
+	)
+	reward_budget["faith"] = maxi(base_faith_reward, capped_upgrade_faith_floor)
 	if BattleBalance.is_final_boss_schedule(schedule):
 		var final_gold := _safe_battle_reward_int(
 			float(reward_budget["gold"]) * FINAL_BOSS_GOLD_REWARD_MULTIPLIER
@@ -945,7 +1001,13 @@ func _set_pet_recovery(pet_id: String) -> void:
 	state["recovery_duration"] = duration
 	_pet_states[pet_id] = state
 
-func _finish_battle(victory: bool) -> void:
+func _cancel_battle_for_debug() -> void:
+	# Replacing a debug encounter must not award a win or synchronously create a
+	# burst of smoke/broadcast nodes for the old battlefield.
+	_finish_battle(false, true)
+
+
+func _finish_battle(victory: bool, suppress_presentation := false) -> void:
 	if not _battle_active:
 		return
 	var was_final_boss_encounter := BattleBalance.is_final_boss_schedule(_battle_wave_schedule)
@@ -963,7 +1025,8 @@ func _finish_battle(victory: bool) -> void:
 		_pilgrimage_status_label.visible = false
 	for enemy in _battle_enemies:
 		if is_instance_valid(enemy):
-			_spawn_smoke_effect(enemy.position + Vector2(0.0, -62.0))
+			if not suppress_presentation:
+				_spawn_smoke_effect(enemy.position + Vector2(0.0, -62.0))
 			enemy.queue_free()
 	_battle_enemies.clear()
 	for effect in _battle_effects.duplicate():
@@ -990,6 +1053,15 @@ func _finish_battle(victory: bool) -> void:
 	_host._schedule_next_battle(now)
 	_last_believer_spawn_at = now
 	_host._schedule_next_believer_spawn(now)
+	if suppress_presentation:
+		# A pet may already have been defeated before a debug replacement. Preserve
+		# that real state without rebuilding every visible panel during the swap.
+		if _battle_save_pending:
+			_host._sync_inventory_window()
+			_host._refresh_pet_stats(true)
+			_host._request_save()
+		_battle_save_pending = false
+		return
 	var title = "BATTLE WON" if victory and _language == "en" else "BATTLE ENDED" if _language == "en" else "战斗胜利" if victory else "防线失守"
 	var settlement_gold_text := CurrencyDisplay.format_compact(settlement_gold)
 	var subtitle = (
@@ -1013,6 +1085,14 @@ func _finish_battle(victory: bool) -> void:
 			else "受伤宠物已返回仓库休整"
 		)
 	}, settlement_gold if victory else 0)
+	if victory:
+		_host._show_faith_change_popup(
+			Vector2(
+				float(_pet_window_size.x) * 0.5,
+				minf(float(_pet_window_size.y) - 84.0, float(_pet_window_size.y) * 0.72)
+			),
+			float(settlement_faith)
+		)
 	_host._publish_news({
 		"category": "公告",
 		"headline": "战斗结束。被击倒的宠物已返回仓库休整。",

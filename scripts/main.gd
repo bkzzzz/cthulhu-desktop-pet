@@ -157,7 +157,7 @@ func _process(delta: float) -> void:
 	_update_pending_offerings()
 	_update_coin_drops()
 	_update_ambient_coin_drops()
-	_update_settings_runtime(logic_delta)
+	_update_playtime_display(logic_delta)
 	_update_autosave(logic_delta)
 
 func _notification(what: int) -> void:
@@ -414,6 +414,15 @@ func _defeat_battle_pet(actor: Node2D) -> void:
 func _set_pet_recovery(pet_id: String) -> void:
 	_battle_controller._set_pet_recovery(pet_id)
 
+func _schedule_battle_asset_warmup(schedule: Array) -> void:
+	_battle_controller._schedule_battle_asset_warmup(schedule)
+
+func _cancel_battle_asset_warmup() -> void:
+	_battle_controller._cancel_battle_asset_warmup()
+
+func _cancel_battle_for_debug() -> void:
+	_battle_controller._cancel_battle_for_debug()
+
 func _finish_battle(victory: bool) -> void:
 	_battle_controller._finish_battle(victory)
 
@@ -652,8 +661,8 @@ func _sync_shop_state() -> void:
 func _sync_gacha_state() -> void:
 	_presentation_controller._sync_gacha_state()
 
-func _update_settings_runtime(delta: float) -> void:
-	_presentation_controller._update_settings_runtime(delta)
+func _update_playtime_display(delta: float) -> void:
+	_presentation_controller._update_playtime_display(delta)
 
 func _initialize_news_feed() -> void:
 	_presentation_controller._initialize_news_feed()

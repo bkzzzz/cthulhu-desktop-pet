@@ -150,11 +150,17 @@ const CHROMA_TOLERANCE := 0.24
 const SWALLOW_ROTATIONS := 0.85
 const HIT_REACTION_SECONDS := 0.16
 const LOOP_ENDPOINT_DURATION_SCALE := 0.5
+# Standard battle waves need enough staying power for formation and targeting to
+# matter. The finale remains separately tuned around its boss health window.
+const STANDARD_ENEMY_HEALTH_MULTIPLIER := 1.50
+const GROUND_ENEMY_DAMAGE_MULTIPLIER := 1.15
 
 static var _frames_cache := {}
 static var _alignment_cache := {}
 static var _run_half_width_cache := {}
 static var _battle_half_width_cache := {}
+static var _visible_bounds_cache := {}
+static var _move_sheet_key_color_cache := {}
 static var _warmed_enemy_ids := {}
 static var _chroma_shader: Shader
 
@@ -162,16 +168,37 @@ static var _chroma_shader: Shader
 static func warm_up(enemy_ids: Array) -> void:
 	for enemy_id_value in enemy_ids:
 		var warm_enemy_id := String(enemy_id_value)
-		if _warmed_enemy_ids.has(warm_enemy_id) or not DEFINITIONS.has(warm_enemy_id):
-			continue
-		var script_resource := load("res://scripts/enemy_actor.gd") as GDScript
-		var probe = script_resource.new()
-		probe.setup(warm_enemy_id, Vector2.ZERO, 720.0, 1.0, 120.0)
+		warm_up_stage(warm_enemy_id, "frames")
+		warm_up_stage(warm_enemy_id, "run_width")
+		warm_up_stage(warm_enemy_id, "battle_width")
+
+
+static func warm_up_stage(warm_enemy_id: String, stage: String) -> void:
+	if _warmed_enemy_ids.has(warm_enemy_id) or not DEFINITIONS.has(warm_enemy_id):
+		return
+	var probe = _create_warmup_probe(warm_enemy_id)
+	if probe == null:
+		return
+	if stage == "run_width":
 		probe.call("_get_run_visual_half_width")
+	elif stage == "battle_width":
 		probe.call("_get_battle_visual_half_width")
-		probe.call("_get_animation_alignment", "attack", float(DEFINITIONS[warm_enemy_id].get("attack_visual_scale", 1.0)))
-		probe.free()
+		probe.call(
+			"_get_animation_alignment",
+			"attack",
+			float(DEFINITIONS[warm_enemy_id].get("attack_visual_scale", 1.0))
+		)
 		_warmed_enemy_ids[warm_enemy_id] = true
+	probe.free()
+
+
+static func _create_warmup_probe(warm_enemy_id: String) -> Node2D:
+	var script_resource := load("res://scripts/enemy_actor.gd") as GDScript
+	if script_resource == null:
+		return null
+	var probe = script_resource.new()
+	probe.setup(warm_enemy_id, Vector2.ZERO, 720.0, 1.0, 120.0)
+	return probe
 
 var enemy_id := "villager1"
 var is_ranged := false
@@ -243,9 +270,9 @@ func setup(
 	var safe_power := clampf(power_scale, 0.0, 1_000_000_000_000_000.0)
 	_power_scale = safe_power
 	var health_scale := clampf(pow(maxf(0.01, safe_power), 0.68), 0.05, 100_000.0)
-	max_health = float(data.get("hp", 2.0)) * health_scale
+	max_health = float(data.get("hp", 2.0)) * health_scale * get_health_multiplier(enemy_id)
 	health = max_health
-	_damage = float(data.get("damage", 0.3)) * safe_power
+	_damage = float(data.get("damage", 0.3)) * safe_power * get_damage_multiplier(enemy_id)
 	_move_speed = float(data.get("speed", 60.0))
 	_reward_count = int(data.get("reward", 6))
 	is_ranged = bool(data.get("ranged", false))
@@ -452,13 +479,10 @@ func _get_run_visual_half_width() -> float:
 	var widest_extent := 0.0
 	for frame_index in _sprite.sprite_frames.get_frame_count(animation_name):
 		var frame_texture := _sprite.sprite_frames.get_frame_texture(animation_name, frame_index)
-		var frame_image := _get_atlas_frame_image(frame_texture)
-		if frame_image == null or frame_image.is_empty():
-			continue
-		var bounds := _get_visible_bounds(frame_image)
+		var bounds := _get_frame_visible_bounds(frame_texture)
 		if bounds.size == Vector2i.ZERO:
 			continue
-		var half_frame_width := float(frame_image.get_width()) * 0.5
+		var half_frame_width := float(_get_frame_size(frame_texture).x) * 0.5
 		var raw_left := (float(bounds.position.x) - half_frame_width) * _visual_scale
 		var raw_right := (float(bounds.position.x + bounds.size.x) - half_frame_width) * _visual_scale
 		# Enemies can enter from either edge, so include the mirrored extents too.
@@ -486,13 +510,10 @@ func _get_battle_visual_half_width() -> float:
 		var alignment_x := _get_animation_alignment(animation_name, animation_scale).x
 		for frame_index in _sprite.sprite_frames.get_frame_count(animation_name):
 			var frame_texture := _sprite.sprite_frames.get_frame_texture(animation_name, frame_index)
-			var frame_image := _get_atlas_frame_image(frame_texture)
-			if frame_image == null or frame_image.is_empty():
-				continue
-			var bounds := _get_visible_bounds(frame_image)
+			var bounds := _get_frame_visible_bounds(frame_texture)
 			if bounds.size == Vector2i.ZERO:
 				continue
-			var half_frame_width := float(frame_image.get_width()) * 0.5
+			var half_frame_width := float(_get_frame_size(frame_texture).x) * 0.5
 			var raw_left := (float(bounds.position.x) - half_frame_width) * effective_scale
 			var raw_right := (float(bounds.position.x + bounds.size.x) - half_frame_width) * effective_scale
 			widest_extent = maxf(widest_extent, absf(alignment_x + raw_left))
@@ -535,6 +556,18 @@ static func get_combat_power(type_id: String) -> float:
 	return float(COMBAT_POWER.get(type_id, 10.0))
 
 
+static func get_health_multiplier(type_id: String) -> float:
+	var data: Dictionary = DEFINITIONS.get(type_id, DEFINITIONS["villager1"])
+	return 1.0 if bool(data.get("boss", false)) else STANDARD_ENEMY_HEALTH_MULTIPLIER
+
+
+static func get_damage_multiplier(type_id: String) -> float:
+	var data: Dictionary = DEFINITIONS.get(type_id, DEFINITIONS["villager1"])
+	if bool(data.get("boss", false)) or bool(data.get("flying", false)):
+		return 1.0
+	return GROUND_ENEMY_DAMAGE_MULTIPLIER
+
+
 static func get_reward_count(type_id: String) -> int:
 	var data: Dictionary = DEFINITIONS.get(type_id, DEFINITIONS["villager1"])
 	return maxi(0, int(data.get("reward", 0)))
@@ -558,11 +591,9 @@ func _create_sprite(data: Dictionary) -> void:
 	_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var material := ShaderMaterial.new()
 	material.shader = _get_chroma_shader()
-	var move_texture := load(String(data.get("move", ""))) as Texture2D
-	if move_texture != null:
-		var image := move_texture.get_image()
-		if image != null and not image.is_empty():
-			material.set_shader_parameter("key_color", image.get_pixel(0, 0))
+	var move_sheet_key_color: Variant = _get_move_sheet_key_color(String(data.get("move", "")))
+	if move_sheet_key_color is Color:
+		material.set_shader_parameter("key_color", move_sheet_key_color)
 	_sprite.material = material
 	add_child(_sprite)
 	_play_run(true)
@@ -588,6 +619,19 @@ static func _get_chroma_shader() -> Shader:
 		_chroma_shader = Shader.new()
 		_chroma_shader.code = CHROMA_SHADER
 	return _chroma_shader
+
+
+static func _get_move_sheet_key_color(texture_path: String) -> Variant:
+	if _move_sheet_key_color_cache.has(texture_path):
+		return _move_sheet_key_color_cache[texture_path]
+	var key_color: Variant = null
+	var texture := load(texture_path) as Texture2D
+	if texture != null:
+		var image := texture.get_image()
+		if image != null and not image.is_empty():
+			key_color = image.get_pixel(0, 0)
+	_move_sheet_key_color_cache[texture_path] = key_color
+	return key_color
 
 
 static func _get_or_build_frames(cache_key: String, data: Dictionary) -> SpriteFrames:
@@ -707,18 +751,16 @@ func _get_animation_alignment(animation_name: String, animation_scale := 1.0) ->
 		var alignment := Vector2(0.0, 60.0)
 		if _sprite.sprite_frames.has_animation(animation_name) and _sprite.sprite_frames.get_frame_count(animation_name) > 0:
 			var frame_texture := _sprite.sprite_frames.get_frame_texture(animation_name, 0)
-			var frame_image := _get_atlas_frame_image(frame_texture)
-			if frame_image != null and not frame_image.is_empty():
-				var bounds := _get_visible_bounds(frame_image)
-				if bounds.size != Vector2i.ZERO:
-					var half_size := Vector2(frame_image.get_size()) * 0.5
-					var visible_center_x := float(bounds.position.x) + float(bounds.size.x) * 0.5
-					var visible_anchor_y := (
-						float(bounds.position.y) + float(bounds.size.y) * 0.5
-						if _flying
-						else float(bounds.position.y + bounds.size.y - 1)
-					)
-					alignment = Vector2(visible_center_x - half_size.x, visible_anchor_y - half_size.y)
+			var bounds := _get_frame_visible_bounds(frame_texture)
+			if bounds.size != Vector2i.ZERO:
+				var half_size := Vector2(_get_frame_size(frame_texture)) * 0.5
+				var visible_center_x := float(bounds.position.x) + float(bounds.size.x) * 0.5
+				var visible_anchor_y := (
+					float(bounds.position.y) + float(bounds.size.y) * 0.5
+					if _flying
+					else float(bounds.position.y + bounds.size.y - 1)
+				)
+				alignment = Vector2(visible_center_x - half_size.x, visible_anchor_y - half_size.y)
 		_alignment_cache[cache_key] = alignment
 	var local_alignment: Vector2 = _alignment_cache[cache_key]
 	var effective_scale := _visual_scale * animation_scale
@@ -744,6 +786,53 @@ static func _get_atlas_frame_image(texture: Texture2D) -> Image:
 		)
 		return atlas_image.get_region(region)
 	return texture.get_image()
+
+
+static func _get_frame_visible_bounds(texture: Texture2D) -> Rect2i:
+	var cache_key := _get_frame_cache_key(texture)
+	if _visible_bounds_cache.has(cache_key):
+		var cached_bounds: Rect2i = _visible_bounds_cache[cache_key]
+		return cached_bounds
+	var bounds := Rect2i()
+	var image := _get_atlas_frame_image(texture)
+	if image != null and not image.is_empty():
+		bounds = _get_visible_bounds(image)
+	_visible_bounds_cache[cache_key] = bounds
+	return bounds
+
+
+static func _get_frame_cache_key(texture: Texture2D) -> String:
+	if texture == null:
+		return "<null>"
+	if texture is AtlasTexture:
+		var atlas_texture := texture as AtlasTexture
+		var atlas_key := "<null>"
+		if atlas_texture.atlas != null:
+			atlas_key = atlas_texture.atlas.resource_path
+			if atlas_key.is_empty():
+				atlas_key = "instance:%d" % atlas_texture.atlas.get_instance_id()
+		var region := atlas_texture.region
+		return "%s@%d,%d,%d,%d" % [
+			atlas_key,
+			roundi(region.position.x),
+			roundi(region.position.y),
+			roundi(region.size.x),
+			roundi(region.size.y)
+		]
+	var texture_key := texture.resource_path
+	if texture_key.is_empty():
+		texture_key = "instance:%d" % texture.get_instance_id()
+	return texture_key
+
+
+static func _get_frame_size(texture: Texture2D) -> Vector2i:
+	if texture == null:
+		return Vector2i.ZERO
+	if texture is AtlasTexture:
+		var region := (texture as AtlasTexture).region
+		return Vector2i(roundi(region.size.x), roundi(region.size.y))
+	var texture_size := texture.get_size()
+	return Vector2i(roundi(texture_size.x), roundi(texture_size.y))
 
 
 static func _get_visible_bounds(image: Image) -> Rect2i:

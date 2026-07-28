@@ -22,21 +22,20 @@ const VALID_LANGUAGES := LanguageSettings.SUPPORTED_LANGUAGES
 
 var _activity_range := "full"
 var _language := LanguageSettings.DEFAULT_LANGUAGE
-var _session_seconds := 0.0
-var _total_seconds := 0.0
 var _title_label: Label
 var _range_label: Label
 var _range_options: OptionButton
 var _language_label: Label
 var _language_options: OptionButton
-var _session_title_label: Label
-var _session_value_label: Label
-var _total_title_label: Label
-var _total_value_label: Label
 var _exit_button: Button
 var _close_button: Button
 var _root: Control
 var _debug_button: Button
+var _credits_button: Button
+var _credits_panel: PanelContainer
+var _credits_title_label: Label
+var _credits_copy_label: Label
+var _credits_back_button: Button
 var _debug_panel: PanelContainer
 var _debug_title_label: Label
 var _debug_hint_label: Label
@@ -82,19 +81,12 @@ func open_window() -> void:
 func close_window() -> void:
 	visible = false
 	_dragging = false
+	if _credits_panel != null:
+		_credits_panel.visible = false
 	if _debug_panel != null:
 		_debug_panel.visible = false
 	if _reset_confirmation != null:
 		_reset_confirmation.hide()
-
-
-func refresh_runtime(session_seconds: float, total_seconds: float) -> void:
-	_session_seconds = maxf(0.0, session_seconds)
-	_total_seconds = maxf(_session_seconds, total_seconds)
-	if _session_value_label != null:
-		_session_value_label.text = _format_duration(_session_seconds)
-	if _total_value_label != null:
-		_total_value_label.text = _format_duration(_total_seconds)
 
 
 func refresh_debug_values(
@@ -170,8 +162,8 @@ func _create_content() -> void:
 
 	var panel := PanelContainer.new()
 	panel.name = "SettingsPanel"
-	panel.position = Vector2(142.0, 105.0)
-	panel.size = Vector2(436.0, 510.0)
+	panel.position = Vector2(142.0, 133.0)
+	panel.size = Vector2(436.0, 454.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_PASS
 	panel.add_theme_stylebox_override("panel", _make_panel_style())
 	_root.add_child(panel)
@@ -185,7 +177,7 @@ func _create_content() -> void:
 	panel.add_child(margin)
 
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 16)
+	content.add_theme_constant_override("separation", 12)
 	margin.add_child(content)
 
 	_title_label = _make_label("设置", 34, Color(0.94, 0.84, 0.62, 1.0))
@@ -211,30 +203,6 @@ func _create_content() -> void:
 	_language_options.item_selected.connect(_on_language_selected)
 	language_row.add_child(_language_options)
 
-	var divider := HSeparator.new()
-	divider.add_theme_constant_override("separation", 8)
-	content.add_child(divider)
-
-	var session_row := _make_stat_row()
-	content.add_child(session_row)
-	_session_title_label = _make_label("本次运行时长", 18, Color(0.72, 0.78, 0.68, 1.0))
-	_session_title_label.custom_minimum_size = Vector2(190.0, 36.0)
-	session_row.add_child(_session_title_label)
-	_session_value_label = _make_label(_format_duration(0.0), 21, Color(0.94, 0.84, 0.56, 1.0))
-	_session_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_session_value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	session_row.add_child(_session_value_label)
-
-	var total_row := _make_stat_row()
-	content.add_child(total_row)
-	_total_title_label = _make_label("总运行时长", 18, Color(0.72, 0.78, 0.68, 1.0))
-	_total_title_label.custom_minimum_size = Vector2(190.0, 36.0)
-	total_row.add_child(_total_title_label)
-	_total_value_label = _make_label(_format_duration(0.0), 21, Color(0.94, 0.84, 0.56, 1.0))
-	_total_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_total_value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	total_row.add_child(_total_value_label)
-
 	_debug_button = Button.new()
 	_debug_button.text = "调试选项"
 	_debug_button.custom_minimum_size = Vector2(360.0, 38.0)
@@ -244,6 +212,17 @@ func _create_content() -> void:
 	_debug_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.10, 0.14, 0.10, 0.98), Color(0.68, 0.76, 0.46, 1.0)))
 	_debug_button.pressed.connect(_open_debug_panel)
 	content.add_child(_debug_button)
+
+	_credits_button = Button.new()
+	_credits_button.name = "OpenCredits"
+	_credits_button.text = "资源鸣谢"
+	_credits_button.custom_minimum_size = Vector2(360.0, 38.0)
+	_credits_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_credits_button.add_theme_font_size_override("font_size", 18)
+	_credits_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.055, 0.075, 0.10, 0.92), Color(0.38, 0.58, 0.66, 0.90)))
+	_credits_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.08, 0.13, 0.18, 0.98), Color(0.52, 0.82, 0.92, 1.0)))
+	_credits_button.pressed.connect(_open_credits_panel)
+	content.add_child(_credits_button)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -264,7 +243,7 @@ func _create_content() -> void:
 	_close_button = Button.new()
 	_close_button.name = "CloseSettings"
 	_close_button.text = "×"
-	_close_button.position = Vector2(514.0, 112.0)
+	_close_button.position = Vector2(514.0, 140.0)
 	_close_button.size = Vector2(54.0, 48.0)
 	_close_button.z_index = 10
 	_close_button.focus_mode = Control.FOCUS_NONE
@@ -281,6 +260,7 @@ func _create_content() -> void:
 	_close_button.pressed.connect(close_window)
 	_root.add_child(_close_button)
 	_create_debug_panel()
+	_create_credits_panel()
 	_create_reset_confirmation()
 
 
@@ -443,6 +423,59 @@ func _create_debug_panel() -> void:
 	footer_actions.add_child(_debug_reset_button)
 
 
+func _create_credits_panel() -> void:
+	_credits_panel = PanelContainer.new()
+	_credits_panel.name = "CreditsPanel"
+	_credits_panel.position = Vector2(54.0, 96.0)
+	_credits_panel.size = Vector2(612.0, 528.0)
+	_credits_panel.visible = false
+	_credits_panel.z_index = 30
+	_credits_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var credits_style := _make_panel_style()
+	credits_style.bg_color = Color(0.008, 0.014, 0.022, 1.0)
+	credits_style.border_color = Color(0.40, 0.66, 0.76, 0.82)
+	_credits_panel.add_theme_stylebox_override("panel", credits_style)
+	_root.add_child(_credits_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 30)
+	margin.add_theme_constant_override("margin_top", 26)
+	margin.add_theme_constant_override("margin_right", 30)
+	margin.add_theme_constant_override("margin_bottom", 26)
+	_credits_panel.add_child(margin)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	margin.add_child(content)
+
+	_credits_title_label = _make_label("资源鸣谢与许可", 28, Color(0.78, 0.90, 0.94, 1.0))
+	_credits_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_credits_title_label.custom_minimum_size = Vector2(552.0, 42.0)
+	content.add_child(_credits_title_label)
+
+	var divider := HSeparator.new()
+	content.add_child(divider)
+	_credits_copy_label = _make_label("", 17, Color(0.82, 0.86, 0.80, 1.0))
+	_credits_copy_label.name = "CreditsCopy"
+	_credits_copy_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_credits_copy_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_credits_copy_label.custom_minimum_size = Vector2(552.0, 310.0)
+	content.add_child(_credits_copy_label)
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(spacer)
+	_credits_back_button = Button.new()
+	_credits_back_button.name = "CreditsBackToSettings"
+	_credits_back_button.text = "返回设置"
+	_credits_back_button.custom_minimum_size = Vector2(552.0, 40.0)
+	_credits_back_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_credits_back_button.add_theme_font_size_override("font_size", 18)
+	_credits_back_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.045, 0.09, 0.11, 0.98), Color(0.34, 0.64, 0.72, 0.92)))
+	_credits_back_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.075, 0.15, 0.18, 1.0), Color(0.52, 0.84, 0.92, 1.0)))
+	_credits_back_button.pressed.connect(_close_credits_panel)
+	content.add_child(_credits_back_button)
+
+
 func _create_reset_confirmation() -> void:
 	_reset_confirmation = ConfirmationDialog.new()
 	_reset_confirmation.name = "ResetGameConfirmation"
@@ -490,6 +523,16 @@ func _make_debug_multiplier_spin_box(minimum: float, maximum: float, value_step:
 func _open_debug_panel() -> void:
 	if _debug_panel != null:
 		_debug_panel.visible = true
+
+
+func _open_credits_panel() -> void:
+	if _credits_panel != null:
+		_credits_panel.visible = true
+
+
+func _close_credits_panel() -> void:
+	if _credits_panel != null:
+		_credits_panel.visible = false
 
 
 func _close_debug_panel() -> void:
@@ -554,13 +597,6 @@ func _make_setting_row() -> HBoxContainer:
 	return row
 
 
-func _make_stat_row() -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.custom_minimum_size = Vector2(360.0, 38.0)
-	row.add_theme_constant_override("separation", 8)
-	return row
-
-
 func _make_option_button() -> OptionButton:
 	var options := OptionButton.new()
 	options.custom_minimum_size = Vector2(190.0, 42.0)
@@ -614,11 +650,17 @@ func _apply_language() -> void:
 	_title_label.text = "SETTINGS" if english else "设置"
 	_range_label.text = "Pet activity area" if english else "宠物活动范围"
 	_language_label.text = "Language" if english else "语言"
-	_session_title_label.text = "Current session" if english else "本次运行时长"
-	_total_title_label.text = "Total play time" if english else "总运行时长"
 	_exit_button.text = "EXIT GAME" if english else "退出游戏"
 	if _debug_button != null:
 		_debug_button.text = "DEBUG OPTIONS" if english else "调试选项"
+	if _credits_button != null:
+		_credits_button.text = "CREDITS & LICENSES" if english else "资源鸣谢与许可"
+	if _credits_title_label != null:
+		_credits_title_label.text = "CREDITS & LICENSES" if english else "资源鸣谢与许可"
+	if _credits_copy_label != null:
+		_credits_copy_label.text = _get_credits_copy(english)
+	if _credits_back_button != null:
+		_credits_back_button.text = "BACK TO SETTINGS" if english else "返回设置"
 	if _debug_title_label != null:
 		_debug_title_label.text = "DEBUG OPTIONS" if english else "调试选项"
 	if _debug_hint_label != null:
@@ -682,6 +724,12 @@ func _apply_language() -> void:
 	_updating_controls = false
 
 
+func _get_credits_copy(english: bool) -> String:
+	if english:
+		return "Super Pixel Projectiles Pack 2\n\nCreated by Will Tice / unTied Games\n\nLicensed under Will's Public License for Using This Product.\nUsed in this game as projectile visual effects.\n\nLicense and warranty disclaimer:\nhttps://untiedgames.com/files/license.txt\n\nSource:\nhttps://untiedgames.com/"
+	return "Super Pixel Projectiles Pack 2\n\n作者：Will Tice / unTied Games\n\n本游戏使用该资源包作为投射物视觉特效。\n授权：Will's Public License for Using This Product\n\n完整许可与免责声明：\nhttps://untiedgames.com/files/license.txt\n\n资源来源：\nhttps://untiedgames.com/"
+
+
 func _sync_option_selection() -> void:
 	if _range_options == null or _language_options == null:
 		return
@@ -728,14 +776,6 @@ func _on_root_gui_input(event: InputEvent) -> void:
 func _center_window() -> void:
 	var usable_rect := DisplayLayout.get_current_usable_rect(self)
 	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, usable_rect)
-
-
-static func _format_duration(seconds: float) -> String:
-	var total := maxi(0, int(floor(seconds)))
-	var hours := total / 3600
-	var minutes := (total % 3600) / 60
-	var remaining_seconds := total % 60
-	return "%02d:%02d:%02d" % [hours, minutes, remaining_seconds]
 
 
 static func _sanitize_range(value: String) -> String:

@@ -2,7 +2,7 @@ extends RefCounted
 
 const EnemyActor = preload("res://scripts/enemy_actor.gd")
 
-const CAMPAIGN_LEVELS_PER_REINFORCEMENT := 30.0
+const CAMPAIGN_LEVELS_PER_REINFORCEMENT := 25.0
 const ENDLESS_LEVELS_PER_REINFORCEMENT := 45.0
 const CAMPAIGN_MAX_ENEMIES_PER_WAVE := 6
 const ENDLESS_MAX_ENEMIES_PER_WAVE := 10
