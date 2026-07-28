@@ -79,6 +79,7 @@ const SYMBOL_EFFECT_TEXTURES := [
 	"res://assets/ui/newElements/符号特效5.png"
 ]
 const SYMBOL_BURST_COUNT := 14
+const SYMBOL_BURST_COOLDOWN_SECONDS := 0.12
 const SYMBOL_EFFECT_SIZE := Vector2(6.0, 9.0)
 const SYMBOL_SOURCE_SPREAD := Vector2(168.0, 196.0)
 const DRAWER_SYMBOL_COUNT := 22
@@ -160,7 +161,6 @@ var _coin_count := 0
 var _follower_count := 0
 var _faith_growth_rate := 0.0
 var _faith_boost_active := false
-var _faith_boost_growth_tween: Tween
 var _follower_growth_rate := 0.0
 var _upgrade_entries := []
 var _upgrade_buttons := {}
@@ -180,12 +180,15 @@ var _menu_hit_images := {}
 var _bookmark_labels := {}
 var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _rng := RandomNumberGenerator.new()
+var _symbol_effect_textures: Array[Texture2D] = []
+var _adder_symbol_burst_cooldown := 0.0
 var _drawer_symbol_update_time := 0.0
 var _display_layout_poll_time := 0.0
 
 
 func setup() -> void:
 	_rng.randomize()
+	_load_symbol_effect_textures()
 	_create_toggle_button()
 	_create_drawer_window()
 	_position_retry_frames = POSITION_RETRY_FRAMES
@@ -194,6 +197,7 @@ func setup() -> void:
 
 
 func _process(delta: float) -> void:
+	_adder_symbol_burst_cooldown = maxf(0.0, _adder_symbol_burst_cooldown - maxf(0.0, delta))
 	if _position_retry_frames > 0:
 		_position_retry_frames -= 1
 		_place_menu_window()
@@ -1502,9 +1506,14 @@ func _set_upgrade_row_locked_state(pet_id: String, locked: bool) -> void:
 
 
 func _set_any_boost_visual(active: bool, strongest_multiplier: float) -> void:
+	var visual_state_changed := _faith_boost_active != active
 	_faith_boost_active = active
 	if _faith_boost_aura != null:
 		_faith_boost_aura.call("set_boost", active, strongest_multiplier)
+	# Multipliers can change while a boost remains active, but the labels only
+	# need theme invalidation when that active/inactive state actually changes.
+	if not visual_state_changed:
+		return
 	if _faith_boost_glow_label != null:
 		_faith_boost_glow_label.visible = active
 	if _faith_value_label != null:
@@ -1532,25 +1541,10 @@ func _set_any_boost_visual(active: bool, strongest_multiplier: float) -> void:
 func _play_boosted_faith_growth_pulse() -> void:
 	if _faith_boost_glow_label == null or not _faith_boost_active:
 		return
-	if _faith_boost_growth_tween != null and _faith_boost_growth_tween.is_valid():
-		_faith_boost_growth_tween.kill()
-	_faith_boost_glow_label.scale = Vector2(1.13, 1.18)
-	_faith_boost_glow_label.modulate = Color(1.0, 1.0, 0.66, 0.95)
-	_faith_boost_growth_tween = create_tween()
-	_faith_boost_growth_tween.set_trans(Tween.TRANS_EXPO)
-	_faith_boost_growth_tween.set_ease(Tween.EASE_OUT)
-	_faith_boost_growth_tween.tween_property(
-		_faith_boost_glow_label,
-		"scale",
-		Vector2.ONE,
-		0.16
-	)
-	_faith_boost_growth_tween.parallel().tween_property(
-		_faith_boost_glow_label,
-		"modulate",
-		Color(1.0, 1.0, 1.0, 0.58),
-		0.20
-	)
+	# The animated rune layer carries the burst. Keeping this label steady avoids
+	# allocating and replacing a Tween for every income tick.
+	_faith_boost_glow_label.scale = Vector2.ONE
+	_faith_boost_glow_label.modulate = Color(1.0, 1.0, 0.76, 0.64)
 	if _faith_boost_aura != null:
 		_faith_boost_aura.call("notify_growth")
 
@@ -1977,8 +1971,14 @@ func _pulse_count_label(label: Label) -> void:
 	if label == null:
 		return
 
+	var previous_tween: Tween
+	if label.has_meta("count_pulse_tween"):
+		previous_tween = label.get_meta("count_pulse_tween") as Tween
+	if previous_tween != null and previous_tween.is_valid():
+		previous_tween.kill()
 	label.scale = Vector2.ONE
 	var tween := create_tween()
+	label.set_meta("count_pulse_tween", tween)
 	tween.set_trans(Tween.TRANS_BACK)
 	tween.set_ease(Tween.EASE_OUT)
 	tween.tween_property(label, "scale", Vector2.ONE * 1.22, 0.08)
@@ -1988,10 +1988,13 @@ func _pulse_count_label(label: Label) -> void:
 func _play_adder_symbol_effect(button: Control) -> void:
 	if button == null:
 		return
+	if _adder_symbol_burst_cooldown > 0.0:
+		return
 
 	var parent := button.get_parent() as Control
 	if parent == null:
 		return
+	_adder_symbol_burst_cooldown = SYMBOL_BURST_COOLDOWN_SECONDS
 
 	var source_center := button.position + (button.size * 0.5)
 	var source_size := Vector2(
@@ -2077,7 +2080,10 @@ func _update_adder_symbol_particle(
 
 
 func _make_symbol_effect_rect(size: Vector2, alpha: float) -> TextureRect:
-	var texture := load(String(SYMBOL_EFFECT_TEXTURES[_rng.randi_range(0, SYMBOL_EFFECT_TEXTURES.size() - 1)])) as Texture2D
+	_load_symbol_effect_textures()
+	if _symbol_effect_textures.is_empty():
+		return null
+	var texture := _symbol_effect_textures[_rng.randi_range(0, _symbol_effect_textures.size() - 1)]
 	if texture == null:
 		return null
 
@@ -2091,6 +2097,15 @@ func _make_symbol_effect_rect(size: Vector2, alpha: float) -> TextureRect:
 	rect.z_index = 60
 	rect.modulate = Color(1.0, 1.0, 1.0, alpha)
 	return rect
+
+
+func _load_symbol_effect_textures() -> void:
+	if not _symbol_effect_textures.is_empty():
+		return
+	for texture_path in SYMBOL_EFFECT_TEXTURES:
+		var texture := load(String(texture_path)) as Texture2D
+		if texture != null:
+			_symbol_effect_textures.append(texture)
 
 
 func _play_upgrade_effect(button: Control) -> void:

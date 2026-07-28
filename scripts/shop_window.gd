@@ -39,6 +39,7 @@ var _slot_price_labels: Array[Label] = []
 var _slot_owned_labels: Array[Label] = []
 var _page := 0
 var _coin_balance := 0
+var _coin_balance_dirty := false
 var _owned_counts := {}
 var _goods: Array[Dictionary] = []
 var _dragging := false
@@ -58,6 +59,11 @@ func setup() -> void:
 func open_window() -> void:
 	if not visible:
 		_center_window()
+		# Coin changes can arrive while this window is hidden. Paint all cards
+		# once here instead of rebuilding them for every desktop coin pickup.
+		if _coin_balance_dirty:
+			_refresh_page()
+			_coin_balance_dirty = false
 		visible = true
 		_root.modulate = Color(1.0, 1.0, 1.0, 0.0)
 		_root.scale = Vector2(0.96, 0.96)
@@ -74,8 +80,18 @@ func close_window() -> void:
 
 
 func set_coin_balance(coin_balance: int) -> void:
-	_coin_balance = maxi(0, coin_balance)
-	_refresh_page()
+	var next_balance := maxi(0, coin_balance)
+	if _coin_balance == next_balance:
+		return
+	_coin_balance = next_balance
+	if not visible:
+		_coin_balance_dirty = true
+		# Keep the cached header state observable for setup/tests, while deferring
+		# the expensive six-card rebuild until the window is opened.
+		_refresh_coin_balance()
+		return
+	_refresh_coin_balance()
+	_refresh_visible_slot_affordability()
 
 
 func set_faith_points(legacy_balance: int) -> void:
@@ -406,11 +422,7 @@ func _refresh_page() -> void:
 
 	if _page_label != null:
 		_page_label.text = "%d/%d" % [_page + 1, page_count]
-	if _coin_balance_label != null:
-		var balance_text := CurrencyDisplay.format_compact(_coin_balance)
-		_coin_balance_label.text = balance_text
-		_coin_balance_label.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_balance, _language)
-		_fit_coin_balance_text(balance_text)
+	_refresh_coin_balance()
 	var page_start := _page * GOODS_PER_PAGE
 	for slot_index in _slot_controls.size():
 		var good_index := page_start + slot_index
@@ -445,6 +457,34 @@ func _refresh_page() -> void:
 		# visually quiet and reserve this small line for durable inventory only.
 		owned_label.visible = has_good and not offering
 		owned_label.text = ("OWNED %d" if _language == "en" else "已拥有 %d") % owned
+	_coin_balance_dirty = false
+
+
+func _refresh_coin_balance() -> void:
+	if _coin_balance_label == null:
+		return
+	var balance_text := CurrencyDisplay.format_compact(_coin_balance)
+	if _coin_balance_label.text != balance_text:
+		_coin_balance_label.text = balance_text
+		_fit_coin_balance_text(balance_text)
+	_coin_balance_label.tooltip_text = CurrencyDisplay.get_conversion_tooltip(_coin_balance, _language)
+
+
+func _refresh_visible_slot_affordability() -> void:
+	var page_start := _page * GOODS_PER_PAGE
+	for slot_index in _slot_controls.size():
+		var good_index := page_start + slot_index
+		if good_index < 0 or good_index >= _goods.size():
+			continue
+		var price := int(_goods[good_index].get("price", 0))
+		var affordable := _coin_balance >= price
+		var icon := _slot_icons[slot_index]
+		var price_label := _slot_price_labels[slot_index]
+		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
+		price_label.add_theme_color_override(
+			"font_color",
+			Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0)
+		)
 
 
 func _get_page_count() -> int:
