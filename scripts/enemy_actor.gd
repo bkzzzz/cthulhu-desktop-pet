@@ -263,14 +263,25 @@ func setup(
 	ground_y: float,
 	power_scale := 1.0,
 	entry_x := 120.0,
-	battlefield_width := -1.0
+	battlefield_width := -1.0,
+	encounter_health_multiplier := 1.0
 ) -> void:
 	enemy_id = new_enemy_id if DEFINITIONS.has(new_enemy_id) else "villager1"
 	var data: Dictionary = DEFINITIONS[enemy_id]
 	var safe_power := clampf(power_scale, 0.0, 1_000_000_000_000_000.0)
+	var safe_encounter_health_multiplier := clampf(
+		encounter_health_multiplier,
+		0.05,
+		100_000.0
+	)
 	_power_scale = safe_power
 	var health_scale := clampf(pow(maxf(0.01, safe_power), 0.68), 0.05, 100_000.0)
-	max_health = float(data.get("hp", 2.0)) * health_scale * get_health_multiplier(enemy_id)
+	max_health = (
+		float(data.get("hp", 2.0))
+		* health_scale
+		* get_health_multiplier(enemy_id)
+		* safe_encounter_health_multiplier
+	)
 	health = max_health
 	_damage = float(data.get("damage", 0.3)) * safe_power * get_damage_multiplier(enemy_id)
 	_move_speed = float(data.get("speed", 60.0))

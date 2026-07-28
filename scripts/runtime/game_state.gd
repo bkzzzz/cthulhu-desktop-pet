@@ -60,6 +60,7 @@ var _pending_battle_difficulty_scale := -1.0
 var _active_battle_difficulty_scale := -1.0
 var _last_era_display := ""
 var _era_floor_index := 0
+var _debug_era_preview_index := -1
 var _recovery_ui_refresh_time := 0.0
 var _smoke_frames: SpriteFrames
 var _inventory_window: Window

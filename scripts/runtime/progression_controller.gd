@@ -581,6 +581,10 @@ func _finish_gacha_draw_batch(batch_token: int) -> void:
 	if bool(completed_state.get("inventory_changed", false)):
 		_host._sync_inventory_window()
 	_apply_automatic_evolution_thresholds()
+	# The roster itself is now a chapter milestone. Refresh immediately when a
+	# new pet lands so the menu era and future encounter schedule do not wait for
+	# the next background polling tick.
+	_host._refresh_era_display()
 	var news_item_name = String(completed_state.get("news_item_name", ""))
 	if not news_item_name.is_empty():
 		_host._try_queue_news_event(
@@ -907,8 +911,13 @@ func _on_debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 
 
 func _on_debug_era_requested(era_index: int) -> void:
-	_total_runtime_seconds = EraProgression.get_era_start_runtime_seconds(era_index)
-	_era_floor_index = era_index
+	var safe_era_index := clampi(era_index, 0, EraProgression.get_era_count() - 1)
+	_total_runtime_seconds = EraProgression.get_era_start_runtime_seconds(safe_era_index)
+	_era_floor_index = safe_era_index
+	# Debug users must still be able to inspect an earlier chapter after having
+	# unlocked a large roster. This is intentionally runtime-only and is never
+	# persisted into a save.
+	_debug_era_preview_index = safe_era_index
 	_session_runtime_seconds = minf(_session_runtime_seconds, _total_runtime_seconds)
 	_last_era_display = ""
 	_pet_upgrade_stats_dirty = true

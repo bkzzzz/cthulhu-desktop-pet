@@ -333,6 +333,9 @@ var _last_era_display: String:
 var _era_floor_index: int:
 	get: return _state._era_floor_index
 	set(value): _state._era_floor_index = clampi(value, 0, EraProgression.get_era_count() - 1)
+var _debug_era_preview_index: int:
+	get: return _state._debug_era_preview_index
+	set(value): _state._debug_era_preview_index = clampi(value, -1, EraProgression.get_era_count() - 1)
 var _recovery_ui_refresh_time: float:
 	get: return _state._recovery_ui_refresh_time
 	set(value): _state._recovery_ui_refresh_time = value
@@ -483,9 +486,15 @@ var _total_runtime_seconds: float:
 
 
 func _get_era_runtime_seconds() -> float:
-	return maxf(
+	if _debug_era_preview_index >= 0:
+		return maxf(
+			_total_runtime_seconds,
+			EraProgression.get_era_start_runtime_seconds(_debug_era_preview_index)
+		)
+	return EraProgression.get_progression_runtime_seconds(
 		_total_runtime_seconds,
-		EraProgression.get_era_start_runtime_seconds(_era_floor_index)
+		_unlocked_pet_ids.size(),
+		_era_floor_index
 	)
 var _playtime_refresh_timer: float:
 	get: return _state._playtime_refresh_timer

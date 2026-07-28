@@ -1,7 +1,11 @@
 extends RefCounted
 
 const LEGACY_SECONDS_PER_YEAR := 300.0
-const SECONDS_PER_YEAR := 18_000.0
+# Each progression year is deliberately short enough that a long-running
+# desktop session can still move the world forward on its own.  Roster growth
+# can advance the chapter sooner (see ERA_UNLOCKED_PET_REQUIREMENTS below),
+# but time remains a reliable fallback for players who pull more slowly.
+const SECONDS_PER_YEAR := 1_800.0
 const SOLDIER_ERA_START_YEAR := 3
 const VICTORIAN_ERA_START_YEAR := 6
 const MODERN_ERA_START_YEAR := 10
@@ -21,9 +25,58 @@ const ERA_START_YEARS := [
 	OUTER_SPACE_ERA_START_YEAR
 ]
 
+# A newly expanded cult should visibly change the world before it has idled
+# for several hours.  The first pet is the medieval village; each pair of new
+# companions unlocks the next chapter.  Keeping two pets between transitions
+# avoids racing through every backdrop from one lucky multi-pull.
+const ERA_UNLOCKED_PET_REQUIREMENTS := [1, 3, 5, 7, 9]
+
 
 static func get_era_count() -> int:
 	return ERA_START_YEARS.size()
+
+
+static func get_roster_era_index(unlocked_pet_count: int) -> int:
+	var safe_count := maxi(0, unlocked_pet_count)
+	var era_index := 0
+	for index in ERA_UNLOCKED_PET_REQUIREMENTS.size():
+		if safe_count >= int(ERA_UNLOCKED_PET_REQUIREMENTS[index]):
+			era_index = index
+	return clampi(era_index, 0, get_era_count() - 1)
+
+
+static func get_progression_era_index(
+	total_runtime_seconds: float,
+	unlocked_pet_count: int,
+	era_floor_index := 0
+) -> int:
+	return clampi(
+		maxi(
+			maxi(
+				get_era_index(total_runtime_seconds),
+				get_roster_era_index(unlocked_pet_count)
+			),
+			clampi(era_floor_index, 0, get_era_count() - 1)
+		),
+		0,
+		get_era_count() - 1
+	)
+
+
+static func get_progression_runtime_seconds(
+	total_runtime_seconds: float,
+	unlocked_pet_count: int,
+	era_floor_index := 0
+) -> float:
+	var effective_era := get_progression_era_index(
+		total_runtime_seconds,
+		unlocked_pet_count,
+		era_floor_index
+	)
+	return maxf(
+		maxf(0.0, total_runtime_seconds),
+		get_era_start_runtime_seconds(effective_era)
+	)
 
 
 static func get_legacy_era_index(total_runtime_seconds: float) -> int:

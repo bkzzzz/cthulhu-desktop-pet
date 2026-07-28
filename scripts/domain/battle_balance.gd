@@ -10,6 +10,17 @@ const MAX_REWARD_VALUE := 9_000_000_000_000_000_000.0
 const HIGH_POWER_CARRY_THRESHOLD := 32.0
 const HIGH_POWER_CARRY_PRESSURE := 0.65
 const FINAL_BOSS_ENCOUNTER_KEY := "final_boss_encounter"
+# More active pets means a target can be hit by a full opening volley before
+# it gets to act. Give low- and mid-level squads a separate health-only
+# pressure curve so those volleys do not erase every wave, without also
+# multiplying enemy damage or the encounter's reward budget.
+const EXTRA_PET_HEALTH_PRESSURE := 0.90
+const ROSTER_HEALTH_PRESSURE_FADE_MAX_LEVEL := 100.0
+const ROSTER_HEALTH_PRESSURE_EXPONENT := 0.68
+# Later eras already bring substantially sturdier authored enemies. Fade only
+# the *extra* squad protection there so a large, experienced roster does not
+# turn every late wave into a wall of health.
+const ERA_SQUAD_HEALTH_PRESSURE_SHARES := [1.0, 0.85, 0.72, 0.40, 0.15]
 
 
 static func build_final_boss_schedule() -> Array[Dictionary]:
@@ -69,6 +80,29 @@ static func strongest_wave_power(schedule: Array[Dictionary]) -> float:
 			wave_power += EnemyActor.get_combat_power(String(enemy_id_value))
 		strongest = maxf(strongest, wave_power)
 	return strongest
+
+
+static func roster_health_multiplier(
+	active_pet_count: int,
+	average_pet_level: float,
+	era_index := 0
+) -> float:
+	var extra_pet_count := maxi(0, active_pet_count - 1)
+	if extra_pet_count <= 0:
+		return 1.0
+	var low_level_share := clampf(
+		(ROSTER_HEALTH_PRESSURE_FADE_MAX_LEVEL - maxf(1.0, average_pet_level))
+		/ maxf(1.0, ROSTER_HEALTH_PRESSURE_FADE_MAX_LEVEL - 1.0),
+		0.0,
+		1.0
+	)
+	var full_squad_multiplier := pow(
+		1.0 + float(extra_pet_count) * EXTRA_PET_HEALTH_PRESSURE * low_level_share,
+		ROSTER_HEALTH_PRESSURE_EXPONENT
+	)
+	var safe_era_index := clampi(era_index, 0, ERA_SQUAD_HEALTH_PRESSURE_SHARES.size() - 1)
+	var era_pressure_share := float(ERA_SQUAD_HEALTH_PRESSURE_SHARES[safe_era_index])
+	return lerpf(1.0, full_squad_multiplier, era_pressure_share)
 
 
 static func recommended_difficulty_scale(

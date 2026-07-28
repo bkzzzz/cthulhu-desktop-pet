@@ -96,8 +96,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	if EraProgression.get_calendar_year(0.0) != EraProgression.MEDIEVAL_START_CALENDAR_YEAR:
 		failures.append("the menu era clock must begin on a real medieval calendar year")
 	var soldier_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.SOLDIER_ERA_START_YEAR - 1)
-	if not is_equal_approx(soldier_time / 3600.0, 10.0):
-		failures.append("the soldier era must begin at the ten-hour early-game checkpoint")
+	if not is_equal_approx(soldier_time / 3600.0, 1.0):
+		failures.append("the soldier era must begin at the one-hour time fallback checkpoint")
 	if EraProgression.get_era_index(soldier_time - 0.01) != 0:
 		failures.append("soldiers must stay out of the village era")
 	if EraProgression.get_era_index(soldier_time) != 1:
@@ -112,8 +112,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	if not later_types.has("soldier1") or not later_types.has("soldier2"):
 		failures.append("the later era must schedule both melee and ranged soldiers")
 	var victorian_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.VICTORIAN_ERA_START_YEAR - 1)
-	if not is_equal_approx(victorian_time / 3600.0, 25.0):
-		failures.append("the Victorian era must begin at the twenty-five-hour mid-game checkpoint")
+	if not is_equal_approx(victorian_time / 3600.0, 2.5):
+		failures.append("the Victorian era must begin at the two-and-a-half-hour time fallback checkpoint")
 	if EraProgression.get_era_index(victorian_time) != 2:
 		failures.append("elapsed desktop time must advance into the Victorian era")
 	if EraProgression.get_calendar_year(victorian_time) != 1837:
@@ -128,8 +128,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 		if not victorian_types.has(expected_type):
 			failures.append("the Victorian era must schedule %s" % expected_type)
 	var modern_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.MODERN_ERA_START_YEAR - 1)
-	if not is_equal_approx(modern_time / 3600.0, 45.0):
-		failures.append("the modern era must begin at the forty-five-hour checkpoint")
+	if not is_equal_approx(modern_time / 3600.0, 4.5):
+		failures.append("the modern era must begin at the four-and-a-half-hour time fallback checkpoint")
 	if EraProgression.get_era_index(modern_time) != 3:
 		failures.append("elapsed desktop time must advance into the modern era")
 	var modern_types: Array[String] = []
@@ -140,8 +140,8 @@ static func _test_era_progression(failures: Array[String]) -> void:
 		if not modern_types.has(expected_type):
 			failures.append("the modern era must schedule %s" % expected_type)
 	var outer_time := EraProgression.SECONDS_PER_YEAR * float(EraProgression.OUTER_SPACE_ERA_START_YEAR - 1)
-	if not is_equal_approx(outer_time / 3600.0, 65.0):
-		failures.append("the outer-space era must remain a sixty-five-hour late-game chapter")
+	if not is_equal_approx(outer_time / 3600.0, 6.5):
+		failures.append("the outer-space era must begin at the six-and-a-half-hour time fallback checkpoint")
 	if EraProgression.get_era_index(outer_time) != 4:
 		failures.append("elapsed desktop time must advance into the outer-space era")
 	var outer_types: Array[String] = []
@@ -157,6 +157,33 @@ static func _test_era_progression(failures: Array[String]) -> void:
 	)
 	if EraProgression.get_legacy_era_index(legacy_outer_runtime) != 4:
 		failures.append("pre-rebalance saves must preserve their already-reached combat era")
+	var roster_requirements := EraProgression.ERA_UNLOCKED_PET_REQUIREMENTS
+	for era_index in EraProgression.get_era_count():
+		var required_pets := int(roster_requirements[era_index])
+		if EraProgression.get_roster_era_index(required_pets) != era_index:
+			failures.append("each roster milestone must advance exactly one era")
+			break
+		if required_pets > 1 and EraProgression.get_roster_era_index(required_pets - 1) >= era_index:
+			failures.append("roster milestones must not skip an era early")
+			break
+	if EraProgression.get_progression_era_index(0.0, 5) != 2:
+		failures.append("five unlocked pets must move a fresh save into the Victorian era")
+	if EraProgression.get_progression_era_index(0.0, 1, 3) != 3:
+		failures.append("a persisted legacy era floor must remain stronger than a small roster")
+	var roster_main := Main.new()
+	roster_main.set("_persistence_enabled", false)
+	roster_main.set("_total_runtime_seconds", 0.0)
+	var seven_pet_roster: Array[String] = ["pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7"]
+	roster_main.set("_unlocked_pet_ids", seven_pet_roster)
+	var roster_runtime := float(roster_main.call("_get_era_runtime_seconds"))
+	if EraProgression.get_era_index(roster_runtime) != 3:
+		failures.append("the runtime era must immediately reflect a seven-pet roster without rewriting play time")
+	if not is_equal_approx(float(roster_main.get("_total_runtime_seconds")), 0.0):
+		failures.append("roster-driven era changes must not inflate saved total play time")
+	roster_main.call("_on_debug_era_requested", 1)
+	if EraProgression.get_era_index(float(roster_main.call("_get_era_runtime_seconds"))) != 1:
+		failures.append("debug era selection must remain able to preview earlier chapters")
+	roster_main.free()
 	var migrated_main := Main.new()
 	migrated_main.set("_persistence_enabled", false)
 	migrated_main.set("_total_runtime_seconds", legacy_outer_runtime)
@@ -498,6 +525,37 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 	)
 	if advanced_carry_difficulty <= spread_roster_difficulty:
 		failures.append("one advanced carry pet must create extra enemy pressure beyond equal spread-out roster power")
+	var solo_health_pressure := BattleBalance.roster_health_multiplier(1, 1.0)
+	var fresh_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 1.0)
+	var fresh_victorian_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 1.0, 2)
+	var veteran_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 50.0)
+	var max_level_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 100.0)
+	if not is_equal_approx(solo_health_pressure, 1.0):
+		failures.append("a solo pet must not receive artificial enemy health pressure")
+	if fresh_squad_health_pressure < 2.7:
+		failures.append("a fresh five-pet squad must stop deleting enemies in its opening volley")
+	if fresh_victorian_squad_health_pressure < 2.2:
+		failures.append("newly unlocked squads must retain enough health pressure after advancing into the Victorian era")
+	if veteran_squad_health_pressure <= 1.8 or veteran_squad_health_pressure >= fresh_squad_health_pressure:
+		failures.append("squad health pressure must remain meaningful at mid-level and fade with progression")
+	if not is_equal_approx(max_level_squad_health_pressure, 1.0):
+		failures.append("fully progressed squads must not receive an unnecessary late-game health tax")
+	var solo_villager := EnemyActor.new()
+	solo_villager.setup("villager1", Vector2.ZERO, 400.0, 1.0, 80.0)
+	var squad_villager := EnemyActor.new()
+	squad_villager.setup(
+		"villager1",
+		Vector2.ZERO,
+		400.0,
+		1.0,
+		80.0,
+		-1.0,
+		fresh_victorian_squad_health_pressure
+	)
+	if not is_equal_approx(squad_villager.max_health, solo_villager.max_health * fresh_victorian_squad_health_pressure):
+		failures.append("encounter squad pressure must raise enemy health without changing the global difficulty scale")
+	solo_villager.free()
+	squad_villager.free()
 	if int(high_budget.get("gold", 0)) <= int(low_budget.get("gold", 0)):
 		failures.append("battle gold rewards must rise with potential coin income")
 	if int(low_budget.get("enemy_gold", 0)) <= 0:
@@ -641,6 +699,11 @@ static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
 			peak_power
 		)
 		var health_scale := pow(maxf(0.01, difficulty), 0.68)
+		var roster_health_multiplier := BattleBalance.roster_health_multiplier(
+			pet_ids.size(),
+			average_level,
+			EraProgression.get_era_index(runtime_seconds)
+		)
 		var strongest_wave_health := 0.0
 		for wave_value in schedule:
 			var wave_health := 0.0
@@ -650,6 +713,7 @@ static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
 					float(EnemyActor.DEFINITIONS[enemy_id].get("hp", 1.0))
 					* EnemyActor.get_health_multiplier(enemy_id)
 					* health_scale
+					* roster_health_multiplier
 				)
 			strongest_wave_health = maxf(strongest_wave_health, wave_health)
 		var estimated_clear_seconds := strongest_wave_health / maxf(0.001, estimated_dps)
@@ -658,9 +722,9 @@ static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
 				"the %.0fh combat checkpoint must stay inside the adaptive difficulty envelope, got %.2f"
 				% [float(checkpoint.get("hours", 0.0)), difficulty]
 			)
-		if estimated_clear_seconds < 5.0 or estimated_clear_seconds > 16.0:
+		if estimated_clear_seconds < 7.0 or estimated_clear_seconds > 16.0:
 			failures.append(
-				"the %.0fh strongest wave must remain a clearable 5-16 seconds, estimated %.2f"
+				"the %.0fh strongest wave must remain a clearable 7-16 seconds, estimated %.2f"
 				% [float(checkpoint.get("hours", 0.0)), estimated_clear_seconds]
 			)
 
