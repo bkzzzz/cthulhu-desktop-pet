@@ -654,7 +654,8 @@ func get_battle_attack_origin(direction: float) -> Vector2:
 	var attack_direction := -1.0 if direction < 0.0 else 1.0
 	var visual_rect := _get_sprite_visual_rect()
 	var height_above_origin := maxf(34.0, position.y - visual_rect.position.y)
-	return position + Vector2(attack_direction * 42.0, -height_above_origin * 0.45)
+	var forward_offset := float(pet_data.get("battle_attack_origin_x", 42.0))
+	return position + Vector2(attack_direction * forward_offset, -height_above_origin * 0.45)
 
 
 func get_battle_hit_position() -> Vector2:

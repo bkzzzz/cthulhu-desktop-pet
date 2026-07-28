@@ -827,6 +827,7 @@ const EVOLUTION_DEFINITIONS := {
 		"attack_align_to_floor": false,
 		"faces_right": false,
 		"attack_faces_right": false,
+		"battle_attack_origin_x": 6.0,
 		"doze_chance": 0.0
 	}
 }

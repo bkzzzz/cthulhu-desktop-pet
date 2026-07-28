@@ -818,6 +818,9 @@ static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
 		var config: Dictionary = BattleEffectActor.PROJECTILE_CONFIG.get(pet_id, {})
 		if config.is_empty() or not FileAccess.file_exists(String(config.get("sheet", ""))):
 			failures.append("%s must have a dedicated projectile type" % pet_id)
+		var evolved_config: Dictionary = BattleEffectActor.PROJECTILE_CONFIG.get("%s_evolved" % pet_id, {})
+		if evolved_config.is_empty() or not FileAccess.file_exists(String(evolved_config.get("sheet", ""))):
+			failures.append("evolved %s must unlock a Super Pixel projectile" % pet_id)
 	var target := Node2D.new()
 	target.position = Vector2(320.0, 300.0)
 	var projectile := BattleEffectActor.new()
@@ -825,6 +828,11 @@ static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
 	var projectile_sprite := projectile.get_node_or_null("ProjectileSprite") as AnimatedSprite2D
 	if projectile_sprite == null or projectile_sprite.sprite_frames.get_frame_count("fly") != 5:
 		failures.append("ranged pet projectiles must animate through five authored frames")
+	var evolved_projectile := BattleEffectActor.new()
+	evolved_projectile.setup_projectile("pet10", Vector2(40.0, 240.0), target, 6.0, true)
+	var evolved_sprite := evolved_projectile.get_node_or_null("ProjectileSprite") as AnimatedSprite2D
+	if evolved_sprite == null or evolved_sprite.sprite_frames.get_frame_count("fly") != 8:
+		failures.append("evolved pet10 must launch the eight-frame violet meteor projectile")
 	if not Main.BATTLE_DRAG_HINT_ZH.contains("拖动宠物"):
 		failures.append("battle announcements must teach the player to drag pets beside enemies")
 	var explosion := BattleEffectActor.new()
@@ -833,6 +841,7 @@ static func _test_pet6_dragged_combat(failures: Array[String]) -> void:
 	if explosion_sprite == null or explosion_sprite.sprite_frames.get_frame_count("burst") != 11:
 		failures.append("high-power pets must select the large eleven-frame explosion")
 	projectile.free()
+	evolved_projectile.free()
 	explosion.free()
 	target.free()
 

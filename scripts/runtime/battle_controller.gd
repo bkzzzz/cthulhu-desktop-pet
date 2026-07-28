@@ -633,7 +633,14 @@ func _spawn_pet_projectile(
 		start_position = pet.call("get_battle_attack_origin", direction)
 	var effect: Node2D = BattleEffectActor.new()
 	effect.set_meta("battle_runtime", true)
-	effect.call("setup_projectile", pet_id, start_position, target, visual_power)
+	effect.call(
+		"setup_projectile",
+		pet_id,
+		start_position,
+		target,
+		visual_power,
+		bool(pet.get("is_evolved"))
+	)
 	effect.connect(
 		"projectile_impacted",
 		Callable(self, "_on_pet_projectile_impacted").bind(damage, knockback, visual_power)
