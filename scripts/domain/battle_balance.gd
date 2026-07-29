@@ -10,17 +10,10 @@ const MAX_REWARD_VALUE := 9_000_000_000_000_000_000.0
 const HIGH_POWER_CARRY_THRESHOLD := 32.0
 const HIGH_POWER_CARRY_PRESSURE := 0.65
 const FINAL_BOSS_ENCOUNTER_KEY := "final_boss_encounter"
-# More active pets means a target can be hit by a full opening volley before
-# it gets to act. Give low- and mid-level squads a separate health-only
-# pressure curve so those volleys do not erase every wave, without also
-# multiplying enemy damage or the encounter's reward budget.
-const EXTRA_PET_HEALTH_PRESSURE := 0.90
-const ROSTER_HEALTH_PRESSURE_FADE_MAX_LEVEL := 100.0
-const ROSTER_HEALTH_PRESSURE_EXPONENT := 0.68
-# Later eras already bring substantially sturdier authored enemies. Fade only
-# the *extra* squad protection there so a large, experienced roster does not
-# turn every late wave into a wall of health.
-const ERA_SQUAD_HEALTH_PRESSURE_SHARES := [1.0, 0.85, 0.72, 0.40, 0.15]
+const TARGET_STRONGEST_WAVE_CLEAR_SECONDS := 9.0
+const FINAL_BOSS_TARGET_CLEAR_SECONDS := 18.0
+const TARGET_STRONGEST_WAVE_DAMAGE_FRACTION := 0.030
+const MIN_DIFFICULTY_SCALE := 0.003
 
 
 static func build_final_boss_schedule() -> Array[Dictionary]:
@@ -82,27 +75,70 @@ static func strongest_wave_power(schedule: Array[Dictionary]) -> float:
 	return strongest
 
 
-static func roster_health_multiplier(
-	active_pet_count: int,
+static func strongest_wave_base_health(schedule: Array[Dictionary]) -> float:
+	var strongest := 1.0
+	for wave_value in schedule:
+		var wave_health := 0.0
+		for enemy_id_value in wave_value.get("types", []):
+			var enemy_id := String(enemy_id_value)
+			wave_health += (
+				float(EnemyActor.DEFINITIONS.get(enemy_id, {}).get("hp", 1.0))
+				* EnemyActor.get_health_multiplier(enemy_id)
+			)
+		strongest = maxf(strongest, wave_health)
+	return strongest
+
+
+static func strongest_wave_base_volley_damage(schedule: Array[Dictionary]) -> float:
+	var strongest := 0.01
+	for wave_value in schedule:
+		var wave_damage := 0.0
+		for enemy_id_value in wave_value.get("types", []):
+			var enemy_id := String(enemy_id_value)
+			var data: Dictionary = EnemyActor.DEFINITIONS.get(enemy_id, {})
+			wave_damage += (
+				float(data.get("damage", 0.1))
+				* EnemyActor.get_damage_multiplier(enemy_id)
+				* float(maxi(1, int(data.get("projectiles_per_attack", 1))))
+			)
+		strongest = maxf(strongest, wave_damage)
+	return strongest
+
+
+static func estimate_roster_damage_per_second(
+	pet_roster_power: float,
 	average_pet_level: float,
-	era_index := 0
+	active_pet_count: int
 ) -> float:
-	var extra_pet_count := maxi(0, active_pet_count - 1)
-	if extra_pet_count <= 0:
-		return 1.0
-	var low_level_share := clampf(
-		(ROSTER_HEALTH_PRESSURE_FADE_MAX_LEVEL - maxf(1.0, average_pet_level))
-		/ maxf(1.0, ROSTER_HEALTH_PRESSURE_FADE_MAX_LEVEL - 1.0),
-		0.0,
-		1.0
+	var safe_pet_count := maxi(1, active_pet_count)
+	var average_pet_power := maxf(1.0, pet_roster_power) / float(safe_pet_count)
+	var rarity_proxy := clampf(1.0 + (average_pet_power - 12.0) / 10.0, 1.0, 3.0)
+	var damage_power_scale := clampf(pow(average_pet_power / 20.0, 0.35), 0.80, 2.5)
+	var hit_damage := (
+		1.05 + rarity_proxy * 0.24 + sqrt(maxf(1.0, average_pet_level)) * 0.055
+	) * damage_power_scale
+	return maxf(0.80, float(safe_pet_count) * hit_damage / 1.15)
+
+
+static func estimate_roster_health(
+	pet_roster_power: float,
+	average_pet_level: float,
+	active_pet_count: int
+) -> float:
+	var safe_pet_count := maxi(1, active_pet_count)
+	var average_pet_power := maxf(1.0, pet_roster_power) / float(safe_pet_count)
+	var rarity_proxy := clampf(1.0 + (average_pet_power - 12.0) / 10.0, 1.0, 3.0)
+	var health_power_scale := clampf(sqrt(average_pet_power / 20.0), 0.70, 3.0)
+	# Most early rosters are melee-heavy; this weighted proxy stays close to the
+	# actual mixed formation without letting an era's projectile count decide it.
+	var role_health_scale := 1.45
+	return maxf(
+		8.0,
+		float(safe_pet_count)
+		* (7.0 + rarity_proxy * 1.8 + sqrt(maxf(1.0, average_pet_level)) * 0.42)
+		* health_power_scale
+		* role_health_scale
 	)
-	var full_squad_multiplier := pow(
-		1.0 + float(extra_pet_count) * EXTRA_PET_HEALTH_PRESSURE * low_level_share,
-		ROSTER_HEALTH_PRESSURE_EXPONENT
-	)
-	var safe_era_index := clampi(era_index, 0, ERA_SQUAD_HEALTH_PRESSURE_SHARES.size() - 1)
-	var era_pressure_share := float(ERA_SQUAD_HEALTH_PRESSURE_SHARES[safe_era_index])
-	return lerpf(1.0, full_squad_multiplier, era_pressure_share)
 
 
 static func recommended_difficulty_scale(
@@ -111,25 +147,62 @@ static func recommended_difficulty_scale(
 	average_pet_level: float,
 	endless_mode: bool,
 	debug_multiplier: float,
-	peak_pet_power := 0.0
+	peak_pet_power := 0.0,
+	active_pet_count := 1
 ) -> float:
 	if debug_multiplier <= 0.0:
 		return 0.0
-	var wave_power := strongest_wave_power(schedule)
+	var safe_pet_count := maxi(1, active_pet_count)
 	var carry_pressure := maxf(
 		0.0,
 		maxf(0.0, peak_pet_power) - HIGH_POWER_CARRY_THRESHOLD
 	) * HIGH_POWER_CARRY_PRESSURE
-	var effective_roster_power := maxf(0.03, pet_roster_power + carry_pressure)
-	var roster_ratio := effective_roster_power / maxf(1.0, wave_power)
-	var campaign_pressure := 1.18 + clampf(average_pet_level / 100.0, 0.0, 1.0) * 0.72
-	var endless_pressure := 0.0
+	var carry_bonus := 1.0 + clampf(carry_pressure / maxf(120.0, pet_roster_power), 0.0, 0.18)
+	var target_clear_seconds := (
+		FINAL_BOSS_TARGET_CLEAR_SECONDS
+		if is_final_boss_schedule(schedule)
+		else TARGET_STRONGEST_WAVE_CLEAR_SECONDS
+	)
 	if endless_mode and average_pet_level > 100.0:
-		endless_pressure = log(1.0 + (average_pet_level - 100.0) / 40.0) / log(2.0) * 0.22
-	var adaptive_scale := pow(roster_ratio, 0.86) * (campaign_pressure + endless_pressure)
+		target_clear_seconds += minf(
+			2.5,
+			log(1.0 + (average_pet_level - 100.0) / 40.0) / log(2.0)
+		)
+	var target_wave_health := (
+		estimate_roster_damage_per_second(
+			pet_roster_power,
+			average_pet_level,
+			safe_pet_count
+		)
+		* target_clear_seconds
+		* carry_bonus
+	)
+	var health_scale := target_wave_health / strongest_wave_base_health(schedule)
+	var adaptive_scale := pow(maxf(MIN_DIFFICULTY_SCALE, health_scale), 1.0 / 0.68)
 	return clampf(
 		maxf(0.0, debug_multiplier) * adaptive_scale,
-		0.20,
+		MIN_DIFFICULTY_SCALE,
+		1_000_000_000_000_000.0
+	)
+
+
+static func recommended_enemy_damage_multiplier(
+	pet_roster_power: float,
+	average_pet_level: float,
+	active_pet_count: int,
+	schedule: Array[Dictionary],
+	debug_multiplier: float
+) -> float:
+	if debug_multiplier <= 0.0:
+		return 0.0
+	var target_wave_volley := estimate_roster_health(
+		pet_roster_power,
+		average_pet_level,
+		active_pet_count
+	) * TARGET_STRONGEST_WAVE_DAMAGE_FRACTION
+	return clampf(
+		maxf(0.0, debug_multiplier) * target_wave_volley / strongest_wave_base_volley_damage(schedule),
+		0.0,
 		1_000_000_000_000_000.0
 	)
 

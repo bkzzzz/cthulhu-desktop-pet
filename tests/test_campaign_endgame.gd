@@ -167,7 +167,8 @@ static func _test_final_boss_balance_window(failures: Array[String]) -> void:
 		100.0,
 		false,
 		1.0,
-		0.0
+		0.0,
+		Main.PetCatalog.ACTIVE_DESKTOP_PETS.size()
 	)
 	var boss := Main.EnemyActor.new()
 	boss.setup("final_boss", Vector2(700.0, 704.0), 704.0, difficulty * 1.075, 700.0)

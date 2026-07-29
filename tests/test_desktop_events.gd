@@ -525,37 +525,22 @@ static func _test_adaptive_encounter_and_rewards(failures: Array[String]) -> voi
 	)
 	if advanced_carry_difficulty <= spread_roster_difficulty:
 		failures.append("one advanced carry pet must create extra enemy pressure beyond equal spread-out roster power")
-	var solo_health_pressure := BattleBalance.roster_health_multiplier(1, 1.0)
-	var fresh_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 1.0)
-	var fresh_victorian_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 1.0, 2)
-	var veteran_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 50.0)
-	var max_level_squad_health_pressure := BattleBalance.roster_health_multiplier(5, 100.0)
-	if not is_equal_approx(solo_health_pressure, 1.0):
-		failures.append("a solo pet must not receive artificial enemy health pressure")
-	if fresh_squad_health_pressure < 2.7:
-		failures.append("a fresh five-pet squad must stop deleting enemies in its opening volley")
-	if fresh_victorian_squad_health_pressure < 2.2:
-		failures.append("newly unlocked squads must retain enough health pressure after advancing into the Victorian era")
-	if veteran_squad_health_pressure <= 1.8 or veteran_squad_health_pressure >= fresh_squad_health_pressure:
-		failures.append("squad health pressure must remain meaningful at mid-level and fade with progression")
-	if not is_equal_approx(max_level_squad_health_pressure, 1.0):
-		failures.append("fully progressed squads must not receive an unnecessary late-game health tax")
-	var solo_villager := EnemyActor.new()
-	solo_villager.setup("villager1", Vector2.ZERO, 400.0, 1.0, 80.0)
-	var squad_villager := EnemyActor.new()
-	squad_villager.setup(
-		"villager1",
-		Vector2.ZERO,
-		400.0,
+	var village_schedule := BattleBalance.build_wave_schedule(EraProgression.get_wave_schedule(0.0), 1.0, false)
+	var outer_schedule := BattleBalance.build_wave_schedule(
+		EraProgression.get_wave_schedule(EraProgression.get_era_start_runtime_seconds(4)),
 		1.0,
-		80.0,
-		-1.0,
-		fresh_victorian_squad_health_pressure
+		false
 	)
-	if not is_equal_approx(squad_villager.max_health, solo_villager.max_health * fresh_victorian_squad_health_pressure):
-		failures.append("encounter squad pressure must raise enemy health without changing the global difficulty scale")
-	solo_villager.free()
-	squad_villager.free()
+	var village_scale := BattleBalance.recommended_difficulty_scale(12.0, village_schedule, 1.0, false, 1.0, 12.0, 1)
+	var outer_scale := BattleBalance.recommended_difficulty_scale(12.0, outer_schedule, 1.0, false, 1.0, 12.0, 1)
+	var village_wave_health := BattleBalance.strongest_wave_base_health(village_schedule) * pow(village_scale, 0.68)
+	var outer_wave_health := BattleBalance.strongest_wave_base_health(outer_schedule) * pow(outer_scale, 0.68)
+	if absf(village_wave_health - outer_wave_health) > maxf(village_wave_health, outer_wave_health) * 0.12:
+		failures.append("era visuals must not make an equally strong roster face a stronger health budget")
+	var village_volley := BattleBalance.strongest_wave_base_volley_damage(village_schedule) * BattleBalance.recommended_enemy_damage_multiplier(12.0, 1.0, 1, village_schedule, 1.0)
+	var outer_volley := BattleBalance.strongest_wave_base_volley_damage(outer_schedule) * BattleBalance.recommended_enemy_damage_multiplier(12.0, 1.0, 1, outer_schedule, 1.0)
+	if absf(village_volley - outer_volley) > maxf(village_volley, outer_volley) * 0.12:
+		failures.append("era visuals must not make an equally strong roster face a stronger damage budget")
 	if int(high_budget.get("gold", 0)) <= int(low_budget.get("gold", 0)):
 		failures.append("battle gold rewards must rise with potential coin income")
 	if int(low_budget.get("enemy_gold", 0)) <= 0:
@@ -696,14 +681,10 @@ static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
 			average_level,
 			false,
 			1.0,
-			peak_power
+			peak_power,
+			pet_ids.size()
 		)
 		var health_scale := pow(maxf(0.01, difficulty), 0.68)
-		var roster_health_multiplier := BattleBalance.roster_health_multiplier(
-			pet_ids.size(),
-			average_level,
-			EraProgression.get_era_index(runtime_seconds)
-		)
 		var strongest_wave_health := 0.0
 		for wave_value in schedule:
 			var wave_health := 0.0
@@ -713,11 +694,10 @@ static func _test_campaign_combat_checkpoints(failures: Array[String]) -> void:
 					float(EnemyActor.DEFINITIONS[enemy_id].get("hp", 1.0))
 					* EnemyActor.get_health_multiplier(enemy_id)
 					* health_scale
-					* roster_health_multiplier
 				)
 			strongest_wave_health = maxf(strongest_wave_health, wave_health)
 		var estimated_clear_seconds := strongest_wave_health / maxf(0.001, estimated_dps)
-		if difficulty < 0.25 or difficulty > 4.5:
+		if difficulty < BattleBalance.MIN_DIFFICULTY_SCALE or difficulty > 100.0:
 			failures.append(
 				"the %.0fh combat checkpoint must stay inside the adaptive difficulty envelope, got %.2f"
 				% [float(checkpoint.get("hours", 0.0)), difficulty]

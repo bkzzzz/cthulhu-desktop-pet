@@ -21,7 +21,7 @@ const FINAL_BOSS_FAITH_REWARD_MULTIPLIER := 3.0
 
 var _battle_visual_reward_drops := 0
 var _battle_warm_generation := 0
-var _battle_enemy_health_multiplier := 1.0
+var _battle_enemy_damage_multiplier := 1.0
 
 
 func _schedule_battle_asset_warmup(schedule: Array) -> void:
@@ -100,8 +100,17 @@ func _get_base_battle_difficulty_scale() -> float:
 		_get_battle_average_pet_level(),
 		_host._is_endless_mode(),
 		_debug_enemy_power_scale,
-		_get_peak_pet_combat_power()
+		_get_peak_pet_combat_power(),
+		_get_active_battle_pet_count()
 	)
+
+
+func _get_active_battle_pet_count() -> int:
+	var active_pet_count := 0
+	for pet in _pets:
+		if is_instance_valid(pet):
+			active_pet_count += 1
+	return maxi(1, active_pet_count)
 
 func _get_pet_roster_combat_power() -> float:
 	var total = 0.0
@@ -340,10 +349,12 @@ func _start_battle() -> void:
 	for pet in _pets:
 		if is_instance_valid(pet):
 			battle_pets.append(pet)
-	_battle_enemy_health_multiplier = BattleBalance.roster_health_multiplier(
-		battle_pets.size(),
+	_battle_enemy_damage_multiplier = BattleBalance.recommended_enemy_damage_multiplier(
+		_get_pet_roster_combat_power(),
 		_get_battle_average_pet_level(),
-		EraProgression.get_era_index(_get_era_runtime_seconds())
+		battle_pets.size(),
+		_get_battle_balance_schedule(),
+		_debug_enemy_power_scale
 	)
 	for pet in battle_pets:
 		var pet_id = _host._get_actor_pet_id(pet)
@@ -602,7 +613,7 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 			era_scale * wave_scale,
 			entry_x,
 			float(_pet_window_size.x),
-			_battle_enemy_health_multiplier
+			_battle_enemy_damage_multiplier
 		)
 		enemy.connect("attack_landed", Callable(self, "_on_enemy_attack_landed"))
 		enemy.connect("projectile_requested", Callable(self, "_on_enemy_projectile_requested"))
@@ -1054,7 +1065,7 @@ func _finish_battle(victory: bool, suppress_presentation := false) -> void:
 	_battle_pet_enemy_targets.clear()
 	_battle_pet5_rolls.clear()
 	_battle_wave_schedule.clear()
-	_battle_enemy_health_multiplier = 1.0
+	_battle_enemy_damage_multiplier = 1.0
 	_active_battle_difficulty_scale = -1.0
 	_host._update_actor_window_bounds()
 	var now = _host._get_now_seconds()
