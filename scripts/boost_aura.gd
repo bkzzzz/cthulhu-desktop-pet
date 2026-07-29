@@ -27,8 +27,6 @@ func setup(mode: AuraMode) -> void:
 	_mode = mode
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = false
-	if _mode == AuraMode.FAITH_COUNTER:
-		_load_runes()
 	set_process(false)
 	visible = false
 
@@ -45,6 +43,8 @@ func set_boost(active: bool, multiplier := 1.0) -> void:
 		visible = active
 		set_process(active)
 		_redraw_elapsed = REDRAW_INTERVAL_SECONDS
+	if active:
+		_load_runes()
 	if active:
 		queue_redraw()
 
@@ -89,6 +89,7 @@ func _draw_pet_glow() -> void:
 	# A continuous rim glow identifies the boosted row without stacking visible
 	# balls or putting a hard frame over its content.
 	_draw_row_edge_glow(pulse, power)
+	_draw_pet_rune_spray(power)
 
 
 func _draw_faith_glow() -> void:
@@ -97,11 +98,47 @@ func _draw_faith_glow() -> void:
 
 	_draw_soft_glow(
 		center,
-		64.0 + _growth_flash * 16.0,
-		Color(0.66, 1.0, 0.31, 0.17 + power * 0.055 + _growth_flash * 0.15),
+		64.0,
+		Color(0.66, 1.0, 0.31, 0.20 + power * 0.055),
 		8
 	)
 	_draw_faith_symbol_spray(center, power)
+
+
+func _draw_pet_rune_spray(power: float) -> void:
+	if _rune_textures.is_empty():
+		return
+	# A few small runes peel away from the row's four edges. They remain sparse
+	# so the glow reads as one boosted row instead of a pile of light orbs.
+	for rune_index in 8:
+		var progress := fposmod(
+			_phase * (0.82 + float(rune_index % 3) * 0.13) + float(rune_index) / 8.0,
+			1.0
+		)
+		var edge := rune_index % 4
+		var edge_progress := fposmod(float(rune_index) * 0.37, 1.0)
+		var origin := Vector2.ZERO
+		var direction := Vector2.ZERO
+		if edge == 0:
+			origin = Vector2(28.0 + edge_progress * maxf(1.0, size.x - 56.0), 9.0)
+			direction = Vector2(0.16, -1.0).normalized()
+		elif edge == 1:
+			origin = Vector2(size.x - 9.0, 20.0 + edge_progress * maxf(1.0, size.y - 40.0))
+			direction = Vector2(1.0, -0.14).normalized()
+		elif edge == 2:
+			origin = Vector2(28.0 + edge_progress * maxf(1.0, size.x - 56.0), size.y - 9.0)
+			direction = Vector2(-0.16, 1.0).normalized()
+		else:
+			origin = Vector2(9.0, 20.0 + edge_progress * maxf(1.0, size.y - 40.0))
+			direction = Vector2(-1.0, 0.14).normalized()
+		var position := origin + direction * (5.0 + progress * 42.0)
+		var fade := smoothstep(0.0, 0.08, progress) * pow(1.0 - progress, 0.72)
+		_draw_rune(
+			rune_index % _rune_textures.size(),
+			position,
+			Vector2(10.0, 14.0).lerp(Vector2(15.0, 22.0), progress),
+			fade * (0.42 + power * 0.20)
+		)
 
 
 func _draw_faith_symbol_spray(center: Vector2, power: float) -> void:
@@ -129,7 +166,7 @@ func _draw_faith_symbol_spray(center: Vector2, power: float) -> void:
 
 
 func _draw_row_edge_glow(pulse: float, power: float) -> void:
-	var glow_strength := 0.92 + pulse * 0.34 + power * 0.26
+	var glow_strength := 0.94 + pulse * 0.12 + power * 0.24
 	var edge_rect := Rect2(Vector2(9.0, 9.0), size - Vector2(18.0, 18.0))
 	for layer in 3:
 		var expansion := float(3 - layer) * 2.5

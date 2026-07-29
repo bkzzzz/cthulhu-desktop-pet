@@ -250,6 +250,8 @@ static func _test_pet_specific_timed_buff(failures: Array[String]) -> void:
 	var digit_glow := drawer.get("_faith_boost_glow_label") as Label
 	if pet1_aura == null or not pet1_aura.visible:
 		failures.append("the boosted pet row must display its glow and dispersing rune aura")
+	elif (pet1_aura.get("_rune_textures") as Array).is_empty():
+		failures.append("the boosted pet row must load rune textures for its outward spray")
 	if pet2_aura != null and pet2_aura.visible:
 		failures.append("an unboosted pet row must not inherit another pet's aura")
 	if faith_aura == null or not faith_aura.visible:
