@@ -3,6 +3,7 @@ extends RefCounted
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 const TurretCatalog = preload("res://scripts/domain/turret_catalog.gd")
 const ShopWindow = preload("res://scripts/shop_window.gd")
+const TurretActor = preload("res://scripts/turret_actor.gd")
 const Main = preload("res://scripts/main.gd")
 
 
@@ -27,6 +28,7 @@ class TowerProbe extends Node2D:
 static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_turret_catalog(failures)
+	_test_turret_grounding(failures)
 	_test_shop_categories(failures)
 	_test_purchase_deploy_and_recall(failures)
 	_test_battle_durability_and_destruction(failures)
@@ -57,6 +59,19 @@ static func _test_turret_catalog(failures: Array[String]) -> void:
 		failures.append("tower normalization must retain its fixed catalog price")
 	if not TurretCatalog.normalize_turret({"id": "missing_turret"}).is_empty():
 		failures.append("unknown tower ids must be rejected")
+
+
+static func _test_turret_grounding(failures: Array[String]) -> void:
+	var tower := TurretActor.new()
+	var window_size := Vector2i(900, 600)
+	tower.setup("turret1", Vector2(320.0, 40.0), window_size)
+	var visual_size: Vector2 = tower.call("_get_visual_size")
+	if not is_equal_approx(tower.position.y + visual_size.y * 0.5, float(window_size.y)):
+		failures.append("a tower base must sit flush on the taskbar contact line")
+	var dragged_position: Vector2 = tower.call("_clamp_to_window", Vector2(480.0, 20.0))
+	if not is_equal_approx(dragged_position.y, tower.position.y):
+		failures.append("tower dragging must keep its Y axis fixed to the desktop ground")
+	tower.free()
 
 
 static func _test_shop_categories(failures: Array[String]) -> void:

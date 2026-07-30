@@ -265,7 +265,12 @@ func _create_category_tabs() -> void:
 		var kind := String(category.get("kind", ""))
 		var button := TextureButton.new()
 		button.name = "%sCategoryTab" % kind.capitalize()
-		button.texture_normal = load(String(category.get("texture", ""))) as Texture2D
+		# The supplied tag art was authored for the opposite page edge. Mirror it
+		# so the illustrated bookmark head enters the shop page and the torn tail
+		# remains outside on the desktop side.
+		button.texture_normal = _make_horizontally_flipped_texture(
+			load(String(category.get("texture", ""))) as Texture2D
+		)
 		button.texture_hover = button.texture_normal
 		button.texture_pressed = button.texture_normal
 		button.ignore_texture_size = true
@@ -332,6 +337,16 @@ func _apply_texture_click_mask(button: TextureButton) -> void:
 	var mask := BitMap.new()
 	mask.create_from_image_alpha(image, 0.08)
 	button.texture_click_mask = mask
+
+
+func _make_horizontally_flipped_texture(texture: Texture2D) -> Texture2D:
+	if texture == null:
+		return null
+	var image := texture.get_image()
+	if image == null or image.is_empty():
+		return texture
+	image.flip_x()
+	return ImageTexture.create_from_image(image)
 
 
 func _refresh_category_tabs() -> void:
@@ -666,9 +681,29 @@ func _refresh_coin_balance() -> void:
 
 
 func _refresh_visible_slot_affordability() -> void:
-	# A turret's card changes from a price into durability + deploy/recall state,
-	# so a small six-slot repaint is both clearer and safer than a price-only pass.
-	_refresh_page()
+	# Coin collection can happen frequently while the shop is open. Do not reload
+	# card textures or rebuild all metadata for every coin tick: only the visible
+	# cards' affordability tint changes here. Tower state changes still use the
+	# full refresh through set_turret_states().
+	var category_goods := _get_category_goods()
+	var page_start := _page * GOODS_PER_PAGE
+	for slot_index in _slot_controls.size():
+		var good_index := page_start + slot_index
+		if good_index < 0 or good_index >= category_goods.size():
+			continue
+		var good: Dictionary = category_goods[good_index]
+		var turret := TurretCatalog.is_turret(good)
+		var tower_state := _get_turret_state(String(good.get("id", ""))) if turret else {}
+		var tower_owned := turret and bool(tower_state.get("owned", false))
+		var affordable := tower_owned or _coin_balance >= int(good.get("price", 0))
+		var icon := _slot_icons[slot_index]
+		var price_label := _slot_price_labels[slot_index]
+		icon.modulate = Color.WHITE if affordable else Color(0.62, 0.62, 0.62, 0.9)
+		if not tower_owned:
+			price_label.add_theme_color_override(
+				"font_color",
+				Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0)
+			)
 
 
 func _get_page_count() -> int:

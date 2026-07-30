@@ -87,8 +87,8 @@ func setup(new_turret_id: String, start_position: Vector2, window_size: Vector2i
 	queue_redraw()
 
 
-# Towers intentionally retain their vertical placement; only their visible
-# screen edges constrain a free desktop drag.
+# Towers are grounded furniture. Their base stays flush with the desktop's
+# taskbar contact line, while dragging changes horizontal placement only.
 func set_window_bounds(new_window_size: Vector2i) -> void:
 	_window_size = Vector2i(maxi(1, new_window_size.x), maxi(1, new_window_size.y))
 	_stage_min_x = 0.0
@@ -514,15 +514,11 @@ func _clamp_to_window(candidate: Vector2) -> Vector2:
 	var half_size := _get_visual_size() * 0.5
 	var left := maxf(_stage_min_x, half_size.x + DRAG_MARGIN)
 	var right := minf(_stage_max_x, float(_window_size.x) - half_size.x - DRAG_MARGIN)
-	var top := half_size.y + DRAG_MARGIN
-	var bottom := float(_window_size.y) - half_size.y - DRAG_MARGIN
 	if right < left:
 		left = float(_window_size.x) * 0.5
 		right = left
-	if bottom < top:
-		top = float(_window_size.y) * 0.5
-		bottom = top
-	return Vector2(clampf(candidate.x, left, right), clampf(candidate.y, top, bottom))
+	var grounded_y := maxf(half_size.y, _stage_ground_y - half_size.y)
+	return Vector2(clampf(candidate.x, left, right), grounded_y)
 
 
 func _update_health_bar() -> void:
