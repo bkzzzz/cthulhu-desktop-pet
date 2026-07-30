@@ -3,18 +3,28 @@ extends Window
 signal purchase_requested(good_id: String)
 
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
+const TurretCatalog = preload("res://scripts/domain/turret_catalog.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 
-const WINDOW_SIZE := Vector2i(1117, 1034)
+const SHOP_PAGE_SIZE := Vector2i(1117, 1034)
+# The transparent gutter makes the category tabs genuinely protrude from the
+# shop page, instead of being clipped at a native Window boundary.
+const TAB_GUTTER_WIDTH := 190
+const WINDOW_SIZE := Vector2i(SHOP_PAGE_SIZE.x + TAB_GUTTER_WIDTH, SHOP_PAGE_SIZE.y)
+const PAGE_ORIGIN := Vector2(TAB_GUTTER_WIDTH, 0.0)
 const SHOP_TEXTURE := "res://assets/ui/shop/商店ui.png"
 const CROSS_TEXTURE := "res://assets/ui/inventory/cross.png"
 const ARROW_TEXTURE := "res://assets/ui/inventory/arrow.png"
+const FOOD_TAB_TEXTURE := "res://assets/ui/shop/食物标签.png"
+const TURRET_TAB_TEXTURE := "res://assets/ui/shop/防御塔标签.png"
 
 const GOODS_PER_PAGE := 6
 const MIN_TOTAL_PAGES := 1
 const GOOD_ICON_SIZE := Vector2(134.0, 134.0)
+const CATEGORY_TAB_SIZE := Vector2(312.0, 62.0)
+const CATEGORY_TAB_POSITIONS := [Vector2(-12.0, 294.0), Vector2(-12.0, 374.0)]
 const SHOP_SLOT_RECTS := [
 	Rect2(148.0, 252.0, 252.0, 286.0),
 	Rect2(438.0, 252.0, 252.0, 286.0),
@@ -25,6 +35,8 @@ const SHOP_SLOT_RECTS := [
 ]
 
 var _root: Control
+var _page_root: Control
+var _category_layer: Control
 var _page_label: Label
 var _coin_balance_label: Label
 var _result_label: Label
@@ -41,7 +53,10 @@ var _page := 0
 var _coin_balance := 0
 var _coin_balance_dirty := false
 var _owned_counts := {}
+var _turret_states := {}
 var _goods: Array[Dictionary] = []
+var _category_buttons := {}
+var _active_category := OfferingCatalog.KIND
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
 var _language := LanguageSettings.DEFAULT_LANGUAGE
@@ -102,11 +117,17 @@ func set_language(language_code: String) -> void:
 	_language = LanguageSettings.sanitize(language_code)
 	theme = LanguageSettings.make_ui_theme(_language)
 	title = "Shop" if _language == "en" else "商店"
+	_refresh_category_tabs()
 	_refresh_page()
 
 
 func set_owned_counts(owned_counts: Dictionary) -> void:
 	_owned_counts = owned_counts.duplicate(true)
+	_refresh_page()
+
+
+func set_turret_states(turret_states: Dictionary) -> void:
+	_turret_states = turret_states.duplicate(true)
 	_refresh_page()
 
 
@@ -116,6 +137,8 @@ func set_goods(goods: Array[Dictionary]) -> void:
 		var normalized_good := _normalize_good(good)
 		if not normalized_good.is_empty():
 			_goods.append(normalized_good)
+	if not _has_goods_in_category(_active_category):
+		_active_category = OfferingCatalog.KIND
 	_page = 0
 	_hide_info_panel()
 	_refresh_page()
@@ -162,6 +185,8 @@ func _normalize_good(good: Dictionary) -> Dictionary:
 		# production-rate price instead of normalizing back to the authored floor.
 		offering["price"] = maxi(authored_price, int(good.get("price", authored_price)))
 		return offering
+	if String(good.get("kind", "")) == TurretCatalog.KIND:
+		return TurretCatalog.normalize_turret(good)
 
 	var normalized_good := good.duplicate(true)
 	normalized_good["id"] = good_id
@@ -182,24 +207,42 @@ func _configure_window() -> void:
 	transparent_bg = true
 	visible = false
 	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, DisplayLayout.get_current_usable_rect(self))
+	size_changed.connect(_configure_mouse_passthrough)
+	_configure_mouse_passthrough()
 
 
 func _create_content() -> void:
 	_root = Control.new()
 	_root.name = "ShopRoot"
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_root.mouse_filter = Control.MOUSE_FILTER_STOP
-	_root.gui_input.connect(_on_root_gui_input)
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
+
+	_category_layer = Control.new()
+	_category_layer.name = "ShopCategoryTabs"
+	_category_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_category_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_category_layer.z_index = 1
+	_root.add_child(_category_layer)
+	_create_category_tabs()
+
+	_page_root = Control.new()
+	_page_root.name = "ShopPage"
+	_page_root.position = PAGE_ORIGIN
+	_page_root.size = Vector2(SHOP_PAGE_SIZE)
+	_page_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	_page_root.gui_input.connect(_on_root_gui_input)
+	_page_root.z_index = 2
+	_root.add_child(_page_root)
 
 	var background := TextureRect.new()
 	background.name = "ShopBackground"
 	background.texture = load(SHOP_TEXTURE) as Texture2D
-	background.size = Vector2(WINDOW_SIZE)
+	background.size = Vector2(SHOP_PAGE_SIZE)
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	background.stretch_mode = TextureRect.STRETCH_SCALE
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(background)
+	_page_root.add_child(background)
 
 	_create_slots()
 	_create_page_controls()
@@ -207,6 +250,146 @@ func _create_content() -> void:
 	_create_coin_balance()
 	_create_result_label()
 	_create_info_panel()
+	_configure_mouse_passthrough()
+
+
+func _create_category_tabs() -> void:
+	if _category_layer == null:
+		return
+	var categories := [
+		{"kind": OfferingCatalog.KIND, "texture": FOOD_TAB_TEXTURE},
+		{"kind": TurretCatalog.KIND, "texture": TURRET_TAB_TEXTURE}
+	]
+	for index in categories.size():
+		var category: Dictionary = categories[index]
+		var kind := String(category.get("kind", ""))
+		var button := TextureButton.new()
+		button.name = "%sCategoryTab" % kind.capitalize()
+		button.texture_normal = load(String(category.get("texture", ""))) as Texture2D
+		button.texture_hover = button.texture_normal
+		button.texture_pressed = button.texture_normal
+		button.ignore_texture_size = true
+		button.stretch_mode = TextureButton.STRETCH_SCALE
+		button.size = CATEGORY_TAB_SIZE
+		button.position = CATEGORY_TAB_POSITIONS[index]
+		button.pivot_offset = Vector2(button.size.x, button.size.y * 0.5)
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		button.mouse_filter = Control.MOUSE_FILTER_STOP
+		_apply_texture_click_mask(button)
+		button.mouse_entered.connect(_animate_category_tab_hover.bind(button, true))
+		button.mouse_exited.connect(_animate_category_tab_hover.bind(button, false))
+		button.pressed.connect(_on_category_tab_pressed.bind(kind, button))
+		_category_layer.add_child(button)
+		_category_buttons[kind] = button
+
+		var label := Label.new()
+		label.name = "CategoryLabel"
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.position = Vector2(96.0, 7.0)
+		label.size = Vector2(88.0, 48.0)
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.add_theme_font_size_override("font_size", 17)
+		label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 0.95))
+		label.add_theme_constant_override("outline_size", 3)
+		button.add_child(label)
+	_refresh_category_tabs()
+
+
+func _configure_mouse_passthrough() -> void:
+	# Keep the empty parts of the expanded transparent window click-through, while
+	# retaining the complete shop page and the two tab shapes as interactive areas.
+	# Window passthrough points are native pixels, while the Controls are measured
+	# in design-space coordinates because the page uses content scaling.
+	var native_scale := Vector2(
+		float(maxi(1, size.x)) / float(WINDOW_SIZE.x),
+		float(maxi(1, size.y)) / float(WINDOW_SIZE.y)
+	)
+	var native_page_origin := PAGE_ORIGIN * native_scale
+	var native_window_size := Vector2(size)
+	var tab_top: float = CATEGORY_TAB_POSITIONS[0].y
+	var tab_bottom: float = CATEGORY_TAB_POSITIONS[CATEGORY_TAB_POSITIONS.size() - 1].y + CATEGORY_TAB_SIZE.y
+	var native_tab_top := tab_top * native_scale.y
+	var native_tab_bottom := tab_bottom * native_scale.y
+	mouse_passthrough_polygon = PackedVector2Array([
+		Vector2(native_page_origin.x, 0.0),
+		Vector2(native_window_size.x, 0.0),
+		Vector2(native_window_size.x, native_window_size.y),
+		Vector2(native_page_origin.x, native_window_size.y),
+		Vector2(native_page_origin.x, native_tab_bottom),
+		Vector2(0.0, native_tab_bottom),
+		Vector2(0.0, native_tab_top),
+		Vector2(native_page_origin.x, native_tab_top)
+	])
+
+
+func _apply_texture_click_mask(button: TextureButton) -> void:
+	if button == null or button.texture_normal == null:
+		return
+	var image := button.texture_normal.get_image()
+	if image == null or image.is_empty():
+		return
+	var mask := BitMap.new()
+	mask.create_from_image_alpha(image, 0.08)
+	button.texture_click_mask = mask
+
+
+func _refresh_category_tabs() -> void:
+	for kind_value in _category_buttons.keys():
+		var kind := String(kind_value)
+		var button := _category_buttons.get(kind) as TextureButton
+		if button == null:
+			continue
+		var label := button.get_node_or_null("CategoryLabel") as Label
+		var active := kind == _active_category
+		button.modulate = Color.WHITE if active else Color(0.60, 0.60, 0.66, 0.92)
+		button.tooltip_text = _get_category_label(kind)
+		if label != null:
+			label.text = _get_category_label(kind)
+			label.add_theme_color_override(
+				"font_color",
+				Color(0.97, 0.89, 0.66, 1.0) if active else Color(0.73, 0.72, 0.66, 1.0)
+			)
+
+
+func _get_category_label(kind: String) -> String:
+	if kind == TurretCatalog.KIND:
+		return "TOWERS" if _language == "en" else "防御塔"
+	return "FOOD" if _language == "en" else "食物"
+
+
+func _on_category_tab_pressed(kind: String, button: TextureButton) -> void:
+	if kind == _active_category:
+		_animate_category_tab_press(button)
+		return
+	_active_category = kind
+	_page = 0
+	_hide_info_panel()
+	if _result_label != null:
+		_result_label.visible = false
+	_refresh_category_tabs()
+	_refresh_page()
+	_animate_category_tab_press(button)
+
+
+func _animate_category_tab_hover(button: TextureButton, hovered: bool) -> void:
+	if button == null:
+		return
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", Vector2.ONE * (1.035 if hovered else 1.0), 0.10)
+
+
+func _animate_category_tab_press(button: TextureButton) -> void:
+	if button == null:
+		return
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_SINE)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", Vector2.ONE * 0.95, 0.05)
+	tween.tween_property(button, "scale", Vector2.ONE * 1.025, 0.08)
+	tween.tween_property(button, "scale", Vector2.ONE, 0.08)
 
 
 func _create_slots() -> void:
@@ -226,7 +409,7 @@ func _create_slots() -> void:
 		slot.mouse_entered.connect(_on_slot_hovered.bind(index, true))
 		slot.mouse_exited.connect(_on_slot_hovered.bind(index, false))
 		slot.gui_input.connect(_on_slot_gui_input.bind(index))
-		_root.add_child(slot)
+		_page_root.add_child(slot)
 		_slot_controls.append(slot)
 
 		var icon := TextureRect.new()
@@ -274,11 +457,11 @@ func _create_page_controls() -> void:
 	var left_arrow := _make_arrow_button(-1)
 	left_arrow.position = Vector2(342.0, 904.0)
 	left_arrow.scale = Vector2(-1.0, 1.0)
-	_root.add_child(left_arrow)
+	_page_root.add_child(left_arrow)
 
 	var right_arrow := _make_arrow_button(1)
 	right_arrow.position = Vector2(682.0, 904.0)
-	_root.add_child(right_arrow)
+	_page_root.add_child(right_arrow)
 
 	_page_label = Label.new()
 	_page_label.name = "ShopPageIndicator"
@@ -291,7 +474,7 @@ func _create_page_controls() -> void:
 	_page_label.add_theme_color_override("font_color", Color(0.96, 0.86, 0.58, 1.0))
 	_page_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
 	_page_label.add_theme_constant_override("outline_size", 5)
-	_root.add_child(_page_label)
+	_page_root.add_child(_page_label)
 
 
 func _create_close_button() -> void:
@@ -309,7 +492,7 @@ func _create_close_button() -> void:
 	close_button.mouse_exited.connect(_animate_control_hover.bind(close_button, false))
 	close_button.pressed.connect(_animate_control_press.bind(close_button))
 	close_button.pressed.connect(_close_window)
-	_root.add_child(close_button)
+	_page_root.add_child(close_button)
 
 
 func _create_result_label() -> void:
@@ -326,7 +509,7 @@ func _create_result_label() -> void:
 	_result_label.add_theme_color_override("font_color", Color(0.76, 0.86, 0.68, 1.0))
 	_result_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
 	_result_label.add_theme_constant_override("outline_size", 3)
-	_root.add_child(_result_label)
+	_page_root.add_child(_result_label)
 
 
 func _create_coin_balance() -> void:
@@ -341,7 +524,7 @@ func _create_coin_balance() -> void:
 	_coin_balance_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.34, 1.0))
 	_coin_balance_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
 	_coin_balance_label.add_theme_constant_override("outline_size", 5)
-	_root.add_child(_coin_balance_label)
+	_page_root.add_child(_coin_balance_label)
 
 
 func _create_info_panel() -> void:
@@ -352,7 +535,7 @@ func _create_info_panel() -> void:
 	_info_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_info_panel.z_index = 20
 	_info_panel.add_theme_stylebox_override("panel", _make_info_panel_style())
-	_root.add_child(_info_panel)
+	_page_root.add_child(_info_panel)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -417,6 +600,8 @@ func _refresh_page() -> void:
 	if _root == null:
 		return
 
+	_refresh_category_tabs()
+	var category_goods := _get_category_goods()
 	var page_count := _get_page_count()
 	_page = clampi(_page, 0, page_count - 1)
 
@@ -426,7 +611,7 @@ func _refresh_page() -> void:
 	var page_start := _page * GOODS_PER_PAGE
 	for slot_index in _slot_controls.size():
 		var good_index := page_start + slot_index
-		var has_good := good_index < _goods.size()
+		var has_good := good_index < category_goods.size()
 		var slot := _slot_controls[slot_index]
 		var icon := _slot_icons[slot_index]
 		var name_label := _slot_name_labels[slot_index]
@@ -442,17 +627,27 @@ func _refresh_page() -> void:
 		if not has_good:
 			continue
 
-		var good := _goods[good_index]
-		var display_good := OfferingCatalog.localize(good, _language)
+		var good: Dictionary = category_goods[good_index]
+		var display_good := _localize_good(good)
 		var price := int(good.get("price", 0))
-		var affordable := _coin_balance >= price
 		var offering := OfferingCatalog.is_offering(good)
+		var turret := TurretCatalog.is_turret(good)
+		var tower_state := _get_turret_state(String(good.get("id", ""))) if turret else {}
+		var tower_owned := turret and bool(tower_state.get("owned", false))
+		var affordable := tower_owned or _coin_balance >= price
 		var owned := int(_owned_counts.get(String(good.get("id", "")), 0))
 		icon.texture = load(String(good.get("texture", ""))) as Texture2D
 		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
 		name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
 		price_label.text = ("PRICE  %s" if _language == "en" else "价格 %s") % CurrencyDisplay.format_compact(price)
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
+		if turret:
+			owned_label.visible = true
+			owned_label.text = _get_turret_card_status(good, tower_state)
+			if tower_owned:
+				price_label.text = _get_turret_durability_text(good, tower_state)
+				price_label.add_theme_color_override("font_color", Color(0.70, 0.90, 1.0, 1.0))
+			continue
 		# Food descriptions already explain duration and multiplier. Keep cards
 		# visually quiet and reserve this small line for durable inventory only.
 		owned_label.visible = has_good and not offering
@@ -471,25 +666,56 @@ func _refresh_coin_balance() -> void:
 
 
 func _refresh_visible_slot_affordability() -> void:
-	var page_start := _page * GOODS_PER_PAGE
-	for slot_index in _slot_controls.size():
-		var good_index := page_start + slot_index
-		if good_index < 0 or good_index >= _goods.size():
-			continue
-		var price := int(_goods[good_index].get("price", 0))
-		var affordable := _coin_balance >= price
-		var icon := _slot_icons[slot_index]
-		var price_label := _slot_price_labels[slot_index]
-		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
-		price_label.add_theme_color_override(
-			"font_color",
-			Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0)
-		)
+	# A turret's card changes from a price into durability + deploy/recall state,
+	# so a small six-slot repaint is both clearer and safer than a price-only pass.
+	_refresh_page()
 
 
 func _get_page_count() -> int:
-	var needed_pages := int(ceil(float(_goods.size()) / float(GOODS_PER_PAGE)))
+	var needed_pages := int(ceil(float(_get_category_goods().size()) / float(GOODS_PER_PAGE)))
 	return maxi(MIN_TOTAL_PAGES, needed_pages)
+
+
+func _has_goods_in_category(category: String) -> bool:
+	for good in _goods:
+		if String(good.get("kind", "")) == category:
+			return true
+	return false
+
+
+func _get_category_goods() -> Array[Dictionary]:
+	var category_goods: Array[Dictionary] = []
+	for good in _goods:
+		if String(good.get("kind", "")) == _active_category:
+			category_goods.append(good)
+	return category_goods
+
+
+func _get_turret_state(turret_id: String) -> Dictionary:
+	var state_value: Variant = _turret_states.get(turret_id, {})
+	return state_value.duplicate(true) if state_value is Dictionary else {}
+
+
+func _get_turret_card_status(_good: Dictionary, state: Dictionary) -> String:
+	if not bool(state.get("owned", false)):
+		return "BUY" if _language == "en" else "购买"
+	if bool(state.get("deployed", false)):
+		return "RECALL" if _language == "en" else "收回"
+	return "DEPLOY" if _language == "en" else "放下"
+
+
+func _get_turret_durability_text(good: Dictionary, state: Dictionary) -> String:
+	var maximum_health := maxf(1.0, float(good.get("max_health", 1.0)))
+	var current_health := clampf(float(state.get("current_hp", maximum_health)), 0.0, maximum_health)
+	return (
+		"DURABILITY  %d / %d" if _language == "en" else "耐久  %d / %d"
+	) % [roundi(current_health), roundi(maximum_health)]
+
+
+func _localize_good(good: Dictionary) -> Dictionary:
+	if TurretCatalog.is_turret(good):
+		return TurretCatalog.localize(good, _language)
+	return OfferingCatalog.localize(good, _language)
 
 
 func _turn_page(direction: int) -> void:
@@ -503,25 +729,30 @@ func _on_slot_hovered(slot_index: int, hovered: bool) -> void:
 		_hide_info_panel()
 		return
 
+	var category_goods := _get_category_goods()
 	var good_index := (_page * GOODS_PER_PAGE) + slot_index
-	if good_index < 0 or good_index >= _goods.size():
+	if good_index < 0 or good_index >= category_goods.size():
 		return
 
 	var slot := _slot_controls[slot_index]
 	var position_hint := slot.position + Vector2(slot.size.x - 18.0, 18.0)
-	if position_hint.x + _info_panel.size.x > float(WINDOW_SIZE.x) - 32.0:
+	if position_hint.x + _info_panel.size.x > float(SHOP_PAGE_SIZE.x) - 32.0:
 		position_hint.x = slot.position.x - _info_panel.size.x + 18.0
-	_show_info_panel(_goods[good_index], position_hint)
+	_show_info_panel(category_goods[good_index], position_hint)
 
 
 func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	if _info_panel == null:
 		return
 
-	var display_good := OfferingCatalog.localize(good, _language)
+	var display_good := _localize_good(good)
 	_info_name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
 	_info_desc_label.text = String(display_good.get("description", ""))
-	if OfferingCatalog.is_offering(good):
+	if TurretCatalog.is_turret(good):
+		var state := _get_turret_state(String(good.get("id", "")))
+		var action := _get_turret_card_status(good, state)
+		_info_price_label.text = "%s  ·  %s" % [_get_turret_durability_text(good, state), action]
+	elif OfferingCatalog.is_offering(good):
 		_info_price_label.text = ("PRICE: %s" if _language == "en" else "价格：%s") % CurrencyDisplay.format_compact(int(good.get("price", 0)))
 	else:
 		_info_price_label.text = ("PRICE: %s    OWNED: %d" if _language == "en" else "价格：%s    已拥有：%d") % [
@@ -529,8 +760,8 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 			int(_owned_counts.get(String(good.get("id", "")), 0))
 		]
 	_info_panel.position = Vector2(
-		clampf(panel_position.x, 24.0, float(WINDOW_SIZE.x) - _info_panel.size.x - 24.0),
-		clampf(panel_position.y, 24.0, float(WINDOW_SIZE.y) - _info_panel.size.y - 24.0)
+		clampf(panel_position.x, 24.0, float(SHOP_PAGE_SIZE.x) - _info_panel.size.x - 24.0),
+		clampf(panel_position.y, 24.0, float(SHOP_PAGE_SIZE.y) - _info_panel.size.y - 24.0)
 	)
 	_info_panel.visible = true
 
@@ -584,11 +815,12 @@ func _on_slot_gui_input(event: InputEvent, slot_index: int) -> void:
 		if mouse_event.button_index != MOUSE_BUTTON_LEFT or not mouse_event.pressed:
 			return
 
+		var category_goods := _get_category_goods()
 		var good_index := (_page * GOODS_PER_PAGE) + slot_index
-		if good_index < 0 or good_index >= _goods.size():
+		if good_index < 0 or good_index >= category_goods.size():
 			return
 
-		purchase_requested.emit(String(_goods[good_index].get("id", "")))
+		purchase_requested.emit(String(category_goods[good_index].get("id", "")))
 		_slot_controls[slot_index].accept_event()
 
 
@@ -600,6 +832,7 @@ func _on_arrow_pressed(direction: int, button: Control) -> void:
 func _center_window() -> void:
 	var usable_rect := DisplayLayout.get_current_usable_rect(self)
 	DisplayLayout.apply_scaled_window(self, WINDOW_SIZE, usable_rect)
+	_configure_mouse_passthrough()
 
 
 func _close_window() -> void:

@@ -43,6 +43,24 @@ func _create_desktop_pets() -> void:
 
 		_spawn_desktop_pet(pet_id, start_x)
 
+
+func _create_desktop_turrets() -> void:
+	for turret_id_value in TurretCatalog.TURRET_IDS:
+		var turret_id := String(turret_id_value)
+		var state_value: Variant = _turret_states.get(turret_id, {})
+		if not state_value is Dictionary:
+			continue
+		var state: Dictionary = state_value
+		if not bool(state.get("owned", false)) or not bool(state.get("deployed", false)):
+			continue
+		_spawn_desktop_turret(
+			turret_id,
+			Vector2(
+				float(state.get("position_x", -1.0)),
+				float(state.get("position_y", -1.0))
+			)
+		)
+
 func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	if pet_id.is_empty():
 		return null
@@ -88,6 +106,137 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	if _selected_pet_id.is_empty():
 		_selected_pet_id = pet_id
 	return actor
+
+
+func _spawn_desktop_turret(turret_id: String, start_position := Vector2(-1.0, -1.0)) -> Node2D:
+	var definition := TurretCatalog.get_definition(turret_id)
+	# Invalid IDs must never create a phantom click-through input window on the
+	# desktop.
+	if turret_id.is_empty() or definition.is_empty():
+		return null
+	var existing := _get_desktop_turret(turret_id)
+	if existing != null:
+		return existing
+	var state_value: Variant = _turret_states.get(turret_id, {})
+	if not state_value is Dictionary:
+		return null
+	var state: Dictionary = state_value
+	if not bool(state.get("owned", false)):
+		return null
+
+	var spawn_position := start_position
+	if spawn_position.x < 0.0 or spawn_position.y < 0.0:
+		spawn_position = _get_default_turret_position(turret_id)
+	var actor := TurretActor.new()
+	actor.setup(turret_id, spawn_position, _pet_window_size)
+	var maximum_health := maxf(1.0, float(definition.get("max_health", 1.0)))
+	actor.set_durability(
+		clampf(float(state.get("current_hp", maximum_health)), 0.0, maximum_health),
+		maximum_health
+	)
+	actor.grabbed_changed.connect(_on_turret_grabbed_changed)
+	actor.recall_requested.connect(_on_turret_recall_requested)
+	add_child(actor)
+	_turrets.append(actor)
+	if _battle_active and actor.has_method("set_battle_mode"):
+		actor.call("set_battle_mode", true)
+	return actor
+
+
+func _get_desktop_turret(turret_id: String) -> Node2D:
+	for turret in _turrets:
+		if not is_instance_valid(turret):
+			continue
+		if turret.has_method("get_turret_id") and String(turret.call("get_turret_id")) == turret_id:
+			return turret
+	return null
+
+
+func _get_default_turret_position(turret_id: String) -> Vector2:
+	var turret_index := maxi(0, TurretCatalog.TURRET_IDS.find(turret_id))
+	var lane_fraction := 0.18 + float(turret_index) * 0.21
+	return Vector2(
+		float(_pet_window_size.x) * clampf(lane_fraction, 0.12, 0.84),
+		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+	)
+
+
+func _deploy_turret(turret_id: String) -> bool:
+	if _battle_active or turret_id.is_empty():
+		return false
+	var state_value: Variant = _turret_states.get(turret_id, {})
+	if not state_value is Dictionary:
+		return false
+	var state: Dictionary = state_value
+	if not bool(state.get("owned", false)):
+		return false
+	if _get_desktop_turret(turret_id) != null:
+		return true
+	state["deployed"] = true
+	_turret_states[turret_id] = state
+	var actor := _spawn_desktop_turret(
+		turret_id,
+		Vector2(float(state.get("position_x", -1.0)), float(state.get("position_y", -1.0)))
+	)
+	if actor == null:
+		state["deployed"] = false
+		_turret_states[turret_id] = state
+		return false
+	_update_turret_state_from_actor(actor)
+	return true
+
+
+func _recall_turret(turret_id: String) -> bool:
+	if _battle_active or turret_id.is_empty():
+		return false
+	var actor := _get_desktop_turret(turret_id)
+	if actor == null:
+		return false
+	_update_turret_state_from_actor(actor)
+	var state_value: Variant = _turret_states.get(turret_id, {})
+	if state_value is Dictionary:
+		var state: Dictionary = state_value
+		state["deployed"] = false
+		_turret_states[turret_id] = state
+	_turrets.erase(actor)
+	actor.queue_free()
+	return true
+
+
+func _on_turret_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
+	if actor == null or not is_instance_valid(actor):
+		return
+	if not grabbed:
+		_update_turret_state_from_actor(actor)
+		_host._sync_shop_state()
+		_host._request_save()
+
+
+func _on_turret_recall_requested(actor: Node2D) -> void:
+	if actor == null or not is_instance_valid(actor) or _battle_active:
+		return
+	var turret_id := String(actor.call("get_turret_id")) if actor.has_method("get_turret_id") else ""
+	if turret_id.is_empty() or not _recall_turret(turret_id):
+		return
+	_host._sync_shop_state()
+	_host._request_save()
+
+
+func _update_turret_state_from_actor(actor: Node2D) -> void:
+	if actor == null or not is_instance_valid(actor) or not actor.has_method("get_turret_id"):
+		return
+	var turret_id := String(actor.call("get_turret_id"))
+	var state_value: Variant = _turret_states.get(turret_id, {})
+	if not state_value is Dictionary:
+		return
+	var state: Dictionary = state_value
+	state["owned"] = true
+	state["deployed"] = true
+	state["position_x"] = actor.position.x
+	state["position_y"] = actor.position.y
+	if actor.has_method("get_durability"):
+		state["current_hp"] = maxf(0.0, float(actor.call("get_durability")))
+	_turret_states[turret_id] = state
 
 func _get_next_pet_start_x() -> float:
 	var min_x = _get_pet_stage_min_x()
@@ -147,6 +296,10 @@ func _update_actor_window_bounds() -> void:
 				restrict_activity
 			)
 
+	for turret in _turrets:
+		if is_instance_valid(turret) and turret.has_method("set_window_bounds"):
+			turret.call("set_window_bounds", _pet_window_size)
+
 	for believer in _believers:
 		if is_instance_valid(believer) and believer.has_method("set_window_size"):
 			believer.call(
@@ -194,6 +347,9 @@ func _cancel_all_pet_pointer_captures() -> void:
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("cancel_pointer_capture"):
 			pet.call("cancel_pointer_capture")
+	for turret in _turrets:
+		if is_instance_valid(turret) and turret.has_method("cancel_pointer_capture"):
+			turret.call("cancel_pointer_capture")
 
 func _restore_desktop_input() -> void:
 	if not is_inside_tree():
@@ -213,6 +369,10 @@ func _has_captured_pet_pointer() -> bool:
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("is_pointer_captured"):
 			if bool(pet.call("is_pointer_captured")):
+				return true
+	for turret in _turrets:
+		if is_instance_valid(turret) and turret.has_method("is_pointer_captured"):
+			if bool(turret.call("is_pointer_captured")):
 				return true
 	return false
 

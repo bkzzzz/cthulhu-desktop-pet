@@ -133,7 +133,7 @@ static func _test_shop_balance_display(failures: Array[String]) -> void:
 	shop.setup()
 	shop.set_coin_balance(1_250_000_000)
 	var balance_label := shop.get("_coin_balance_label") as Label
-	var close_button := shop.get_node_or_null("ShopRoot/CloseShop") as TextureButton
+	var close_button := shop.get_node_or_null("ShopRoot/ShopPage/CloseShop") as TextureButton
 	var page_label := shop.get("_page_label") as Label
 	var result_label := shop.get("_result_label") as Label
 	if shop.get_node_or_null("ShopRoot/ShopCurrencyIcon") != null:
@@ -151,7 +151,7 @@ static func _test_shop_balance_display(failures: Array[String]) -> void:
 			failures.append("the shop balance must show the same single money account as the drawer")
 		if balance_label.horizontal_alignment != HORIZONTAL_ALIGNMENT_RIGHT:
 			failures.append("the shop balance must align its amount to the right")
-		if balance_label.position.x <= float(ShopWindow.WINDOW_SIZE.x) * 0.5:
+		if balance_label.position.x <= float(ShopWindow.SHOP_PAGE_SIZE.x) * 0.5:
 			failures.append("the shop balance must move into the clear right side of the header")
 		if close_button != null and balance_label.position.x + balance_label.size.x >= close_button.position.x:
 			failures.append("the right-aligned shop balance must leave room for the close control")

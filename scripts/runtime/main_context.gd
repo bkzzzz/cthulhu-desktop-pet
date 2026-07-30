@@ -7,11 +7,13 @@ const FollowerProgression = preload("res://scripts/domain/follower_progression.g
 const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
 const NewsFeed = preload("res://scripts/domain/news_feed.gd")
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
+const TurretCatalog = preload("res://scripts/domain/turret_catalog.gd")
 const EraProgression = preload("res://scripts/domain/era_progression.gd")
 const EconomyBalance = preload("res://scripts/domain/economy_balance.gd")
 const BattleBalance = preload("res://scripts/domain/battle_balance.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
+const TurretActor = preload("res://scripts/turret_actor.gd")
 const BelieverActor = preload("res://scripts/believer_actor.gd")
 const EnemyActor = preload("res://scripts/enemy_actor.gd")
 const EnemyProjectileActor = preload("res://scripts/enemy_projectile_actor.gd")
@@ -104,7 +106,7 @@ const GACHA_BATCH_MAX_DRAWS_PER_FRAME := 128
 const GACHA_BATCH_FRAME_BUDGET_USEC := 1800
 const GACHA_BATCH_BUDGET_CHECK_INTERVAL := 16
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 14
+const SAVE_VERSION := 15
 const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const FINAL_BOSS_SAVE_VERSION := 13
@@ -162,6 +164,9 @@ func share_context(state_value: GameState, host_value: Variant) -> void:
 var _pets: Array[Node2D]:
 	get: return _state._pets
 	set(value): _state._pets = value
+var _turrets: Array[Node2D]:
+	get: return _state._turrets
+	set(value): _state._turrets = value
 var _believers: Array[Node2D]:
 	get: return _state._believers
 	set(value): _state._believers = value
@@ -312,6 +317,18 @@ var _battle_pet_enemy_targets: Dictionary:
 var _battle_pet5_rolls: Dictionary:
 	get: return _state._battle_pet5_rolls
 	set(value): _state._battle_pet5_rolls = value
+var _battle_turret_health: Dictionary:
+	get: return _state._battle_turret_health
+	set(value): _state._battle_turret_health = value
+var _battle_turret_max_health: Dictionary:
+	get: return _state._battle_turret_max_health
+	set(value): _state._battle_turret_max_health = value
+var _battle_turret_attack_at: Dictionary:
+	get: return _state._battle_turret_attack_at
+	set(value): _state._battle_turret_attack_at = value
+var _battle_turret_enemy_targets: Dictionary:
+	get: return _state._battle_turret_enemy_targets
+	set(value): _state._battle_turret_enemy_targets = value
 var _battle_save_pending: bool:
 	get: return _state._battle_save_pending
 	set(value): _state._battle_save_pending = value
@@ -375,6 +392,9 @@ var _last_reported_follower_count: int:
 var _shop_owned_counts: Dictionary:
 	get: return _state._shop_owned_counts
 	set(value): _state._shop_owned_counts = value
+var _turret_states: Dictionary:
+	get: return _state._turret_states
+	set(value): _state._turret_states = value
 var _side_drawer: Node:
 	get: return _state._side_drawer
 	set(value): _state._side_drawer = value

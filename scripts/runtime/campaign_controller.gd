@@ -17,10 +17,14 @@ func _get_potential_coin_rate() -> float:
 
 
 func _get_dynamic_shop_goods() -> Array[Dictionary]:
-	return EconomyBalance.make_dynamic_shop_goods(
+	var goods := EconomyBalance.make_dynamic_shop_goods(
 		OfferingCatalog.make_shop_goods(),
 		_get_potential_coin_rate()
 	)
+	# Food prices intentionally follow the production curve. Turrets are durable
+	# mid-game purchases, so their authored prices must remain fixed.
+	goods.append_array(TurretCatalog.make_shop_goods())
+	return goods
 
 
 func _check_campaign_completion() -> bool:

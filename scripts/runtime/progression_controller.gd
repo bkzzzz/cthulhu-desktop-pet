@@ -614,6 +614,9 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 	if good.is_empty():
 		_shop_window.call("set_purchase_result", good_id, false, "Item not found" if _language == "en" else "商品不存在")
 		return
+	if TurretCatalog.is_turret(good):
+		_handle_turret_shop_action(good)
+		return
 
 	var price = maxi(0, int(good.get("price", 0)))
 	var is_offering = OfferingCatalog.is_offering(good)
@@ -666,6 +669,102 @@ func _on_shop_purchase_requested(good_id: String) -> void:
 	)
 	_host._refresh_pet_stats(true)
 	_host._refresh_coin_display()
+	_host._request_save()
+
+
+func _handle_turret_shop_action(good: Dictionary) -> void:
+	var turret_id := String(good.get("id", ""))
+	var definition := TurretCatalog.get_definition(turret_id)
+	if turret_id.is_empty() or definition.is_empty():
+		_shop_window.call(
+			"set_purchase_result",
+			turret_id,
+			false,
+			"Invalid tower data" if _language == "en" else "防御塔数据无效"
+		)
+		return
+	var localized := TurretCatalog.localize(good, _language)
+	var display_name := String(localized.get("name", turret_id))
+	var state_value: Variant = _turret_states.get(turret_id, {})
+	var state: Dictionary = state_value if state_value is Dictionary else {}
+	if _battle_active:
+		_shop_window.call(
+			"set_purchase_result",
+			turret_id,
+			false,
+			"Tower deployment is locked during a battle" if _language == "en" else "战斗中无法部署或收回防御塔"
+		)
+		return
+
+	if state.is_empty() or not bool(state.get("owned", false)):
+		var price := maxi(0, int(good.get("price", 0)))
+		if _gold_coins < price:
+			_shop_window.call("set_purchase_result", turret_id, false, "Not enough gold" if _language == "en" else "金币不足")
+			return
+		var maximum_health := maxf(1.0, float(definition.get("max_health", 1.0)))
+		_gold_coins = CurrencyDisplay.add_gold(_gold_coins, -price)
+		_turret_states[turret_id] = {
+			"owned": true,
+			"deployed": false,
+			"current_hp": maximum_health,
+			"position_x": -1.0,
+			"position_y": -1.0
+		}
+		var deployed: bool = bool(_host._deploy_turret(turret_id))
+		_host._show_coin_change_popup(_host._get_window_mouse_position(get_window()), -price)
+		_host._sync_shop_state()
+		_shop_window.call(
+			"set_purchase_result",
+			turret_id,
+			true,
+			(
+				"Purchased and deployed %s. Drag it anywhere on the desktop; right-click it to recall."
+				if deployed and _language == "en"
+				else "已购买并放下 %s，可拖动调整位置；右键点击可收回。"
+				if deployed
+				else "Purchased %s. Select DEPLOY after the desktop is ready."
+				if _language == "en"
+				else "已购买 %s，桌面就绪后可选择放下。"
+			) % display_name
+		)
+		_host._refresh_coin_display()
+		_host._request_save()
+		return
+
+	if bool(state.get("deployed", false)):
+		if not _host._recall_turret(turret_id):
+			_shop_window.call(
+				"set_purchase_result",
+				turret_id,
+				false,
+				"Tower could not be recalled" if _language == "en" else "防御塔暂时无法收回"
+			)
+			return
+		_host._sync_shop_state()
+		_shop_window.call(
+			"set_purchase_result",
+			turret_id,
+			true,
+			("Recalled %s. Its remaining durability is preserved." if _language == "en" else "已收回 %s，剩余耐久已保留。") % display_name
+		)
+		_host._request_save()
+		return
+
+	if not _host._deploy_turret(turret_id):
+		_shop_window.call(
+			"set_purchase_result",
+			turret_id,
+			false,
+			"Tower could not be deployed" if _language == "en" else "防御塔暂时无法放下"
+		)
+		return
+	_host._sync_shop_state()
+	_shop_window.call(
+		"set_purchase_result",
+		turret_id,
+		true,
+		("Deployed %s. Drag it into position before the next battle." if _language == "en" else "已放下 %s，请在下一场战斗前调整位置。") % display_name
+	)
 	_host._request_save()
 
 func _on_inventory_pet_deploy_requested(pet_id: String) -> void:
