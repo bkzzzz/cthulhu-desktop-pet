@@ -24,9 +24,10 @@ const GOODS_PER_PAGE := 6
 const MIN_TOTAL_PAGES := 1
 const GOOD_ICON_SIZE := Vector2(134.0, 134.0)
 const CATEGORY_TAB_SIZE := Vector2(258.0, 82.0)
-# The bookmarks overlap the parchment edge, while their decorative tails stay
-# inside the transparent gutter even at hover scale.
-const CATEGORY_TAB_POSITIONS := [Vector2(28.0, 270.0), Vector2(28.0, 370.0)]
+# Deliberately overlap the parchment edge. This reads as a physical bookmark
+# tucked into the shop, rather than two floating controls beside it.
+const CATEGORY_TAB_PAGE_OVERLAP := 84.0
+const CATEGORY_TAB_POSITIONS := [Vector2(56.0, 270.0), Vector2(56.0, 370.0)]
 const CATEGORY_TAB_HOVER_SCALE := 1.045
 const SHOP_SLOT_RECTS := [
 	Rect2(148.0, 252.0, 252.0, 286.0),
@@ -225,9 +226,8 @@ func _create_content() -> void:
 	_category_layer.name = "ShopCategoryTabs"
 	_category_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_category_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# The bookmarks intentionally sit above the page art. Keeping them below the
-	# page made their joined ends look as though they had been inserted under a
-	# grey frame.
+	# The bookmarks intentionally sit above the page art, including their small
+	# page-edge overlap, so they visibly attach to the shop frame.
 	_category_layer.z_index = 4
 	_root.add_child(_category_layer)
 	_create_category_tabs()

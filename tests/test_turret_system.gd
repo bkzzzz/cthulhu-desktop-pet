@@ -93,6 +93,8 @@ static func _test_shop_categories(failures: Array[String]) -> void:
 		var hover_left := tower_tab.position.x + tower_tab.pivot_offset.x * (1.0 - ShopWindow.CATEGORY_TAB_HOVER_SCALE)
 		if hover_left < 0.0:
 			failures.append("shop bookmark hover must remain inside the transparent window gutter")
+		if tower_tab.position.x + tower_tab.size.x < ShopWindow.PAGE_ORIGIN.x + ShopWindow.CATEGORY_TAB_PAGE_OVERLAP:
+			failures.append("shop bookmarks must visibly overlap the shop edge")
 
 	var passthrough := shop.mouse_passthrough_polygon
 	var expected_page_x := ShopWindow.PAGE_ORIGIN.x * float(shop.size.x) / float(ShopWindow.WINDOW_SIZE.x)
