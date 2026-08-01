@@ -87,6 +87,12 @@ static func _test_shop_categories(failures: Array[String]) -> void:
 		failures.append("the shop must provide separate food and tower category tabs")
 	elif tower_tab.position.x >= ShopWindow.PAGE_ORIGIN.x or tower_tab.position.x + tower_tab.size.x <= ShopWindow.PAGE_ORIGIN.x:
 		failures.append("the tower tab must protrude from and overlap the shop page edge")
+	elif tower_tab.texture_normal == null or tower_tab.texture_normal.resource_path != "res://assets/ui/newElements/书签.png":
+		failures.append("shop category tabs must reuse the side-menu bookmark art")
+	else:
+		var hover_left := tower_tab.position.x + tower_tab.pivot_offset.x * (1.0 - ShopWindow.CATEGORY_TAB_HOVER_SCALE)
+		if hover_left < 0.0:
+			failures.append("shop bookmark hover must remain inside the transparent window gutter")
 
 	var passthrough := shop.mouse_passthrough_polygon
 	var expected_page_x := ShopWindow.PAGE_ORIGIN.x * float(shop.size.x) / float(ShopWindow.WINDOW_SIZE.x)

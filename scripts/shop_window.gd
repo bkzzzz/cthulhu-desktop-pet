@@ -9,22 +9,25 @@ const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 
 const SHOP_PAGE_SIZE := Vector2i(1117, 1034)
-# The transparent gutter makes the category tabs genuinely protrude from the
-# shop page, instead of being clipped at a native Window boundary.
-const TAB_GUTTER_WIDTH := 190
+# Keep a generous transparent gutter around the protruding category bookmarks.
+# The extra space is intentional: bookmark hover uses a scale animation and
+# must never be cut off by the native transparent window boundary.
+const TAB_GUTTER_WIDTH := 230
 const WINDOW_SIZE := Vector2i(SHOP_PAGE_SIZE.x + TAB_GUTTER_WIDTH, SHOP_PAGE_SIZE.y)
 const PAGE_ORIGIN := Vector2(TAB_GUTTER_WIDTH, 0.0)
 const SHOP_TEXTURE := "res://assets/ui/shop/商店ui.png"
 const CROSS_TEXTURE := "res://assets/ui/inventory/cross.png"
 const ARROW_TEXTURE := "res://assets/ui/inventory/arrow.png"
-const FOOD_TAB_TEXTURE := "res://assets/ui/shop/食物标签.png"
-const TURRET_TAB_TEXTURE := "res://assets/ui/shop/防御塔标签.png"
+const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
 
 const GOODS_PER_PAGE := 6
 const MIN_TOTAL_PAGES := 1
 const GOOD_ICON_SIZE := Vector2(134.0, 134.0)
-const CATEGORY_TAB_SIZE := Vector2(312.0, 62.0)
-const CATEGORY_TAB_POSITIONS := [Vector2(-12.0, 294.0), Vector2(-12.0, 374.0)]
+const CATEGORY_TAB_SIZE := Vector2(258.0, 82.0)
+# The bookmarks overlap the parchment edge, while their decorative tails stay
+# inside the transparent gutter even at hover scale.
+const CATEGORY_TAB_POSITIONS := [Vector2(28.0, 270.0), Vector2(28.0, 370.0)]
+const CATEGORY_TAB_HOVER_SCALE := 1.045
 const SHOP_SLOT_RECTS := [
 	Rect2(148.0, 252.0, 252.0, 286.0),
 	Rect2(438.0, 252.0, 252.0, 286.0),
@@ -222,7 +225,10 @@ func _create_content() -> void:
 	_category_layer.name = "ShopCategoryTabs"
 	_category_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_category_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_category_layer.z_index = 1
+	# The bookmarks intentionally sit above the page art. Keeping them below the
+	# page made their joined ends look as though they had been inserted under a
+	# grey frame.
+	_category_layer.z_index = 4
 	_root.add_child(_category_layer)
 	_create_category_tabs()
 
@@ -256,27 +262,22 @@ func _create_content() -> void:
 func _create_category_tabs() -> void:
 	if _category_layer == null:
 		return
-	var categories := [
-		{"kind": OfferingCatalog.KIND, "texture": FOOD_TAB_TEXTURE},
-		{"kind": TurretCatalog.KIND, "texture": TURRET_TAB_TEXTURE}
-	]
+	var categories := [OfferingCatalog.KIND, TurretCatalog.KIND]
 	for index in categories.size():
-		var category: Dictionary = categories[index]
-		var kind := String(category.get("kind", ""))
+		var kind := String(categories[index])
 		var button := TextureButton.new()
 		button.name = "%sCategoryTab" % kind.capitalize()
-		# The supplied tag art was authored for the opposite page edge. Mirror it
-		# so the illustrated bookmark head enters the shop page and the torn tail
-		# remains outside on the desktop side.
-		button.texture_normal = _make_horizontally_flipped_texture(
-			load(String(category.get("texture", ""))) as Texture2D
-		)
+		# Use the same warm, illustrated bookmark as the side menu so navigation
+		# reads as part of one UI system instead of a separate grey tab treatment.
+		button.texture_normal = load(BOOKMARK_TEXTURE) as Texture2D
 		button.texture_hover = button.texture_normal
 		button.texture_pressed = button.texture_normal
 		button.ignore_texture_size = true
 		button.stretch_mode = TextureButton.STRETCH_SCALE
 		button.size = CATEGORY_TAB_SIZE
 		button.position = CATEGORY_TAB_POSITIONS[index]
+		# Scale from the page-side edge. The left tail expands into the reserved
+		# gutter rather than into the parchment or past the native window.
 		button.pivot_offset = Vector2(button.size.x, button.size.y * 0.5)
 		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		button.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -291,10 +292,10 @@ func _create_category_tabs() -> void:
 		label.name = "CategoryLabel"
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		label.position = Vector2(96.0, 7.0)
-		label.size = Vector2(88.0, 48.0)
+		label.position = Vector2(74.0, 8.0)
+		label.size = Vector2(124.0, 66.0)
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.add_theme_font_size_override("font_size", 17)
+		label.add_theme_font_size_override("font_size", 19)
 		label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 0.95))
 		label.add_theme_constant_override("outline_size", 3)
 		button.add_child(label)
@@ -339,16 +340,6 @@ func _apply_texture_click_mask(button: TextureButton) -> void:
 	button.texture_click_mask = mask
 
 
-func _make_horizontally_flipped_texture(texture: Texture2D) -> Texture2D:
-	if texture == null:
-		return null
-	var image := texture.get_image()
-	if image == null or image.is_empty():
-		return texture
-	image.flip_x()
-	return ImageTexture.create_from_image(image)
-
-
 func _refresh_category_tabs() -> void:
 	for kind_value in _category_buttons.keys():
 		var kind := String(kind_value)
@@ -357,13 +348,13 @@ func _refresh_category_tabs() -> void:
 			continue
 		var label := button.get_node_or_null("CategoryLabel") as Label
 		var active := kind == _active_category
-		button.modulate = Color.WHITE if active else Color(0.60, 0.60, 0.66, 0.92)
+		button.modulate = Color.WHITE if active else Color(0.74, 0.68, 0.54, 0.92)
 		button.tooltip_text = _get_category_label(kind)
 		if label != null:
 			label.text = _get_category_label(kind)
 			label.add_theme_color_override(
 				"font_color",
-				Color(0.97, 0.89, 0.66, 1.0) if active else Color(0.73, 0.72, 0.66, 1.0)
+				Color(0.97, 0.89, 0.66, 1.0) if active else Color(0.83, 0.75, 0.58, 1.0)
 			)
 
 
@@ -393,7 +384,7 @@ func _animate_category_tab_hover(button: TextureButton, hovered: bool) -> void:
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(button, "scale", Vector2.ONE * (1.035 if hovered else 1.0), 0.10)
+	tween.tween_property(button, "scale", Vector2.ONE * (CATEGORY_TAB_HOVER_SCALE if hovered else 1.0), 0.10)
 
 
 func _animate_category_tab_press(button: TextureButton) -> void:
