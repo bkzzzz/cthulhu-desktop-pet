@@ -54,6 +54,8 @@ var _max_lifetime_seconds := MAX_LIFETIME_SECONDS
 var _rng := RandomNumberGenerator.new()
 var _sprite: AnimatedSprite2D
 static var _frames_cache := {}
+static var _pointer_sample_frame := -1
+static var _pointer_sample_global := Vector2i.ZERO
 
 
 static func get_coin_value(type_id: String) -> int:
@@ -310,4 +312,15 @@ func _get_pointer_position() -> Vector2:
 	if window == null:
 		var viewport := get_viewport()
 		return viewport.get_mouse_position() if viewport != null else Vector2(_window_size) * 0.5
-	return Vector2(DisplayServer.mouse_get_position() - window.position)
+	return Vector2(_get_shared_global_pointer() - window.position)
+
+
+static func _get_shared_global_pointer() -> Vector2i:
+	# Coin piles can contain many active actors. Sampling the native pointer once
+	# per process frame keeps their magnet and celebration movement in sync while
+	# avoiding one DisplayServer call per coin.
+	var process_frame := Engine.get_process_frames()
+	if _pointer_sample_frame != process_frame:
+		_pointer_sample_global = DisplayServer.mouse_get_position()
+		_pointer_sample_frame = process_frame
+	return _pointer_sample_global

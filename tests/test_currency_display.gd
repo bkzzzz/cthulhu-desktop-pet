@@ -10,6 +10,7 @@ static func run() -> Array[String]:
 	_test_six_drop_assets_are_visual_denominations(failures)
 	_test_account_arithmetic(failures)
 	_test_single_balance_display(failures)
+	_test_account_icon_is_cached(failures)
 	_test_drawer_keeps_one_account_icon(failures)
 	return failures
 
@@ -48,6 +49,15 @@ static func _test_single_balance_display(failures: Array[String]) -> void:
 			failures.append("money account display expected %s, got %s" % [cases[gold_value], actual])
 		if actual.contains("RC") or actual.contains("YC") or actual.contains("GC"):
 			failures.append("the account must never present drop animations as separate currencies")
+
+
+static func _test_account_icon_is_cached(failures: Array[String]) -> void:
+	var first_icon := CurrencyDisplay.make_icon_texture(0)
+	var later_icon := CurrencyDisplay.make_icon_texture(CurrencyDisplay.MAX_GOLD)
+	if first_icon == null or later_icon == null:
+		failures.append("the account display must provide an icon texture")
+	elif first_icon.get_instance_id() != later_icon.get_instance_id():
+		failures.append("money balance refreshes must reuse the account icon texture")
 
 
 static func _test_drawer_keeps_one_account_icon(failures: Array[String]) -> void:

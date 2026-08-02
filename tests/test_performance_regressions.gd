@@ -4,6 +4,7 @@ const Main = preload("res://scripts/main.gd")
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const SideDrawer = preload("res://scripts/side_drawer_controller.gd")
+const CoinDrop = preload("res://scripts/coin_drop.gd")
 
 
 static func run() -> Array[String]:
@@ -14,6 +15,7 @@ static func run() -> Array[String]:
 	_test_battle_engagement_caches(failures)
 	_test_storage_release_assets_are_prewarmed(failures)
 	_test_hidden_drawer_defers_visual_work(failures)
+	_test_coin_pointer_sample_is_shared_per_process_frame(failures)
 	_test_saves_are_debounced(failures)
 	return failures
 
@@ -115,6 +117,19 @@ static func _test_hidden_drawer_defers_visual_work(failures: Array[String]) -> v
 	if pet_label.text != "Cached name":
 		failures.append("opening the drawer must paint the latest cached pet data")
 	drawer.free()
+
+
+static func _test_coin_pointer_sample_is_shared_per_process_frame(failures: Array[String]) -> void:
+	var previous_frame := CoinDrop._pointer_sample_frame
+	var previous_pointer := CoinDrop._pointer_sample_global
+	var expected_pointer := Vector2i(321, 654)
+	CoinDrop._pointer_sample_frame = Engine.get_process_frames()
+	CoinDrop._pointer_sample_global = expected_pointer
+	var cached_pointer := CoinDrop._get_shared_global_pointer()
+	CoinDrop._pointer_sample_frame = previous_frame
+	CoinDrop._pointer_sample_global = previous_pointer
+	if cached_pointer != expected_pointer:
+		failures.append("coins in one process frame must share one cached native pointer sample")
 
 
 static func _test_saves_are_debounced(failures: Array[String]) -> void:

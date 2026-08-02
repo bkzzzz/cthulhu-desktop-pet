@@ -5,6 +5,8 @@ extends RefCounted
 const MAX_GOLD := 9_000_000_000_000_000_000
 const ACCOUNT_ICON_PATH := "res://assets/ui/coins/MonedaD.png"
 
+static var _account_icon_texture: AtlasTexture
+
 
 static func sanitize_gold(gold: int) -> int:
 	return clampi(gold, 0, MAX_GOLD)
@@ -39,6 +41,8 @@ static func get_conversion_tooltip(gold: int, language := "en") -> String:
 
 
 static func make_icon_texture(_gold: int) -> Texture2D:
+	if _account_icon_texture != null:
+		return _account_icon_texture
 	var texture := load(ACCOUNT_ICON_PATH) as Texture2D
 	if texture == null:
 		return null
@@ -47,7 +51,8 @@ static func make_icon_texture(_gold: int) -> Texture2D:
 	var atlas := AtlasTexture.new()
 	atlas.atlas = texture
 	atlas.region = Rect2(0.0, 0.0, frame_width, float(texture.get_height()))
-	return atlas
+	_account_icon_texture = atlas
+	return _account_icon_texture
 
 
 static func _format_account_number(value: int) -> String:
