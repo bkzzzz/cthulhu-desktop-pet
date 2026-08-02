@@ -41,6 +41,7 @@ const SHOP_SLOT_RECTS := [
 var _root: Control
 var _page_root: Control
 var _category_layer: Control
+var _category_hit_layer: Control
 var _page_label: Label
 var _coin_balance_label: Label
 var _result_label: Label
@@ -226,10 +227,17 @@ func _create_content() -> void:
 	_category_layer.name = "ShopCategoryTabs"
 	_category_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_category_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# The bookmarks intentionally sit above the page art, including their small
-	# page-edge overlap, so they visibly attach to the shop frame.
-	_category_layer.z_index = 4
+	# Let the parchment cover each bookmark's inner edge so it reads as tucked
+	# into the shop instead of floating in front of it.
+	_category_layer.z_index = 1
 	_root.add_child(_category_layer)
+
+	_category_hit_layer = Control.new()
+	_category_hit_layer.name = "ShopCategoryTabHitAreas"
+	_category_hit_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_category_hit_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_category_hit_layer.z_index = 3
+	_root.add_child(_category_hit_layer)
 	_create_category_tabs()
 
 	_page_root = Control.new()
@@ -279,12 +287,7 @@ func _create_category_tabs() -> void:
 		# Scale from the page-side edge. The left tail expands into the reserved
 		# gutter rather than into the parchment or past the native window.
 		button.pivot_offset = Vector2(button.size.x, button.size.y * 0.5)
-		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		button.mouse_filter = Control.MOUSE_FILTER_STOP
-		_apply_texture_click_mask(button)
-		button.mouse_entered.connect(_animate_category_tab_hover.bind(button, true))
-		button.mouse_exited.connect(_animate_category_tab_hover.bind(button, false))
-		button.pressed.connect(_on_category_tab_pressed.bind(kind, button))
+		button.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_category_layer.add_child(button)
 		_category_buttons[kind] = button
 
@@ -299,6 +302,17 @@ func _create_category_tabs() -> void:
 		label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 0.95))
 		label.add_theme_constant_override("outline_size", 3)
 		button.add_child(label)
+
+		var hit_area := Control.new()
+		hit_area.name = "%sCategoryTabHitArea" % kind.capitalize()
+		hit_area.position = button.position
+		hit_area.size = CATEGORY_TAB_SIZE
+		hit_area.mouse_filter = Control.MOUSE_FILTER_STOP
+		hit_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		hit_area.mouse_entered.connect(_animate_category_tab_hover.bind(button, true))
+		hit_area.mouse_exited.connect(_animate_category_tab_hover.bind(button, false))
+		hit_area.gui_input.connect(_on_category_tab_gui_input.bind(kind, button, hit_area))
+		_category_hit_layer.add_child(hit_area)
 	_refresh_category_tabs()
 
 
@@ -347,15 +361,11 @@ func _refresh_category_tabs() -> void:
 		if button == null:
 			continue
 		var label := button.get_node_or_null("CategoryLabel") as Label
-		var active := kind == _active_category
-		button.modulate = Color.WHITE if active else Color(0.74, 0.68, 0.54, 0.92)
+		button.modulate = Color.WHITE
 		button.tooltip_text = _get_category_label(kind)
 		if label != null:
 			label.text = _get_category_label(kind)
-			label.add_theme_color_override(
-				"font_color",
-				Color(0.97, 0.89, 0.66, 1.0) if active else Color(0.83, 0.75, 0.58, 1.0)
-			)
+			label.add_theme_color_override("font_color", Color(0.97, 0.89, 0.66, 1.0))
 
 
 func _get_category_label(kind: String) -> String:
@@ -376,6 +386,21 @@ func _on_category_tab_pressed(kind: String, button: TextureButton) -> void:
 	_refresh_category_tabs()
 	_refresh_page()
 	_animate_category_tab_press(button)
+
+
+func _on_category_tab_gui_input(
+	event: InputEvent,
+	kind: String,
+	button: TextureButton,
+	hit_area: Control
+) -> void:
+	if not event is InputEventMouseButton:
+		return
+	var mouse_event := event as InputEventMouseButton
+	if mouse_event.button_index != MOUSE_BUTTON_LEFT or not mouse_event.pressed:
+		return
+	_on_category_tab_pressed(kind, button)
+	hit_area.accept_event()
 
 
 func _animate_category_tab_hover(button: TextureButton, hovered: bool) -> void:

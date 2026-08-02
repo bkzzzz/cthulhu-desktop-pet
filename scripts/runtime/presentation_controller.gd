@@ -681,8 +681,6 @@ func _on_shop_requested() -> void:
 	_sync_shop_state()
 	if _shop_window.has_method("open_window"):
 		_shop_window.call("open_window")
-	if _side_drawer != null:
-		_side_drawer.call_deferred("bring_bookmarks_to_foreground")
 
 func _on_gacha_requested() -> void:
 	if _gacha_window == null:
