@@ -957,11 +957,63 @@ func _get_nearest_battle_pet(enemy: Node2D, candidates: Array[Node2D]) -> Node2D
 
 
 func _get_battle_target_for_enemy(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
-	# Re-evaluate every update instead of preserving an earlier target. Dragging a
-	# pet across the line or losing a frontliner immediately changes enemy aggro.
 	if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 		return null
+	# Towers are physical blockers. Select the first live tower between an enemy
+	# and its nearest pet, rather than letting vertical sprite offsets make an
+	# enemy path around a deployed tower.
+	var nearest_pet := _get_nearest_battle_pet(enemy, _get_battle_pet_candidates(candidates))
+	var blocking_turret := _get_blocking_turret_for_enemy(enemy, nearest_pet, candidates)
+	if blocking_turret != null:
+		return blocking_turret
+	# Preserve the previous nearest-defender behavior when no deployed tower is
+	# in the route (including battles without towers).
 	return _get_nearest_battle_pet(enemy, candidates)
+
+
+func _get_battle_pet_candidates(candidates: Array[Node2D]) -> Array[Node2D]:
+	var pets: Array[Node2D] = []
+	for defender in candidates:
+		if defender == null or not is_instance_valid(defender):
+			continue
+		if _battle_turret_health.has(str(defender.get_instance_id())):
+			continue
+		pets.append(defender)
+	return pets
+
+
+func _get_blocking_turret_for_enemy(
+	enemy: Node2D,
+	nearest_pet: Node2D,
+	candidates: Array[Node2D]
+) -> Node2D:
+	if nearest_pet == null or not is_instance_valid(nearest_pet):
+		return null
+	var direction := signf(nearest_pet.position.x - enemy.position.x)
+	if enemy.has_method("get_entry_side"):
+		direction = float(enemy.call("get_entry_side"))
+	if is_zero_approx(direction):
+		return null
+
+	var blocker: Node2D
+	var blocker_x := INF if direction < 0.0 else -INF
+	for defender in candidates:
+		if defender == null or not is_instance_valid(defender) or defender.is_queued_for_deletion():
+			continue
+		if not _battle_turret_health.has(str(defender.get_instance_id())):
+			continue
+		var defender_x := defender.position.x
+		var lies_in_path := (
+			defender_x >= enemy.position.x and defender_x <= nearest_pet.position.x
+			if direction < 0.0
+			else defender_x <= enemy.position.x and defender_x >= nearest_pet.position.x
+		)
+		if not lies_in_path:
+			continue
+		if (direction < 0.0 and defender_x < blocker_x) or (direction > 0.0 and defender_x > blocker_x):
+			blocker = defender
+			blocker_x = defender_x
+	return blocker
 
 
 func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
