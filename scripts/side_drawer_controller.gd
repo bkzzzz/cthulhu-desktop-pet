@@ -463,6 +463,12 @@ func is_upgrade_ui_visible() -> bool:
 	return _drawer_open or (_drawer_window != null and _drawer_window.visible)
 
 
+func bring_bookmarks_to_foreground() -> void:
+	if _drawer_window == null or not _drawer_window.visible:
+		return
+	_drawer_window.move_to_foreground()
+
+
 func _create_toggle_button() -> void:
 	_menu_window = Window.new()
 	_menu_window.name = "MenuHandleWindow"
