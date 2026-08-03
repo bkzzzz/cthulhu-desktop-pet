@@ -7,6 +7,8 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_legacy_state_migration(failures)
 	_test_explicit_level_migration(failures)
+	_test_persistence_snapshot_backup_and_recovery(failures)
+	_test_persistence_rejects_non_finite_numbers(failures)
 	_test_starter_unlock_state(failures)
 	_test_language_defaults_and_pet_names(failures)
 	_test_pet_gacha_integration(failures)
@@ -24,6 +26,66 @@ static func _make_main() -> Node:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
 	return main
+
+
+static func _test_persistence_snapshot_backup_and_recovery(failures: Array[String]) -> void:
+	var primary_path := "user://cthulhu_test_snapshot_primary.cfg"
+	var backup_path := "%s.bak" % primary_path
+	var temporary_path := "%s.tmp" % primary_path
+	var backup_temporary_path := "%s.tmp" % backup_path
+	for path in [primary_path, backup_path, temporary_path, backup_temporary_path]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+	var first_snapshot := ConfigFile.new()
+	first_snapshot.set_value("meta", "marker", "first")
+	if first_snapshot.save(primary_path) != OK:
+		failures.append("persistence backup test could not create its isolated primary snapshot")
+		return
+	var next_snapshot := ConfigFile.new()
+	next_snapshot.set_value("meta", "marker", "second")
+	if Main.PersistenceController.save_config_with_backup(
+		next_snapshot,
+		primary_path,
+		backup_path,
+		temporary_path
+	) != OK:
+		failures.append("saving a snapshot must atomically replace the primary file")
+	else:
+		var primary := ConfigFile.new()
+		var backup := ConfigFile.new()
+		if primary.load(primary_path) != OK or String(primary.get_value("meta", "marker", "")) != "second":
+			failures.append("the new snapshot must become the primary save")
+		if backup.load(backup_path) != OK or String(backup.get_value("meta", "marker", "")) != "first":
+			failures.append("replacing a save must retain the previous snapshot as a backup")
+		var damaged := FileAccess.open(primary_path, FileAccess.WRITE)
+		if damaged == null:
+			failures.append("persistence recovery test could not damage its isolated primary snapshot")
+		else:
+			var oversized_contents := PackedByteArray()
+			oversized_contents.resize(Main.MAX_SAVE_FILE_BYTES + 1)
+			damaged.store_buffer(oversized_contents)
+			damaged.close()
+			var recovered: Dictionary = Main.PersistenceController.load_config_with_backup(primary_path, backup_path)
+			var recovered_save := recovered.get("config") as ConfigFile
+			if recovered_save == null or String(recovered_save.get_value("meta", "marker", "")) != "first":
+				failures.append("a damaged primary save must recover from its last valid backup")
+			elif Main.PersistenceController.save_config_with_backup(recovered_save, primary_path, backup_path, temporary_path) != OK:
+				failures.append("a recovered backup must be safely promoted into a new primary save")
+			elif backup.load(backup_path) != OK or String(backup.get_value("meta", "marker", "")) != "first":
+				failures.append("recovering from backup must not replace the valid backup with the damaged primary")
+	for path in [primary_path, backup_path, temporary_path, backup_temporary_path]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+static func _test_persistence_rejects_non_finite_numbers(failures: Array[String]) -> void:
+	if not is_equal_approx(Main.PersistenceController.sanitize_finite_float(NAN, 0.0, 100.0, 7.0), 7.0):
+		failures.append("persistence must replace NaN values with a safe fallback")
+	if not is_equal_approx(Main.PersistenceController.sanitize_finite_float(INF, 0.0, 100.0, 7.0), 7.0):
+		failures.append("persistence must replace infinite values with a safe fallback")
+	if not is_equal_approx(Main.PersistenceController.sanitize_finite_float(125.0, 0.0, 100.0, 7.0), 100.0):
+		failures.append("persistence must clamp finite values to their configured range")
 
 
 static func _test_starter_unlock_state(failures: Array[String]) -> void:

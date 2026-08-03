@@ -12,6 +12,7 @@ const TEST_SUITES := [
 	preload("res://tests/test_offering_inventory.gd"),
 	preload("res://tests/test_turret_system.gd"),
 	preload("res://tests/test_main_progression_integration.gd"),
+	preload("res://tests/test_save_slots.gd"),
 	preload("res://tests/test_ui_number_format.gd"),
 	preload("res://tests/test_locked_pet_ui.gd"),
 	preload("res://tests/test_news_feed.gd"),

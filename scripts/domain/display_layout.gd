@@ -75,13 +75,23 @@ static func get_current_screen(window: Window = null, prefer_mouse := true) -> i
 	var screen := -1
 	if prefer_mouse:
 		screen = DisplayServer.SCREEN_WITH_MOUSE_FOCUS
-	if screen < 0 and window != null and is_instance_valid(window):
+	if screen < 0 and can_query_window_screen(window):
 		screen = DisplayServer.window_get_current_screen(window.get_window_id())
 	if screen < 0:
 		screen = DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
 	return screen
+
+
+static func can_query_window_screen(window: Window) -> bool:
+	return (
+		window != null
+		and is_instance_valid(window)
+		and window.is_inside_tree()
+		and window.visible
+		and window.get_window_id() != DisplayServer.INVALID_WINDOW_ID
+	)
 
 
 static func get_current_usable_rect(window: Window = null, prefer_mouse := true) -> Rect2i:

@@ -10,7 +10,8 @@
 - `runtime/battle_controller.gd`: two-sided waves, combat, health UI, rewards, and battle effects
 - `runtime/coin_controller.gd`: ambient currency drops and collection
 - `runtime/presentation_controller.gd`: windows, HUD synchronization, and news presentation
-- `runtime/persistence_controller.gd`: saves, migrations, sanitization, autosave, and offline progress
+- `runtime/persistence_controller.gd`: game-state serialization, sanitization, autosave, offline progress, and safe slot-switch coordination
+- `runtime/save_slot_repository.gd`: controlled slot IDs, registry/backup I/O, legacy-save migration, and exact-path reset/delete operations
 - `runtime/progression_controller.gd`: faith, upgrades, gacha, evolution, settings, and player commands
 - `runtime/offering_controller.gd`: offering purchase, cursor placement, feeding, and buffs
 - `runtime/campaign_controller.gd`: final-boss gating, campaign completion, level caps, and Endless Mode

@@ -4,6 +4,10 @@ signal activity_range_changed(range_mode: String)
 signal language_changed(language_code: String)
 signal quit_requested
 signal reset_game_requested
+signal save_slot_create_requested(slot_id: String)
+signal save_slot_switch_requested(slot_id: String)
+signal save_slot_rename_requested(slot_id: String, display_name: String)
+signal save_slot_delete_requested(slot_id: String)
 signal debug_economy_requested(faith_points: float, gold_coins: int)
 signal debug_simulation_requested(enemy_power_scale: float, game_speed: float)
 signal debug_event_requested(event_type: String)
@@ -58,6 +62,20 @@ var _debug_battle_button: Button
 var _debug_back_button: Button
 var _debug_reset_button: Button
 var _reset_confirmation: ConfirmationDialog
+var _save_slots_button: Button
+var _save_slots_panel: PanelContainer
+var _save_slots_title_label: Label
+var _save_slots_hint_label: Label
+var _save_slots_notice_label: Label
+var _save_slots_list: VBoxContainer
+var _save_slots_back_button: Button
+var _save_slot_action_confirmation: ConfirmationDialog
+var _save_slot_rename_confirmation: ConfirmationDialog
+var _save_slot_rename_input: LineEdit
+var _save_slots: Array[Dictionary] = []
+var _active_save_slot_id := ""
+var _pending_save_slot_action := ""
+var _pending_save_slot_id := ""
 var _updating_controls := false
 var _dragging := false
 var _drag_offset := Vector2i.ZERO
@@ -73,6 +91,24 @@ func setup(activity_range: String, language_code: String) -> void:
 	_center_window()
 
 
+func set_save_slots(slots: Array, active_slot_id: String) -> void:
+	_save_slots.clear()
+	for slot_value in slots:
+		if slot_value is Dictionary:
+			_save_slots.append((slot_value as Dictionary).duplicate(true))
+	_active_save_slot_id = active_slot_id
+	if _save_slots_button != null:
+		_save_slots_button.disabled = _save_slots.is_empty()
+	_refresh_save_slots_panel()
+
+
+func show_save_slot_notice(message: String) -> void:
+	if _save_slots_notice_label == null:
+		return
+	_save_slots_notice_label.text = message.strip_edges()
+	_save_slots_notice_label.visible = not _save_slots_notice_label.text.is_empty()
+
+
 func open_window() -> void:
 	_center_window()
 	visible = true
@@ -85,8 +121,16 @@ func close_window() -> void:
 		_credits_panel.visible = false
 	if _debug_panel != null:
 		_debug_panel.visible = false
+	if _save_slots_panel != null:
+		_save_slots_panel.visible = false
 	if _reset_confirmation != null:
 		_reset_confirmation.hide()
+	if _save_slot_action_confirmation != null:
+		_save_slot_action_confirmation.hide()
+	if _save_slot_rename_confirmation != null:
+		_save_slot_rename_confirmation.hide()
+	_pending_save_slot_action = ""
+	_pending_save_slot_id = ""
 
 
 func refresh_debug_values(
@@ -162,8 +206,8 @@ func _create_content() -> void:
 
 	var panel := PanelContainer.new()
 	panel.name = "SettingsPanel"
-	panel.position = Vector2(142.0, 133.0)
-	panel.size = Vector2(436.0, 454.0)
+	panel.position = Vector2(142.0, 108.0)
+	panel.size = Vector2(436.0, 504.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_PASS
 	panel.add_theme_stylebox_override("panel", _make_panel_style())
 	_root.add_child(panel)
@@ -224,6 +268,19 @@ func _create_content() -> void:
 	_credits_button.pressed.connect(_open_credits_panel)
 	content.add_child(_credits_button)
 
+	_save_slots_button = Button.new()
+	_save_slots_button.name = "OpenSaveSlots"
+	_save_slots_button.text = "SAVE SLOTS"
+	_save_slots_button.custom_minimum_size = Vector2(360.0, 38.0)
+	_save_slots_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_save_slots_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_save_slots_button.add_theme_font_size_override("font_size", 18)
+	_save_slots_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.08, 0.06, 0.10, 0.94), Color(0.64, 0.48, 0.78, 0.94)))
+	_save_slots_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.15, 0.09, 0.20, 0.98), Color(0.86, 0.66, 1.0, 1.0)))
+	_save_slots_button.pressed.connect(_open_save_slots_panel)
+	_save_slots_button.disabled = true
+	content.add_child(_save_slots_button)
+
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(spacer)
@@ -261,7 +318,10 @@ func _create_content() -> void:
 	_root.add_child(_close_button)
 	_create_debug_panel()
 	_create_credits_panel()
+	_create_save_slots_panel()
 	_create_reset_confirmation()
+	_create_save_slot_action_confirmation()
+	_create_save_slot_rename_confirmation()
 
 
 func _create_debug_panel() -> void:
@@ -476,6 +536,249 @@ func _create_credits_panel() -> void:
 	content.add_child(_credits_back_button)
 
 
+func _create_save_slots_panel() -> void:
+	_save_slots_panel = PanelContainer.new()
+	_save_slots_panel.name = "SaveSlotsPanel"
+	_save_slots_panel.position = Vector2(40.0, 48.0)
+	_save_slots_panel.size = Vector2(640.0, 624.0)
+	_save_slots_panel.visible = false
+	_save_slots_panel.z_index = 30
+	_save_slots_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var panel_style := _make_panel_style()
+	panel_style.bg_color = Color(0.025, 0.012, 0.050, 1.0)
+	panel_style.border_color = Color(0.72, 0.54, 0.92, 0.94)
+	_save_slots_panel.add_theme_stylebox_override("panel", panel_style)
+	_root.add_child(_save_slots_panel)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 28)
+	margin.add_theme_constant_override("margin_top", 24)
+	margin.add_theme_constant_override("margin_right", 28)
+	margin.add_theme_constant_override("margin_bottom", 24)
+	_save_slots_panel.add_child(margin)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 9)
+	margin.add_child(content)
+
+	_save_slots_title_label = _make_label("SAVE SLOTS", 29, Color(0.92, 0.80, 1.0, 1.0))
+	_save_slots_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_save_slots_title_label.custom_minimum_size = Vector2(584.0, 42.0)
+	content.add_child(_save_slots_title_label)
+	_save_slots_hint_label = _make_label("Each slot keeps its own progress and backup.", 15, Color(0.76, 0.70, 0.88, 1.0))
+	_save_slots_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_save_slots_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_save_slots_hint_label.custom_minimum_size = Vector2(584.0, 38.0)
+	content.add_child(_save_slots_hint_label)
+	_save_slots_notice_label = _make_label("", 14, Color(1.0, 0.74, 0.54, 1.0))
+	_save_slots_notice_label.name = "SaveSlotsNotice"
+	_save_slots_notice_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_save_slots_notice_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_save_slots_notice_label.custom_minimum_size = Vector2(584.0, 0.0)
+	_save_slots_notice_label.visible = false
+	content.add_child(_save_slots_notice_label)
+	content.add_child(HSeparator.new())
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "SaveSlotsScroll"
+	scroll.custom_minimum_size = Vector2(584.0, 408.0)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	content.add_child(scroll)
+	_save_slots_list = VBoxContainer.new()
+	_save_slots_list.name = "SaveSlotsList"
+	_save_slots_list.custom_minimum_size = Vector2(562.0, 0.0)
+	_save_slots_list.add_theme_constant_override("separation", 10)
+	scroll.add_child(_save_slots_list)
+
+	_save_slots_back_button = Button.new()
+	_save_slots_back_button.name = "SaveSlotsBackToSettings"
+	_save_slots_back_button.text = "BACK TO SETTINGS"
+	_save_slots_back_button.custom_minimum_size = Vector2(584.0, 40.0)
+	_save_slots_back_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_save_slots_back_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_save_slots_back_button.add_theme_font_size_override("font_size", 18)
+	_save_slots_back_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.10, 0.06, 0.15, 0.98), Color(0.62, 0.52, 0.82, 0.94)))
+	_save_slots_back_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.16, 0.10, 0.24, 1.0), Color(0.88, 0.72, 1.0, 1.0)))
+	_save_slots_back_button.pressed.connect(_close_save_slots_panel)
+	content.add_child(_save_slots_back_button)
+
+
+func _create_save_slot_action_confirmation() -> void:
+	_save_slot_action_confirmation = ConfirmationDialog.new()
+	_save_slot_action_confirmation.name = "SaveSlotActionConfirmation"
+	_save_slot_action_confirmation.unresizable = true
+	_save_slot_action_confirmation.transient = true
+	_save_slot_action_confirmation.exclusive = true
+	_save_slot_action_confirmation.min_size = Vector2i(500, 220)
+	_save_slot_action_confirmation.confirmed.connect(_on_save_slot_action_confirmed)
+	add_child(_save_slot_action_confirmation)
+	var confirm_button := _save_slot_action_confirmation.get_ok_button()
+	confirm_button.add_theme_color_override("font_color", Color(1.0, 0.90, 0.82, 1.0))
+	confirm_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.22, 0.08, 0.16, 1.0), Color(0.82, 0.40, 0.66, 1.0)))
+	confirm_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.38, 0.10, 0.24, 1.0), Color(1.0, 0.62, 0.82, 1.0)))
+
+
+func _create_save_slot_rename_confirmation() -> void:
+	_save_slot_rename_confirmation = ConfirmationDialog.new()
+	_save_slot_rename_confirmation.name = "RenameSaveSlotConfirmation"
+	_save_slot_rename_confirmation.unresizable = true
+	_save_slot_rename_confirmation.transient = true
+	_save_slot_rename_confirmation.exclusive = true
+	_save_slot_rename_confirmation.min_size = Vector2i(500, 220)
+	_save_slot_rename_confirmation.confirmed.connect(_on_save_slot_rename_confirmed)
+	add_child(_save_slot_rename_confirmation)
+	var content := VBoxContainer.new()
+	content.position = Vector2(24.0, 78.0)
+	content.size = Vector2(452.0, 62.0)
+	_save_slot_rename_confirmation.add_child(content)
+	_save_slot_rename_input = LineEdit.new()
+	_save_slot_rename_input.name = "SaveSlotRenameInput"
+	_save_slot_rename_input.max_length = 32
+	_save_slot_rename_input.custom_minimum_size = Vector2(452.0, 40.0)
+	_save_slot_rename_input.add_theme_font_size_override("font_size", 18)
+	_save_slot_rename_input.add_theme_color_override("font_color", Color(0.96, 0.88, 0.98, 1.0))
+	_save_slot_rename_input.add_theme_color_override("font_placeholder_color", Color(0.64, 0.56, 0.70, 0.9))
+	_save_slot_rename_input.add_theme_stylebox_override("normal", _make_button_style(Color(0.055, 0.035, 0.09, 1.0), Color(0.66, 0.52, 0.84, 0.94)))
+	_save_slot_rename_input.add_theme_stylebox_override("focus", _make_button_style(Color(0.09, 0.055, 0.14, 1.0), Color(0.90, 0.72, 1.0, 1.0)))
+	_save_slot_rename_input.text_submitted.connect(func(_text: String) -> void:
+		if _save_slot_rename_confirmation != null:
+			_save_slot_rename_confirmation.emit_signal("confirmed")
+	)
+	content.add_child(_save_slot_rename_input)
+
+
+func _refresh_save_slots_panel() -> void:
+	if _save_slots_list == null:
+		return
+	for child in _save_slots_list.get_children():
+		child.queue_free()
+	if _save_slots.is_empty():
+		var unavailable_label := _make_label(
+			"Save slots are unavailable in this session." if _language == "en" else "本次运行无法使用存档管理。",
+			18,
+			Color(0.78, 0.70, 0.86, 1.0)
+		)
+		unavailable_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		unavailable_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		unavailable_label.custom_minimum_size = Vector2(550.0, 120.0)
+		_save_slots_list.add_child(unavailable_label)
+		return
+	for slot in _save_slots:
+		if slot is Dictionary:
+			_create_save_slot_card(slot as Dictionary)
+
+
+func _create_save_slot_card(slot: Dictionary) -> void:
+	var slot_id := String(slot.get("id", ""))
+	if slot_id.is_empty():
+		return
+	var has_data := bool(slot.get("has_data", false))
+	var is_active := bool(slot.get("is_active", false)) or slot_id == _active_save_slot_id
+	var card := PanelContainer.new()
+	card.name = "SaveSlot_%s" % slot_id
+	card.custom_minimum_size = Vector2(562.0, 120.0)
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
+	var card_style := _make_panel_style()
+	card_style.bg_color = Color(0.09, 0.045, 0.15, 0.96) if is_active else Color(0.035, 0.025, 0.070, 0.94)
+	card_style.border_color = Color(0.94, 0.72, 0.42, 0.96) if is_active else Color(0.54, 0.42, 0.70, 0.82)
+	card.add_theme_stylebox_override("panel", card_style)
+	_save_slots_list.add_child(card)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	card.add_child(margin)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 5)
+	margin.add_child(content)
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 10)
+	content.add_child(header)
+	var name_label := _make_label(String(slot.get("display_name", slot_id)), 20, Color(0.98, 0.88, 0.72, 1.0))
+	name_label.custom_minimum_size = Vector2(348.0, 30.0)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	header.add_child(name_label)
+	var state_label := _make_label(
+		("ACTIVE" if _language == "en" else "当前使用") if is_active else ("EMPTY" if _language == "en" else "空槽位") if not has_data else ("READY" if _language == "en" else "可切换"),
+		14,
+		Color(1.0, 0.76, 0.42, 1.0) if is_active else Color(0.72, 0.74, 0.92, 1.0)
+	)
+	state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	state_label.custom_minimum_size = Vector2(146.0, 30.0)
+	header.add_child(state_label)
+	var description := _make_label(_get_save_slot_description(slot), 14, Color(0.76, 0.70, 0.84, 1.0))
+	description.custom_minimum_size = Vector2(528.0, 22.0)
+	description.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	content.add_child(description)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 8)
+	content.add_child(actions)
+	if not has_data:
+		if is_active:
+			var active_empty_button := _make_save_slot_button("ACTIVE NEW SAVE" if _language == "en" else "当前新存档", Color(0.09, 0.09, 0.11, 0.98), Color(0.48, 0.48, 0.54, 0.88))
+			active_empty_button.name = "ActiveEmptySaveSlot_%s" % slot_id
+			active_empty_button.custom_minimum_size = Vector2(528.0, 34.0)
+			active_empty_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			active_empty_button.disabled = true
+			actions.add_child(active_empty_button)
+		else:
+			var create_button := _make_save_slot_button("CREATE NEW SAVE" if _language == "en" else "新建存档", Color(0.10, 0.15, 0.12, 0.98), Color(0.50, 0.84, 0.58, 0.96))
+			create_button.name = "CreateSaveSlot_%s" % slot_id
+			create_button.custom_minimum_size = Vector2(528.0, 34.0)
+			create_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			create_button.pressed.connect(_on_save_slot_create_pressed.bind(slot_id))
+			actions.add_child(create_button)
+		return
+	if not is_active:
+		var switch_button := _make_save_slot_button("SWITCH" if _language == "en" else "切换", Color(0.09, 0.12, 0.19, 0.98), Color(0.44, 0.68, 0.98, 0.96))
+		switch_button.name = "SwitchSaveSlot_%s" % slot_id
+		switch_button.custom_minimum_size = Vector2(156.0, 34.0)
+		switch_button.pressed.connect(_on_save_slot_switch_pressed.bind(slot_id))
+		actions.add_child(switch_button)
+	var rename_button := _make_save_slot_button("RENAME" if _language == "en" else "重命名", Color(0.14, 0.09, 0.18, 0.98), Color(0.72, 0.56, 0.94, 0.96))
+	rename_button.name = "RenameSaveSlot_%s" % slot_id
+	rename_button.custom_minimum_size = Vector2(218.0, 34.0)
+	rename_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rename_button.pressed.connect(_on_save_slot_rename_pressed.bind(slot_id))
+	actions.add_child(rename_button)
+	if not is_active:
+		var delete_button := _make_save_slot_button("DELETE" if _language == "en" else "删除", Color(0.22, 0.06, 0.08, 0.98), Color(0.90, 0.30, 0.34, 0.98))
+		delete_button.name = "DeleteSaveSlot_%s" % slot_id
+		delete_button.custom_minimum_size = Vector2(122.0, 34.0)
+		delete_button.pressed.connect(_on_save_slot_delete_pressed.bind(slot_id))
+		actions.add_child(delete_button)
+
+
+func _make_save_slot_button(text_value: String, background: Color, border: Color) -> Button:
+	var button := Button.new()
+	button.text = text_value
+	button.custom_minimum_size = Vector2(0.0, 34.0)
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.add_theme_font_size_override("font_size", 15)
+	button.add_theme_stylebox_override("normal", _make_button_style(background, border))
+	button.add_theme_stylebox_override("hover", _make_button_style(background.lightened(0.14), border.lightened(0.12)))
+	button.add_theme_stylebox_override("pressed", _make_button_style(background.darkened(0.16), border))
+	return button
+
+
+func _get_save_slot_description(slot: Dictionary) -> String:
+	if not bool(slot.get("has_data", false)):
+		if bool(slot.get("is_active", false)) or String(slot.get("id", "")) == _active_save_slot_id:
+			return "This is the active new game. Progress saves automatically." if _language == "en" else "这是当前使用的新游戏；进度会自动保存。"
+		return "No progress yet. Creating it starts a fresh game." if _language == "en" else "尚无进度；新建后将从全新游戏开始。"
+	var playtime_seconds := maxf(0.0, float(slot.get("playtime_seconds", 0.0)))
+	var playtime_minutes := int(floor(playtime_seconds / 60.0))
+	var recovered := bool(slot.get("recovered_from_backup", false))
+	if _language == "en":
+		return "Recovered from backup • %d min played" % playtime_minutes if recovered else "Saved progress • %d min played" % playtime_minutes
+	return "已从备份恢复 · 已游玩 %d 分钟" % playtime_minutes if recovered else "已有进度 · 已游玩 %d 分钟" % playtime_minutes
+
+
 func _create_reset_confirmation() -> void:
 	_reset_confirmation = ConfirmationDialog.new()
 	_reset_confirmation.name = "ResetGameConfirmation"
@@ -530,6 +833,25 @@ func _open_credits_panel() -> void:
 		_credits_panel.visible = true
 
 
+func _open_save_slots_panel() -> void:
+	if _save_slots_panel == null:
+		return
+	show_save_slot_notice("")
+	_refresh_save_slots_panel()
+	_save_slots_panel.visible = true
+
+
+func _close_save_slots_panel() -> void:
+	if _save_slots_panel != null:
+		_save_slots_panel.visible = false
+	if _save_slot_action_confirmation != null:
+		_save_slot_action_confirmation.hide()
+	if _save_slot_rename_confirmation != null:
+		_save_slot_rename_confirmation.hide()
+	_pending_save_slot_action = ""
+	_pending_save_slot_id = ""
+
+
 func _close_credits_panel() -> void:
 	if _credits_panel != null:
 		_credits_panel.visible = false
@@ -549,6 +871,96 @@ func _on_debug_reset_pressed() -> void:
 
 func _on_reset_confirmed() -> void:
 	reset_game_requested.emit()
+
+
+func _on_save_slot_create_pressed(slot_id: String) -> void:
+	if slot_id.is_empty():
+		return
+	save_slot_create_requested.emit(slot_id)
+
+
+func _on_save_slot_switch_pressed(slot_id: String) -> void:
+	_open_save_slot_action_confirmation("switch", slot_id)
+
+
+func _on_save_slot_delete_pressed(slot_id: String) -> void:
+	_open_save_slot_action_confirmation("delete", slot_id)
+
+
+func _on_save_slot_rename_pressed(slot_id: String) -> void:
+	if slot_id.is_empty() or _save_slot_rename_confirmation == null or _save_slot_rename_input == null:
+		return
+	_pending_save_slot_action = "rename"
+	_pending_save_slot_id = slot_id
+	_save_slot_rename_input.text = _get_save_slot_display_name(slot_id)
+	_save_slot_rename_confirmation.title = "Rename save" if _language == "en" else "重命名存档"
+	_save_slot_rename_confirmation.dialog_text = "Choose a short name for this save slot." if _language == "en" else "为该存档槽输入一个简短名称。"
+	_save_slot_rename_confirmation.ok_button_text = "SAVE NAME" if _language == "en" else "保存名称"
+	_save_slot_rename_confirmation.cancel_button_text = "CANCEL" if _language == "en" else "取消"
+	if is_inside_tree():
+		_save_slot_rename_confirmation.popup_centered(Vector2i(500, 220))
+	else:
+		_save_slot_rename_confirmation.visible = true
+	_save_slot_rename_input.call_deferred("grab_focus")
+
+
+func _on_save_slot_action_confirmed() -> void:
+	var slot_id := _pending_save_slot_id
+	var action := _pending_save_slot_action
+	_pending_save_slot_action = ""
+	_pending_save_slot_id = ""
+	if slot_id.is_empty():
+		return
+	if action == "switch":
+		save_slot_switch_requested.emit(slot_id)
+	elif action == "delete":
+		save_slot_delete_requested.emit(slot_id)
+
+
+func _on_save_slot_rename_confirmed() -> void:
+	var slot_id := _pending_save_slot_id
+	_pending_save_slot_action = ""
+	_pending_save_slot_id = ""
+	if slot_id.is_empty() or _save_slot_rename_input == null:
+		return
+	save_slot_rename_requested.emit(slot_id, _save_slot_rename_input.text)
+
+
+func _open_save_slot_action_confirmation(action: String, slot_id: String) -> void:
+	if action not in ["switch", "delete"] or slot_id.is_empty() or _save_slot_action_confirmation == null:
+		return
+	_pending_save_slot_action = action
+	_pending_save_slot_id = slot_id
+	var slot_name := _get_save_slot_display_name(slot_id)
+	var english := _language == "en"
+	if action == "switch":
+		_save_slot_action_confirmation.title = "Switch save slot" if english else "切换存档"
+		_save_slot_action_confirmation.dialog_text = (
+			"Switch to %s? The current slot will be saved first, then the game reloads." % slot_name
+			if english
+			else "要切换到“%s”吗？当前存档会先安全保存，然后游戏将重新加载。" % slot_name
+		)
+		_save_slot_action_confirmation.ok_button_text = "SAVE AND SWITCH" if english else "保存并切换"
+	else:
+		_save_slot_action_confirmation.title = "Delete save slot" if english else "删除存档"
+		_save_slot_action_confirmation.dialog_text = (
+			"Delete %s permanently? Its progress and backup will be removed. This cannot be undone." % slot_name
+			if english
+			else "要永久删除“%s”吗？该槽位的进度与备份都会被移除，且无法撤销。" % slot_name
+		)
+		_save_slot_action_confirmation.ok_button_text = "DELETE SAVE" if english else "删除存档"
+	_save_slot_action_confirmation.cancel_button_text = "CANCEL" if english else "取消"
+	if is_inside_tree():
+		_save_slot_action_confirmation.popup_centered(Vector2i(500, 220))
+	else:
+		_save_slot_action_confirmation.visible = true
+
+
+func _get_save_slot_display_name(slot_id: String) -> String:
+	for slot in _save_slots:
+		if slot is Dictionary and String((slot as Dictionary).get("id", "")) == slot_id:
+			return String((slot as Dictionary).get("display_name", slot_id))
+	return slot_id
 
 
 func _on_debug_apply_pressed() -> void:
@@ -659,6 +1071,19 @@ func _apply_language() -> void:
 		_credits_title_label.text = "CREDITS & LICENSES" if english else "资源鸣谢与许可"
 	if _credits_copy_label != null:
 		_credits_copy_label.text = _get_credits_copy(english)
+	if _save_slots_button != null:
+		_save_slots_button.text = "SAVE SLOTS" if english else "存档管理"
+		_save_slots_button.tooltip_text = "Manage independent game saves" if english else "管理彼此独立的游戏存档"
+	if _save_slots_title_label != null:
+		_save_slots_title_label.text = "SAVE SLOTS" if english else "存档管理"
+	if _save_slots_hint_label != null:
+		_save_slots_hint_label.text = (
+			"Each slot keeps its own progress and automatic backup."
+			if english
+			else "每个槽位都保存独立进度，并拥有自己的自动备份。"
+		)
+	if _save_slots_back_button != null:
+		_save_slots_back_button.text = "BACK TO SETTINGS" if english else "返回设置"
 	if _credits_back_button != null:
 		_credits_back_button.text = "BACK TO SETTINGS" if english else "返回设置"
 	if _debug_title_label != null:
@@ -688,24 +1113,23 @@ func _apply_language() -> void:
 	if _debug_back_button != null:
 		_debug_back_button.text = "BACK TO SETTINGS" if english else "返回设置"
 	if _debug_reset_button != null:
-		_debug_reset_button.text = "RESET ALL PROGRESS" if english else "重置全部进度"
+		_debug_reset_button.text = "RESET CURRENT SAVE" if english else "重置当前存档"
 		_debug_reset_button.tooltip_text = (
-			"Requires confirmation and permanently erases the current save"
+			"Requires confirmation and permanently erases only the active save slot"
 			if english
-			else "需要再次确认；确认后将永久清除当前存档"
+			else "需要再次确认；确认后仅会永久清除当前使用的存档槽。"
 		)
 	if _close_button != null:
 		_close_button.tooltip_text = "Close settings" if english else "关闭设置"
 	if _reset_confirmation != null:
-		_reset_confirmation.title = "Reset all progress" if english else "重置全部进度"
+		_reset_confirmation.title = "Reset current save" if english else "重置当前存档"
 		_reset_confirmation.dialog_text = (
-			"This permanently erases all progress and returns the game to its beginning. This cannot be undone."
+			"This permanently erases the active save slot and returns it to a new game. Other save slots are not affected."
 			if english
-			else "这会永久清除全部进度并让游戏回到最开始，且无法撤销。"
+			else "这会永久清除当前使用的存档槽并回到新游戏。其他存档槽不会受到影响。"
 		)
-		_reset_confirmation.ok_button_text = "RESET EVERYTHING" if english else "确认全部重置"
+		_reset_confirmation.ok_button_text = "RESET CURRENT SAVE" if english else "确认重置当前存档"
 		_reset_confirmation.cancel_button_text = "CANCEL" if english else "取消"
-
 	_updating_controls = true
 	_range_options.clear()
 	_range_options.add_item("Entire desktop" if english else "全桌面", 0)
@@ -722,6 +1146,7 @@ func _apply_language() -> void:
 			_debug_era_options.add_item(EraProgression.get_era_name(era_seconds, _language), era_index)
 		_debug_era_options.select(clampi(selected_era, 0, EraProgression.get_era_count() - 1))
 	_updating_controls = false
+	_refresh_save_slots_panel()
 
 
 func _get_credits_copy(english: bool) -> String:

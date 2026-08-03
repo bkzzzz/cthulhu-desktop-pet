@@ -1,25 +1,69 @@
 extends "res://scripts/runtime/main_context.gd"
 
+const SaveSlotRepository = preload("res://scripts/runtime/save_slot_repository.gd")
+
+var _save_slots := SaveSlotRepository.new()
+var _save_slot_switch_in_progress := false
+
+
 func _load_game() -> void:
 	if not _persistence_enabled:
 		return
-	var save = ConfigFile.new()
-	var load_error = save.load(SAVE_PATH)
-	if load_error == ERR_FILE_NOT_FOUND:
+	var slot_init_result := _save_slots.initialize()
+	if not bool(slot_init_result.get("ok", false)):
+		_persistence_enabled = false
+		_save_dirty = false
+		_save_debounce_remaining = 0.0
+		push_warning("Could not initialize save-slot data; autosave is disabled: %s" % error_string(int(slot_init_result.get("error", ERR_FILE_NOT_FOUND))))
 		return
-	if load_error != OK:
-		push_warning("Could not load save data: %s" % error_string(load_error))
+	if bool(slot_init_result.get("migrated_legacy", false)):
+		push_warning("Migrated the legacy save into Save 1. The original save files were kept as recovery copies.")
+	var load_result := _save_slots.load_active_slot()
+	var save := load_result.get("config") as ConfigFile
+	if save == null:
+		var load_error := int(load_result.get("error", ERR_FILE_NOT_FOUND))
+		var backup_error := int(load_result.get("backup_error", ERR_FILE_NOT_FOUND))
+		if load_error == ERR_FILE_NOT_FOUND and backup_error == ERR_FILE_NOT_FOUND:
+			return
+		# A damaged save must remain intact for recovery instead of being replaced
+		# by the fresh in-memory state during the next autosave tick.
+		_persistence_enabled = false
+		_save_dirty = false
+		_save_debounce_remaining = 0.0
+		push_warning("Could not load save data or its backup; autosave is disabled: %s" % error_string(load_error))
 		return
+	if String(load_result.get("source", "")) == String(_save_slots.get_slot_paths(_save_slots.get_active_slot_id()).get("backup", "")):
+		push_warning("Primary save was invalid; recovered the last valid backup.")
 	var loaded_save_version = maxi(0, int(save.get_value("meta", "version", 0)))
 
-	_faith_points = maxf(0.0, float(save.get_value("economy", "faith_points", 0.0)))
+	_faith_points = sanitize_finite_float(
+		save.get_value("economy", "faith_points", 0.0),
+		0.0,
+		MAX_PERSISTED_FLOAT,
+		0.0
+	)
 	_lifetime_faith = maxf(
 		_faith_points,
-		float(save.get_value("economy", "lifetime_faith", _faith_points))
+		sanitize_finite_float(
+			save.get_value("economy", "lifetime_faith", _faith_points),
+			0.0,
+			MAX_PERSISTED_FLOAT,
+			_faith_points
+		)
 	)
-	_follower_count = maxf(0.0, float(save.get_value("economy", "followers", 0.0)))
+	_follower_count = sanitize_finite_float(
+		save.get_value("economy", "followers", 0.0),
+		0.0,
+		MAX_PERSISTED_FLOAT,
+		0.0
+	)
 	_gold_coins = CurrencyDisplay.sanitize_gold(int(save.get_value("economy", "gold_coins", 0)))
-	_total_runtime_seconds = maxf(0.0, float(save.get_value("statistics", "total_runtime_seconds", 0.0)))
+	_total_runtime_seconds = sanitize_finite_float(
+		save.get_value("statistics", "total_runtime_seconds", 0.0),
+		0.0,
+		MAX_PERSISTED_FLOAT,
+		0.0
+	)
 	_era_floor_index = (
 		clampi(
 			int(save.get_value("progression", "era_floor_index", 0)),
@@ -114,7 +158,12 @@ func _load_game() -> void:
 		_carried_offering = OfferingCatalog.normalize_offering(carried_value)
 	else:
 		_carried_offering.clear()
-	_loaded_save_unix = maxf(0.0, float(save.get_value("meta", "saved_unix", 0.0)))
+	_loaded_save_unix = sanitize_finite_float(
+		save.get_value("meta", "saved_unix", 0.0),
+		0.0,
+		MAX_PERSISTED_FLOAT,
+		0.0
+	)
 	var saved_menu_anchor = float(save.get_value("ui", "menu_handle_anchor", -1.0))
 	_loaded_menu_handle_anchor = (
 		clampf(saved_menu_anchor, 0.0, 1.0)
@@ -130,23 +179,56 @@ static func resolve_saved_language(save: ConfigFile) -> String:
 		LanguageSettings.DEFAULT_LANGUAGE
 	)))
 
+
+static func sanitize_finite_float(
+	value: Variant,
+	minimum: float,
+	maximum: float,
+	fallback: float
+) -> float:
+	var safe_minimum := minf(minimum, maximum)
+	var safe_maximum := maxf(minimum, maximum)
+	var numeric_value := float(value)
+	if not is_finite(numeric_value):
+		return clampf(fallback, safe_minimum, safe_maximum)
+	return clampf(numeric_value, safe_minimum, safe_maximum)
+
+
+static func load_config_with_backup(primary_path: String, backup_path: String) -> Dictionary:
+	return SaveSlotRepository.load_config_with_backup(primary_path, backup_path, MAX_SAVE_FILE_BYTES)
+
+
+static func save_config_with_backup(
+	save: ConfigFile,
+	primary_path: String,
+	backup_path: String,
+	temporary_path: String
+) -> Error:
+	return SaveSlotRepository.save_config_with_backup(
+		save,
+		primary_path,
+		backup_path,
+		temporary_path,
+		MAX_SAVE_FILE_BYTES
+	)
+
 func _request_save() -> void:
-	if not _persistence_enabled or _reset_in_progress:
+	if not _persistence_enabled or _reset_in_progress or _save_slot_switch_in_progress:
 		return
 	_save_dirty = true
 	_save_debounce_remaining = SAVE_DEBOUNCE_SECONDS
 
-func _save_game() -> void:
-	if not _persistence_enabled or _reset_in_progress:
-		return
+func _save_game() -> Error:
+	if not _persistence_enabled or _reset_in_progress or _save_slot_switch_in_progress:
+		return ERR_INVALID_PARAMETER
 	var save = ConfigFile.new()
 	save.set_value("meta", "version", SAVE_VERSION)
 	save.set_value("meta", "saved_unix", Time.get_unix_time_from_system())
-	save.set_value("economy", "faith_points", maxf(0.0, _faith_points))
-	save.set_value("economy", "lifetime_faith", maxf(0.0, _lifetime_faith))
-	save.set_value("economy", "followers", maxf(0.0, _follower_count))
+	save.set_value("economy", "faith_points", sanitize_finite_float(_faith_points, 0.0, MAX_PERSISTED_FLOAT, 0.0))
+	save.set_value("economy", "lifetime_faith", sanitize_finite_float(_lifetime_faith, 0.0, MAX_PERSISTED_FLOAT, 0.0))
+	save.set_value("economy", "followers", sanitize_finite_float(_follower_count, 0.0, MAX_PERSISTED_FLOAT, 0.0))
 	save.set_value("economy", "gold_coins", CurrencyDisplay.sanitize_gold(_gold_coins))
-	save.set_value("statistics", "total_runtime_seconds", maxf(0.0, _total_runtime_seconds))
+	save.set_value("statistics", "total_runtime_seconds", sanitize_finite_float(_total_runtime_seconds, 0.0, MAX_PERSISTED_FLOAT, 0.0))
 	save.set_value("progression", "era_floor_index", _era_floor_index)
 	save.set_value("progression", "campaign_completed", _campaign_completed)
 	save.set_value("progression", "final_boss_defeated", _final_boss_defeated)
@@ -178,14 +260,16 @@ func _save_game() -> void:
 	save.set_value("offerings", "active_buffs", _pet_offering_buffs.duplicate(true))
 	if _side_drawer != null and _side_drawer.has_method("get_menu_handle_anchor"):
 		save.set_value("ui", "menu_handle_anchor", _side_drawer.call("get_menu_handle_anchor"))
-	var save_error = save.save(SAVE_PATH)
+	var save_result := _save_slots.save_active_slot(save)
+	var save_error := int(save_result.get("error", ERR_INVALID_PARAMETER))
 	if save_error != OK:
 		push_warning("Could not save game data: %s" % error_string(save_error))
 		_save_dirty = true
 		_save_debounce_remaining = 5.0
-		return
+		return save_error
 	_save_dirty = false
 	_save_debounce_remaining = 0.0
+	return OK
 
 func _apply_offline_progress() -> void:
 	if _loaded_save_unix <= 0.0:
@@ -208,11 +292,14 @@ func _reset_game_progress() -> void:
 	if _reset_in_progress:
 		return
 	Engine.time_scale = 1.0
-	var absolute_save_path := ProjectSettings.globalize_path(SAVE_PATH)
-	if FileAccess.file_exists(absolute_save_path):
-		var remove_error := DirAccess.remove_absolute(absolute_save_path)
-		if remove_error != OK:
-			push_error("Could not reset save data: %s" % error_string(remove_error))
+	if _persistence_enabled:
+		var slot_init_result := _save_slots.initialize()
+		if not bool(slot_init_result.get("ok", false)):
+			push_error("Could not reset save data: %s" % error_string(int(slot_init_result.get("error", ERR_FILE_NOT_FOUND))))
+			return
+		var reset_result := _save_slots.reset_slot(_save_slots.get_active_slot_id())
+		if not bool(reset_result.get("ok", false)):
+			push_error("Could not reset save data: %s" % error_string(int(reset_result.get("error", ERR_INVALID_PARAMETER))))
 			return
 	_reset_in_progress = true
 	_persistence_enabled = false
@@ -222,8 +309,105 @@ func _reset_game_progress() -> void:
 	if tree != null and tree.current_scene != null:
 		tree.call_deferred("reload_current_scene")
 
+
+func get_save_slots() -> Array[Dictionary]:
+	if not _persistence_enabled:
+		return []
+	var init_result := _save_slots.initialize()
+	if not bool(init_result.get("ok", false)):
+		return []
+	return _save_slots.list_slots()
+
+
+func get_active_save_slot_id() -> String:
+	if not _persistence_enabled:
+		return ""
+	var init_result := _save_slots.initialize()
+	if not bool(init_result.get("ok", false)):
+		return ""
+	return _save_slots.get_active_slot_id()
+
+
+func create_save_slot(slot_id: String) -> Dictionary:
+	var operation_result := _can_manage_save_slots()
+	if not bool(operation_result.get("ok", false)):
+		return operation_result
+	if not _save_slots.is_slot_empty(slot_id):
+		return _save_slot_failure("The selected save slot already contains data.")
+	return _switch_to_save_slot(slot_id, true)
+
+
+func switch_save_slot(slot_id: String) -> Dictionary:
+	var operation_result := _can_manage_save_slots()
+	if not bool(operation_result.get("ok", false)):
+		return operation_result
+	return _switch_to_save_slot(slot_id, false)
+
+
+func rename_save_slot(slot_id: String, display_name: String) -> Dictionary:
+	var operation_result := _can_manage_save_slots()
+	if not bool(operation_result.get("ok", false)):
+		return operation_result
+	return _save_slots.rename_slot(slot_id, display_name)
+
+
+func delete_save_slot(slot_id: String) -> Dictionary:
+	var operation_result := _can_manage_save_slots()
+	if not bool(operation_result.get("ok", false)):
+		return operation_result
+	return _save_slots.delete_slot(slot_id)
+
+
+func _switch_to_save_slot(slot_id: String, creating_empty_slot: bool) -> Dictionary:
+	if not SaveSlotRepository.is_valid_slot_id(slot_id):
+		return _save_slot_failure("The requested save slot is invalid.")
+	if _save_slots.get_active_slot_id() == slot_id:
+		return {"ok": true, "error": OK, "already_active": true}
+	if creating_empty_slot and not _save_slots.is_slot_empty(slot_id):
+		return _save_slot_failure("The selected save slot already contains data.")
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return _save_slot_failure("The save slot could not be switched because the game scene is unavailable.")
+	var save_error := _save_game()
+	if save_error != OK:
+		return _save_slot_failure("The current save could not be written, so the slot was not switched.", save_error)
+	_save_slot_switch_in_progress = true
+	var select_result := _save_slots.create_slot(slot_id) if creating_empty_slot else _save_slots.select_slot(slot_id)
+	if not bool(select_result.get("ok", false)):
+		_save_slot_switch_in_progress = false
+		return select_result
+	_save_dirty = false
+	_save_debounce_remaining = 0.0
+	tree.call_deferred("reload_current_scene")
+	return {"ok": true, "error": OK, "reloading": true}
+
+
+func _can_manage_save_slots() -> Dictionary:
+	if not _persistence_enabled:
+		return _save_slot_failure("Save-slot management is unavailable because persistence is disabled.")
+	if _reset_in_progress or _save_slot_switch_in_progress:
+		return _save_slot_failure("A save operation is already in progress.")
+	if _battle_active:
+		return _save_slot_failure("Finish the current battle before changing save slots.")
+	if _gacha_batch_active:
+		return _save_slot_failure("Wait for the current gacha batch to finish before changing save slots.")
+	if not _carried_offering.is_empty() or not _pending_offering_feeds.is_empty():
+		return _save_slot_failure("Finish or cancel the current offering before changing save slots.")
+	if not _coin_drops.is_empty():
+		return _save_slot_failure("Collect the visible coins before changing save slots so their rewards are not lost.")
+	var init_result := _save_slots.initialize()
+	if not bool(init_result.get("ok", false)):
+		return _save_slot_failure("Save-slot data could not be initialized.", int(init_result.get("error", ERR_INVALID_PARAMETER)))
+	return {"ok": true, "error": OK}
+
+
+func _save_slot_failure(reason: String, error_code := ERR_INVALID_PARAMETER) -> Dictionary:
+	push_warning(reason)
+	return {"ok": false, "error": error_code, "reason": reason}
+
+
 func _update_autosave(delta: float) -> void:
-	if not _persistence_enabled or _reset_in_progress:
+	if not _persistence_enabled or _reset_in_progress or _save_slot_switch_in_progress:
 		return
 	var saved_this_tick = false
 	if _save_dirty:

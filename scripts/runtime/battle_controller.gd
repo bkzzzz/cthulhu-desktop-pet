@@ -962,7 +962,7 @@ func _get_battle_target_for_enemy(enemy: Node2D, candidates: Array[Node2D]) -> N
 	# Towers are physical blockers. Select the first live tower between an enemy
 	# and its nearest pet, rather than letting vertical sprite offsets make an
 	# enemy path around a deployed tower.
-	var nearest_pet := _get_nearest_battle_pet(enemy, _get_battle_pet_candidates(candidates))
+	var nearest_pet := _get_nearest_battle_pet_candidate(enemy, candidates)
 	var blocking_turret := _get_blocking_turret_for_enemy(enemy, nearest_pet, candidates)
 	if blocking_turret != null:
 		return blocking_turret
@@ -971,15 +971,19 @@ func _get_battle_target_for_enemy(enemy: Node2D, candidates: Array[Node2D]) -> N
 	return _get_nearest_battle_pet(enemy, candidates)
 
 
-func _get_battle_pet_candidates(candidates: Array[Node2D]) -> Array[Node2D]:
-	var pets: Array[Node2D] = []
+func _get_nearest_battle_pet_candidate(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
+	var nearest: Node2D
+	var nearest_distance := INF
 	for defender in candidates:
-		if defender == null or not is_instance_valid(defender):
+		if defender == null or not is_instance_valid(defender) or defender.is_queued_for_deletion():
 			continue
 		if _battle_turret_health.has(str(defender.get_instance_id())):
 			continue
-		pets.append(defender)
-	return pets
+		var distance := defender.position.distance_squared_to(enemy.position)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = defender
+	return nearest
 
 
 func _get_blocking_turret_for_enemy(

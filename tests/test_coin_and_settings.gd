@@ -254,8 +254,8 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 			failures.append("reset and back actions must share one compact footer row")
 		if reset_button.size_flags_horizontal != Control.SIZE_EXPAND_FILL:
 			failures.append("the reset action must share footer width without overflowing the debug panel")
-		if reset_button.text != "RESET ALL PROGRESS" or reset_confirmation.ok_button_text != "RESET EVERYTHING":
-			failures.append("the reset confirmation workflow must localize its English destructive-action copy")
+		if reset_button.text != "RESET CURRENT SAVE" or reset_confirmation.ok_button_text != "RESET CURRENT SAVE":
+			failures.append("the reset confirmation workflow must identify the active save as the only destructive target")
 		var reset_style := reset_button.get_theme_stylebox("normal") as StyleBoxFlat
 		if reset_style == null or reset_style.bg_color.r <= reset_style.bg_color.g * 2.0:
 			failures.append("the destructive reset action must use a clearly red normal style")
@@ -267,7 +267,7 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		settings.set_language("zh")
 		if settings.theme == null or not settings.theme.default_font is SystemFont:
 			failures.append("Chinese settings must switch to a CJK-capable system font")
-		if reset_button.text != "重置全部进度" or reset_confirmation.cancel_button_text != "取消":
+		if reset_button.text != "重置当前存档" or reset_confirmation.cancel_button_text != "取消":
 			failures.append("the reset confirmation workflow must localize its Chinese destructive-action copy")
 		if credits_button.text != "资源鸣谢与许可" or not credits_copy.text.contains("作者：Will Tice"):
 			failures.append("the credits entry must localize without dropping legal attribution")
@@ -318,6 +318,7 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("debug event buttons must apply the typed multipliers before dropping an invitation")
 	if debug_level_snapshots.size() != 2 or int(debug_level_snapshots.back().get("pet6", 0)) != 246:
 		failures.append("debug apply/event actions must include the individually typed pet levels")
+	_test_save_slot_manager_controls(settings, failures)
 	var snapshot_main := Main.new()
 	snapshot_main.set("_persistence_enabled", false)
 	snapshot_main.set("_settings_window", settings)
@@ -357,6 +358,78 @@ static func _test_settings_runtime(failures: Array[String]) -> void:
 		failures.append("moving progression backward must keep session and total runtime state consistent")
 	Engine.time_scale = 1.0
 	main.free()
+
+
+static func _test_save_slot_manager_controls(settings: Window, failures: Array[String]) -> void:
+	var save_slots_button := settings.get("_save_slots_button") as Button
+	var save_slots_panel := settings.get("_save_slots_panel") as PanelContainer
+	if (
+		not settings.has_signal("save_slot_create_requested")
+		or not settings.has_signal("save_slot_switch_requested")
+		or not settings.has_signal("save_slot_rename_requested")
+		or not settings.has_signal("save_slot_delete_requested")
+		or save_slots_button == null
+		or save_slots_panel == null
+	):
+		failures.append("settings must expose a dedicated save-slot manager with explicit action signals")
+		return
+	settings.call("set_save_slots", [
+		{"id": "slot_000001", "display_name": "Current", "has_data": true, "is_active": true, "playtime_seconds": 120.0},
+		{"id": "slot_000002", "display_name": "Archive", "has_data": true, "is_active": false, "playtime_seconds": 60.0},
+		{"id": "slot_000003", "display_name": "Fresh", "has_data": false, "is_active": false}
+	], "slot_000001")
+	if save_slots_button.disabled:
+		failures.append("settings must enable save-slot management when slot metadata is available")
+		return
+	save_slots_button.pressed.emit()
+	if not save_slots_panel.visible:
+		failures.append("the save-slot manager entry must open an in-window overlay")
+		return
+	var create_button := save_slots_panel.find_child("CreateSaveSlot_slot_000003", true, false) as Button
+	var switch_button := save_slots_panel.find_child("SwitchSaveSlot_slot_000002", true, false) as Button
+	var rename_button := save_slots_panel.find_child("RenameSaveSlot_slot_000001", true, false) as Button
+	var delete_button := save_slots_panel.find_child("DeleteSaveSlot_slot_000002", true, false) as Button
+	if create_button == null or switch_button == null or rename_button == null or delete_button == null:
+		failures.append("each save-slot card must expose the appropriate full-control actions")
+		return
+	for button in [create_button, switch_button, rename_button, delete_button]:
+		if button.mouse_filter != Control.MOUSE_FILTER_STOP or button.custom_minimum_size.x <= 0.0 or button.custom_minimum_size.y <= 0.0:
+			failures.append("save-slot actions must use full rectangular interactive controls")
+			break
+	var created: Array[String] = []
+	var switched: Array[String] = []
+	var renamed: Array[Dictionary] = []
+	var deleted: Array[String] = []
+	settings.save_slot_create_requested.connect(func(slot_id: String) -> void: created.append(slot_id))
+	settings.save_slot_switch_requested.connect(func(slot_id: String) -> void: switched.append(slot_id))
+	settings.save_slot_rename_requested.connect(func(slot_id: String, name: String) -> void: renamed.append({"id": slot_id, "name": name}))
+	settings.save_slot_delete_requested.connect(func(slot_id: String) -> void: deleted.append(slot_id))
+	create_button.pressed.emit()
+	if created != ["slot_000003"]:
+		failures.append("creating an empty save slot must emit only that controlled slot id")
+	switch_button.pressed.emit()
+	var action_confirmation := settings.get("_save_slot_action_confirmation") as ConfirmationDialog
+	if action_confirmation == null or not action_confirmation.visible:
+		failures.append("switching save slots must require an explicit confirmation")
+	else:
+		action_confirmation.confirmed.emit()
+		if switched != ["slot_000002"]:
+			failures.append("confirmed save-slot switching must emit the intended slot id")
+	rename_button.pressed.emit()
+	var rename_confirmation := settings.get("_save_slot_rename_confirmation") as ConfirmationDialog
+	var rename_input := settings.get("_save_slot_rename_input") as LineEdit
+	if rename_confirmation == null or rename_input == null or not rename_confirmation.visible:
+		failures.append("renaming a save slot must open a bounded text confirmation")
+	else:
+		rename_input.text = "Renamed slot"
+		rename_confirmation.confirmed.emit()
+		if renamed.size() != 1 or String(renamed[0].get("id", "")) != "slot_000001" or String(renamed[0].get("name", "")) != "Renamed slot":
+			failures.append("confirmed save-slot renaming must emit the slot id and typed display name")
+	delete_button.pressed.emit()
+	if action_confirmation != null and action_confirmation.visible:
+		action_confirmation.confirmed.emit()
+	if deleted != ["slot_000002"]:
+		failures.append("deleting a non-active slot must require confirmation before emitting its id")
 
 
 static func _test_believer_drop_signal(failures: Array[String]) -> void:

@@ -5,6 +5,7 @@ const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const DesktopPetActor = preload("res://scripts/desktop_pet_actor.gd")
 const SideDrawer = preload("res://scripts/side_drawer_controller.gd")
 const CoinDrop = preload("res://scripts/coin_drop.gd")
+const GachaWindow = preload("res://scripts/gacha_window.gd")
 
 
 static func run() -> Array[String]:
@@ -15,6 +16,7 @@ static func run() -> Array[String]:
 	_test_battle_engagement_caches(failures)
 	_test_storage_release_assets_are_prewarmed(failures)
 	_test_hidden_drawer_defers_visual_work(failures)
+	_test_gacha_state_skips_unchanged_refreshes(failures)
 	_test_coin_pointer_sample_is_shared_per_process_frame(failures)
 	_test_saves_are_debounced(failures)
 	return failures
@@ -130,6 +132,28 @@ static func _test_coin_pointer_sample_is_shared_per_process_frame(failures: Arra
 	CoinDrop._pointer_sample_global = previous_pointer
 	if cached_pointer != expected_pointer:
 		failures.append("coins in one process frame must share one cached native pointer sample")
+
+
+static func _test_gacha_state_skips_unchanged_refreshes(failures: Array[String]) -> void:
+	var gacha := GachaWindow.new()
+	gacha.setup()
+	var unlocked := ["pet1", "pet2"]
+	gacha.refresh_state(1_000.0, 3, 75, unlocked, 2, [], 14.0)
+	var first_revision_value: Variant = gacha.get("_state_revision")
+	var first_revision := int(first_revision_value) if first_revision_value != null else 0
+	gacha.refresh_state(1_000.0, 3, 75, unlocked, 2, [], 14.0)
+	var repeated_revision_value: Variant = gacha.get("_state_revision")
+	var repeated_revision := int(repeated_revision_value) if repeated_revision_value != null else 0
+	if first_revision <= 0:
+		failures.append("a changed gacha state must record one UI refresh revision")
+	elif repeated_revision != first_revision:
+		failures.append("identical visible gacha state must not rebuild controls or duplicate arrays")
+	gacha.refresh_state(1_000.0, 4, 90, unlocked, 3, [], 14.0)
+	var changed_revision_value: Variant = gacha.get("_state_revision")
+	var changed_revision := int(changed_revision_value) if changed_revision_value != null else 0
+	if changed_revision != first_revision + 1:
+		failures.append("a changed gacha state must still refresh visible controls")
+	gacha.free()
 
 
 static func _test_saves_are_debounced(failures: Array[String]) -> void:

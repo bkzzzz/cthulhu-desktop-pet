@@ -408,8 +408,13 @@ func _create_settings_window() -> void:
 	_settings_window.debug_pet_levels_requested.connect(_host._on_debug_pet_levels_requested)
 	_settings_window.debug_era_requested.connect(_host._on_debug_era_requested)
 	_settings_window.reset_game_requested.connect(_host._reset_game_progress)
+	_settings_window.save_slot_create_requested.connect(_on_save_slot_create_requested)
+	_settings_window.save_slot_switch_requested.connect(_on_save_slot_switch_requested)
+	_settings_window.save_slot_rename_requested.connect(_on_save_slot_rename_requested)
+	_settings_window.save_slot_delete_requested.connect(_on_save_slot_delete_requested)
 	_settings_window.quit_requested.connect(_host._on_quit_requested)
 	_settings_window.setup(_pet_activity_range, _language)
+	_refresh_settings_save_slots()
 	_settings_window.refresh_debug_values(_faith_points, _gold_coins, _debug_enemy_power_scale, _debug_game_speed, _host._get_debug_pet_levels())
 	_settings_window.refresh_debug_era(EraProgression.get_era_index(_get_era_runtime_seconds()))
 
@@ -509,7 +514,7 @@ func _sync_gacha_state() -> void:
 		float(_gold_coins),
 		_gacha_draw_count,
 		next_cost,
-		_unlocked_pet_ids.duplicate(),
+		_unlocked_pet_ids,
 		_gacha_pity_count,
 		_gacha_history,
 		_host._get_baseline_faith_growth_rate()
@@ -709,4 +714,36 @@ func _on_settings_requested() -> void:
 			_host._get_debug_pet_levels()
 		)
 	_settings_window.refresh_debug_era(EraProgression.get_era_index(_get_era_runtime_seconds()))
+	_refresh_settings_save_slots()
 	_settings_window.open_window()
+
+
+func _on_save_slot_create_requested(slot_id: String) -> void:
+	_handle_save_slot_operation(_host._create_save_slot(slot_id))
+
+
+func _on_save_slot_switch_requested(slot_id: String) -> void:
+	_handle_save_slot_operation(_host._switch_save_slot(slot_id))
+
+
+func _on_save_slot_rename_requested(slot_id: String, display_name: String) -> void:
+	_handle_save_slot_operation(_host._rename_save_slot(slot_id, display_name))
+
+
+func _on_save_slot_delete_requested(slot_id: String) -> void:
+	_handle_save_slot_operation(_host._delete_save_slot(slot_id))
+
+
+func _handle_save_slot_operation(result: Dictionary) -> void:
+	if bool(result.get("ok", false)) and bool(result.get("reloading", false)):
+		return
+	var notice := "" if bool(result.get("ok", false)) else String(result.get("reason", "Save-slot operation failed."))
+	_refresh_settings_save_slots(notice)
+
+
+func _refresh_settings_save_slots(notice := "") -> void:
+	if _settings_window == null:
+		return
+	_settings_window.set_save_slots(_host._get_save_slots(), _host._get_active_save_slot_id())
+	if not notice.is_empty():
+		_settings_window.show_save_slot_notice(notice)

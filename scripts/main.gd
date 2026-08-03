@@ -725,11 +725,29 @@ func _load_game() -> void:
 func _request_save() -> void:
 	_persistence_controller._request_save()
 
-func _save_game() -> void:
-	_persistence_controller._save_game()
+func _save_game() -> Error:
+	return _persistence_controller._save_game()
 
 func _reset_game_progress() -> void:
 	_persistence_controller._reset_game_progress()
+
+func _get_save_slots() -> Array[Dictionary]:
+	return _persistence_controller.get_save_slots()
+
+func _get_active_save_slot_id() -> String:
+	return _persistence_controller.get_active_save_slot_id()
+
+func _create_save_slot(slot_id: String) -> Dictionary:
+	return _persistence_controller.create_save_slot(slot_id)
+
+func _switch_save_slot(slot_id: String) -> Dictionary:
+	return _persistence_controller.switch_save_slot(slot_id)
+
+func _rename_save_slot(slot_id: String, display_name: String) -> Dictionary:
+	return _persistence_controller.rename_save_slot(slot_id, display_name)
+
+func _delete_save_slot(slot_id: String) -> Dictionary:
+	return _persistence_controller.delete_save_slot(slot_id)
 
 func _apply_offline_progress() -> void:
 	_persistence_controller._apply_offline_progress()
@@ -991,6 +1009,8 @@ func _get_safe_control_position(raw_position: Vector2, size: Vector2, margin: fl
 func _on_pet_upgrade_requested(pet_id: String) -> void:
 	_progression_controller._on_pet_upgrade_requested(pet_id)
 
+
+、
 func _on_faith_add_requested(amount: int) -> void:
 	_progression_controller._on_faith_add_requested(amount)
 

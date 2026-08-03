@@ -17,6 +17,7 @@ const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
 const BoostAura = preload("res://scripts/boost_aura.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
+const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 
 const DESKTOP_MARGIN_X := 24
 const DRAWER_BOOKMARK_WIDTH := 226
@@ -2502,12 +2503,14 @@ func _get_current_screen_rect() -> Rect2i:
 
 func _get_current_screen() -> int:
 	var screen := DisplayServer.SCREEN_WITH_MOUSE_FOCUS if _menu_drag_active else -1
-	if screen < 0 and _menu_window != null:
+	if screen < 0 and DisplayLayout.can_query_window_screen(_menu_window):
 		screen = DisplayServer.window_get_current_screen(_menu_window.get_window_id())
-	if screen < 0 and _drawer_window != null:
+	if screen < 0 and DisplayLayout.can_query_window_screen(_drawer_window):
 		screen = DisplayServer.window_get_current_screen(_drawer_window.get_window_id())
 	if screen < 0:
 		screen = DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
 	return screen
 
 

@@ -105,8 +105,15 @@ const MANUAL_CLICK_RATE_SECONDS := 0.04
 const GACHA_BATCH_MAX_DRAWS_PER_FRAME := 128
 const GACHA_BATCH_FRAME_BUDGET_USEC := 1800
 const GACHA_BATCH_BUDGET_CHECK_INTERVAL := 16
+# Legacy single-save locations are read only by the one-time migration. Active
+# slot paths are generated and validated by SaveSlotRepository.
 const SAVE_PATH := "user://cthulu_save.cfg"
-const SAVE_VERSION := 15
+const SAVE_BACKUP_PATH := "user://cthulu_save.cfg.bak"
+const SAVE_TEMP_PATH := "user://cthulu_save.cfg.tmp"
+const SAVE_BACKUP_TEMP_PATH := "user://cthulu_save.cfg.bak.tmp"
+const SAVE_VERSION := 16
+const MAX_SAVE_FILE_BYTES := 1_500_000
+const MAX_PERSISTED_FLOAT := 1.0e15
 const PET_UNLOCK_SAVE_VERSION := 8
 const NEWS_RATE_MODEL_SAVE_VERSION := 5
 const FINAL_BOSS_SAVE_VERSION := 13

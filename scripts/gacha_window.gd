@@ -76,6 +76,7 @@ var _next_cost := GachaProgression.BASE_DRAW_COST
 var _draw_count := 0
 var _faith_growth_rate := 0.0
 var _unlocked_pet_ids: Array = []
+var _state_revision := 0
 var _rng := RandomNumberGenerator.new()
 var _language := LanguageSettings.DEFAULT_LANGUAGE
 
@@ -117,11 +118,24 @@ func refresh_state(
 	_history: Array,
 	faith_growth_rate := 0.0
 ) -> void:
-	_coin_balance = maxf(0.0, coin_balance)
-	_draw_count = maxi(0, draw_count)
-	_next_cost = maxi(1, next_cost)
+	var next_coin_balance := maxf(0.0, coin_balance)
+	var next_draw_count := maxi(0, draw_count)
+	var next_cost_value := maxi(1, next_cost)
+	var next_faith_growth_rate := maxf(0.0, faith_growth_rate)
+	if (
+		is_equal_approx(_coin_balance, next_coin_balance)
+		and _draw_count == next_draw_count
+		and _next_cost == next_cost_value
+		and _unlocked_pet_ids == unlocked_pet_ids
+		and is_equal_approx(_faith_growth_rate, next_faith_growth_rate)
+	):
+		return
+	_coin_balance = next_coin_balance
+	_draw_count = next_draw_count
+	_next_cost = next_cost_value
 	_unlocked_pet_ids = unlocked_pet_ids.duplicate()
-	_faith_growth_rate = maxf(0.0, faith_growth_rate)
+	_faith_growth_rate = next_faith_growth_rate
+	_state_revision += 1
 	_update_draw_button()
 	_update_progress_label()
 

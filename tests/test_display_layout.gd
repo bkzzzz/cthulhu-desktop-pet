@@ -24,6 +24,7 @@ static func run() -> Array[String]:
 	_test_native_windows_fit_common_resolutions(failures)
 	_test_positions_stay_inside_offset_monitors(failures)
 	_test_window_keeps_design_coordinate_space(failures)
+	_test_hidden_window_skips_native_screen_query(failures)
 	return failures
 
 
@@ -66,6 +67,17 @@ static func _test_window_keeps_design_coordinate_space(failures: Array[String]) 
 	_expect(window.content_scale_size == design_size, "scaled window should keep its design-space size", failures)
 	_expect(window.size == fitted, "native window should use the fitted physical size", failures)
 	_expect(window.size.y <= usable.size.y - 32, "scaled native window should leave its screen margin", failures)
+	window.free()
+
+
+static func _test_hidden_window_skips_native_screen_query(failures: Array[String]) -> void:
+	var window := Window.new()
+	window.visible = false
+	_expect(
+		not DisplayLayout.can_query_window_screen(window),
+		"a hidden or unattached window must not query an unavailable native screen",
+		failures
+	)
 	window.free()
 
 
