@@ -2493,7 +2493,12 @@ func _clear_menu_drag_suppression() -> void:
 
 
 func _get_current_screen_usable_rect() -> Rect2i:
-	return DisplayServer.screen_get_usable_rect(_get_current_screen())
+	# Display backends can briefly report a zero-sized work area while a GPU,
+	# monitor, or taskbar layout is being re-enumerated.  Never propagate that
+	# transient value into the drawer window geometry.
+	return DisplayLayout.sanitize_usable_rect(
+		DisplayServer.screen_get_usable_rect(_get_current_screen())
+	)
 
 
 func _get_current_screen_rect() -> Rect2i:

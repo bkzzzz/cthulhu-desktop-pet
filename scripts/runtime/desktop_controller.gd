@@ -2,7 +2,7 @@ extends "res://scripts/runtime/main_context.gd"
 
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
 
-func _configure_pet_window() -> bool:
+func _configure_pet_window() -> void:
 	var window = get_window()
 	var usable_rect = _get_current_screen_usable_rect()
 	_pet_window_size = _get_target_pet_window_size(usable_rect)
@@ -25,8 +25,12 @@ func _configure_pet_window() -> bool:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true)
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_NO_FOCUS, true)
 	if not NativeVisualClickthrough.apply(window):
-		return false
-	return true
+		# The native helper is an enhancement for Windows click-through, not a
+		# prerequisite for booting the game.  It can be unavailable temporarily
+		# while PowerShell, the GPU, or the desktop compositor is restarting.
+		# Godot's own mouse_passthrough has already been enabled by the helper
+		# attempt, so keep the desktop layer alive instead of terminating at boot.
+		push_warning("Native desktop click-through is unavailable; continuing with Godot's fallback input handling.")
 
 
 func _create_desktop_pets() -> void:

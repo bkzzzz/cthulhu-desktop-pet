@@ -60,10 +60,7 @@ func _ready() -> void:
 		DisplayServer.get_name() != "headless"
 		and not OS.get_cmdline_user_args().has(NO_SAVE_ARGUMENT)
 	)
-	if not _configure_pet_window():
-		push_error("Desktop pets stopped because safe click-through setup failed.")
-		get_tree().quit(2)
-		return
+	_configure_pet_window()
 	_place_pet_window()
 	_load_game()
 	_apply_automatic_evolution_thresholds()
@@ -178,8 +175,8 @@ func _exit_tree() -> void:
 
 
 
-func _configure_pet_window() -> bool:
-	return _desktop_controller._configure_pet_window()
+func _configure_pet_window() -> void:
+	_desktop_controller._configure_pet_window()
 
 func _create_desktop_pets() -> void:
 	_desktop_controller._create_desktop_pets()
@@ -1010,7 +1007,6 @@ func _on_pet_upgrade_requested(pet_id: String) -> void:
 	_progression_controller._on_pet_upgrade_requested(pet_id)
 
 
-、
 func _on_faith_add_requested(amount: int) -> void:
 	_progression_controller._on_faith_add_requested(amount)
 

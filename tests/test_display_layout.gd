@@ -25,6 +25,7 @@ static func run() -> Array[String]:
 	_test_positions_stay_inside_offset_monitors(failures)
 	_test_window_keeps_design_coordinate_space(failures)
 	_test_hidden_window_skips_native_screen_query(failures)
+	_test_invalid_work_area_and_startup_mode(failures)
 	return failures
 
 
@@ -79,6 +80,21 @@ static func _test_hidden_window_skips_native_screen_query(failures: Array[String
 		failures
 	)
 	window.free()
+
+
+static func _test_invalid_work_area_and_startup_mode(failures: Array[String]) -> void:
+	var invalid_rect := Rect2i(Vector2i(-320, 48), Vector2i.ZERO)
+	var safe_rect := DisplayLayout.sanitize_usable_rect(invalid_rect)
+	_expect(
+		safe_rect.position == invalid_rect.position and safe_rect.size == DisplayLayout.FALLBACK_USABLE_SIZE,
+		"an unavailable work area must retain its origin and use the safe fallback size",
+		failures
+	)
+	_expect(
+		int(ProjectSettings.get_setting("display/window/size/mode", -1)) == Window.MODE_WINDOWED,
+		"the transparent desktop root must start windowed until runtime layout is available",
+		failures
+	)
 
 
 static func _expect(condition: bool, message: String, failures: Array[String]) -> void:
