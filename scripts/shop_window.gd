@@ -29,6 +29,9 @@ const CATEGORY_TAB_SIZE := Vector2(258.0, 82.0)
 const CATEGORY_TAB_PAGE_OVERLAP := 84.0
 const CATEGORY_TAB_POSITIONS := [Vector2(56.0, 270.0), Vector2(56.0, 370.0)]
 const CATEGORY_TAB_HOVER_SCALE := 1.045
+# The visual bookmark grows outward on hover. Keep both the Godot Control hit
+# area and the native Window region larger than that visual footprint.
+const CATEGORY_TAB_HIT_PADDING := Vector2(14.0, 8.0)
 const SHOP_SLOT_RECTS := [
 	Rect2(148.0, 252.0, 252.0, 286.0),
 	Rect2(438.0, 252.0, 252.0, 286.0),
@@ -237,7 +240,6 @@ func _create_content() -> void:
 	_category_hit_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_category_hit_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_category_hit_layer.z_index = 3
-	_root.add_child(_category_hit_layer)
 	_create_category_tabs()
 
 	_page_root = Control.new()
@@ -248,6 +250,10 @@ func _create_content() -> void:
 	_page_root.gui_input.connect(_on_root_gui_input)
 	_page_root.z_index = 2
 	_root.add_child(_page_root)
+	# z_index only changes rendering order for Controls. Add this transparent
+	# input layer after the page as well, otherwise ShopPage receives clicks in
+	# the bookmark segment intentionally tucked under the parchment.
+	_root.add_child(_category_hit_layer)
 
 	var background := TextureRect.new()
 	background.name = "ShopBackground"
@@ -305,8 +311,8 @@ func _create_category_tabs() -> void:
 
 		var hit_area := Control.new()
 		hit_area.name = "%sCategoryTabHitArea" % kind.capitalize()
-		hit_area.position = button.position
-		hit_area.size = CATEGORY_TAB_SIZE
+		hit_area.position = button.position - CATEGORY_TAB_HIT_PADDING
+		hit_area.size = CATEGORY_TAB_SIZE + CATEGORY_TAB_HIT_PADDING * 2.0
 		hit_area.mouse_filter = Control.MOUSE_FILTER_STOP
 		hit_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		hit_area.mouse_entered.connect(_animate_category_tab_hover.bind(button, true))
@@ -327,8 +333,13 @@ func _configure_mouse_passthrough() -> void:
 	)
 	var native_page_origin := PAGE_ORIGIN * native_scale
 	var native_window_size := Vector2(size)
-	var tab_top: float = CATEGORY_TAB_POSITIONS[0].y
-	var tab_bottom: float = CATEGORY_TAB_POSITIONS[CATEGORY_TAB_POSITIONS.size() - 1].y + CATEGORY_TAB_SIZE.y
+	var tab_top := maxf(0.0, CATEGORY_TAB_POSITIONS[0].y - CATEGORY_TAB_HIT_PADDING.y)
+	var tab_bottom := minf(
+		float(WINDOW_SIZE.y),
+		CATEGORY_TAB_POSITIONS[CATEGORY_TAB_POSITIONS.size() - 1].y
+		+ CATEGORY_TAB_SIZE.y
+		+ CATEGORY_TAB_HIT_PADDING.y
+	)
 	var native_tab_top := tab_top * native_scale.y
 	var native_tab_bottom := tab_bottom * native_scale.y
 	mouse_passthrough_polygon = PackedVector2Array([

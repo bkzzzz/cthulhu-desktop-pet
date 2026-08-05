@@ -100,6 +100,8 @@ static func _test_shop_categories(failures: Array[String]) -> void:
 	var expected_page_x := ShopWindow.PAGE_ORIGIN.x * float(shop.size.x) / float(ShopWindow.WINDOW_SIZE.x)
 	if passthrough.size() < 8 or not is_equal_approx(passthrough[0].x, expected_page_x):
 		failures.append("shop tab hit regions must scale with the native shop window")
+	_assert_category_tab_edge_hit_coverage(shop, food_tab, "Offering", failures)
+	_assert_category_tab_edge_hit_coverage(shop, tower_tab, "Turret", failures)
 
 	shop.set("_active_category", TurretCatalog.KIND)
 	shop.call("_refresh_page")
@@ -122,6 +124,50 @@ static func _test_shop_categories(failures: Array[String]) -> void:
 	if String((owned_labels[0] as Label).text) != "收回":
 		failures.append("tower card actions must localize with the shop language")
 	shop.free()
+
+
+static func _assert_category_tab_edge_hit_coverage(
+	shop: Window,
+	visual_tab: TextureButton,
+	kind_name: String,
+	failures: Array[String]
+) -> void:
+	if shop == null or visual_tab == null:
+		return
+	var page_root := shop.get_node_or_null("ShopRoot/ShopPage") as Control
+	var hit_layer := shop.get_node_or_null("ShopRoot/ShopCategoryTabHitAreas") as Control
+	var hit_area := shop.get_node_or_null(
+		"ShopRoot/ShopCategoryTabHitAreas/%sCategoryTabHitArea" % kind_name
+	) as Control
+	if page_root == null or hit_layer == null or hit_area == null:
+		failures.append("shop %s bookmark must expose a dedicated rectangular hit area" % kind_name)
+		return
+	if hit_layer.get_index() <= page_root.get_index():
+		failures.append("shop %s bookmark hit layer must be later than the page in input order" % kind_name)
+	if hit_area.mouse_filter != Control.MOUSE_FILTER_STOP:
+		failures.append("shop %s bookmark hit area must stop pointer input" % kind_name)
+		return
+	var original_scale := visual_tab.scale
+	visual_tab.scale = Vector2.ONE * ShopWindow.CATEGORY_TAB_HOVER_SCALE
+	var visual_rect := Rect2(
+		visual_tab.position + visual_tab.pivot_offset * (Vector2.ONE - visual_tab.scale),
+		visual_tab.size * visual_tab.scale
+	)
+	var hit_rect := Rect2(hit_area.position, hit_area.size)
+	var native_scale := Vector2(
+		float(shop.size.x) / float(ShopWindow.WINDOW_SIZE.x),
+		float(shop.size.y) / float(ShopWindow.WINDOW_SIZE.y)
+	)
+	for y_factor in [0.02, 0.5, 0.98]:
+		for x_factor in [0.02, 0.5, 0.98]:
+			var design_point := visual_rect.position + visual_rect.size * Vector2(x_factor, y_factor)
+			if not hit_rect.has_point(design_point):
+				failures.append("shop %s bookmark hover edge must remain inside its hit area" % kind_name)
+				break
+			if not Geometry2D.is_point_in_polygon(design_point * native_scale, shop.mouse_passthrough_polygon):
+				failures.append("shop %s bookmark hover edge must remain inside the native input region" % kind_name)
+				break
+	visual_tab.scale = original_scale
 
 
 static func _test_purchase_deploy_and_recall(failures: Array[String]) -> void:
