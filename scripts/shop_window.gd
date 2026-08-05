@@ -19,6 +19,8 @@ const SHOP_TEXTURE := "res://assets/ui/shop/商店ui.png"
 const CROSS_TEXTURE := "res://assets/ui/inventory/cross.png"
 const ARROW_TEXTURE := "res://assets/ui/inventory/arrow.png"
 const BOOKMARK_TEXTURE := "res://assets/ui/newElements/书签.png"
+const FURNITURE_KIND := "furniture"
+const SHOP_CATEGORIES := [OfferingCatalog.KIND, TurretCatalog.KIND, FURNITURE_KIND]
 
 const GOODS_PER_PAGE := 6
 const MIN_TOTAL_PAGES := 1
@@ -27,7 +29,11 @@ const CATEGORY_TAB_SIZE := Vector2(258.0, 82.0)
 # Deliberately overlap the parchment edge. This reads as a physical bookmark
 # tucked into the shop, rather than two floating controls beside it.
 const CATEGORY_TAB_PAGE_OVERLAP := 84.0
-const CATEGORY_TAB_POSITIONS := [Vector2(56.0, 270.0), Vector2(56.0, 370.0)]
+const CATEGORY_TAB_POSITIONS := [
+	Vector2(56.0, 270.0),
+	Vector2(56.0, 370.0),
+	Vector2(56.0, 470.0)
+]
 const CATEGORY_TAB_HOVER_SCALE := 1.045
 # The visual bookmark grows outward on hover. Keep both the Godot Control hit
 # area and the native Window region larger than that visual footprint.
@@ -52,11 +58,18 @@ var _info_panel: PanelContainer
 var _info_name_label: Label
 var _info_desc_label: Label
 var _info_price_label: Label
+var _empty_category_panel: PanelContainer
+var _empty_category_title_label: Label
+var _empty_category_body_label: Label
 var _slot_controls: Array[Control] = []
 var _slot_icons: Array[TextureRect] = []
 var _slot_name_labels: Array[Label] = []
 var _slot_price_labels: Array[Label] = []
 var _slot_owned_labels: Array[Label] = []
+var _slot_action_hints: Array[PanelContainer] = []
+var _slot_action_labels: Array[Label] = []
+var _page_navigation_buttons: Array[TextureButton] = []
+var _turret_action_hint_styles := {}
 var _page := 0
 var _coin_balance := 0
 var _coin_balance_dirty := false
@@ -145,7 +158,9 @@ func set_goods(goods: Array[Dictionary]) -> void:
 		var normalized_good := _normalize_good(good)
 		if not normalized_good.is_empty():
 			_goods.append(normalized_good)
-	if not _has_goods_in_category(_active_category):
+	# Empty built-in categories (currently Furniture) are valid destinations.
+	# Do not bounce the player back to Food whenever shop state syncs.
+	if not _is_supported_category(_active_category):
 		_active_category = OfferingCatalog.KIND
 	_page = 0
 	_hide_info_panel()
@@ -264,6 +279,8 @@ func _create_content() -> void:
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_page_root.add_child(background)
 
+	_create_empty_category_state()
+	_create_turret_action_hint_styles()
 	_create_slots()
 	_create_page_controls()
 	_create_close_button()
@@ -276,9 +293,8 @@ func _create_content() -> void:
 func _create_category_tabs() -> void:
 	if _category_layer == null:
 		return
-	var categories := [OfferingCatalog.KIND, TurretCatalog.KIND]
-	for index in categories.size():
-		var kind := String(categories[index])
+	for index in SHOP_CATEGORIES.size():
+		var kind := String(SHOP_CATEGORIES[index])
 		var button := TextureButton.new()
 		button.name = "%sCategoryTab" % kind.capitalize()
 		# Use the same warm, illustrated bookmark as the side menu so navigation
@@ -382,7 +398,13 @@ func _refresh_category_tabs() -> void:
 func _get_category_label(kind: String) -> String:
 	if kind == TurretCatalog.KIND:
 		return "TOWERS" if _language == "en" else "防御塔"
+	if kind == FURNITURE_KIND:
+		return "FURNITURE" if _language == "en" else "家具"
 	return "FOOD" if _language == "en" else "食物"
+
+
+func _is_supported_category(category: String) -> bool:
+	return SHOP_CATEGORIES.has(category)
 
 
 func _on_category_tab_pressed(kind: String, button: TextureButton) -> void:
@@ -440,6 +462,8 @@ func _create_slots() -> void:
 	_slot_name_labels.clear()
 	_slot_price_labels.clear()
 	_slot_owned_labels.clear()
+	_slot_action_hints.clear()
+	_slot_action_labels.clear()
 
 	for index in SHOP_SLOT_RECTS.size():
 		var slot_rect: Rect2 = SHOP_SLOT_RECTS[index]
@@ -448,6 +472,7 @@ func _create_slots() -> void:
 		slot.position = slot_rect.position
 		slot.size = slot_rect.size
 		slot.mouse_filter = Control.MOUSE_FILTER_STOP
+		slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		slot.mouse_entered.connect(_on_slot_hovered.bind(index, true))
 		slot.mouse_exited.connect(_on_slot_hovered.bind(index, false))
 		slot.gui_input.connect(_on_slot_gui_input.bind(index))
@@ -482,6 +507,22 @@ func _create_slots() -> void:
 		slot.add_child(owned_label)
 		_slot_owned_labels.append(owned_label)
 
+		var action_hint := PanelContainer.new()
+		action_hint.name = "TowerActionHint%d" % index
+		action_hint.position = Vector2(12.0, 232.0)
+		action_hint.size = Vector2(slot_rect.size.x - 24.0, 42.0)
+		action_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		action_hint.visible = false
+		action_hint.z_index = 1
+		slot.add_child(action_hint)
+		_slot_action_hints.append(action_hint)
+
+		var action_label := _make_slot_label(14, Color(0.86, 1.0, 0.78, 1.0), 2)
+		action_label.name = "TowerActionLabel"
+		action_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		action_hint.add_child(action_label)
+		_slot_action_labels.append(action_label)
+
 
 func _make_slot_label(font_size: int, color: Color, outline_size: int) -> Label:
 	var label := Label.new()
@@ -495,15 +536,104 @@ func _make_slot_label(font_size: int, color: Color, outline_size: int) -> Label:
 	return label
 
 
+func _create_turret_action_hint_styles() -> void:
+	_turret_action_hint_styles = {
+		"buy": _make_turret_action_hint_style(
+			Color(0.055, 0.19, 0.11, 0.94),
+			Color(0.42, 0.92, 0.55, 0.96)
+		),
+		"locked": _make_turret_action_hint_style(
+			Color(0.22, 0.075, 0.06, 0.94),
+			Color(0.94, 0.40, 0.30, 0.96)
+		),
+		"deploy": _make_turret_action_hint_style(
+			Color(0.045, 0.13, 0.24, 0.94),
+			Color(0.36, 0.76, 1.0, 0.96)
+		),
+		"recall": _make_turret_action_hint_style(
+			Color(0.24, 0.13, 0.035, 0.94),
+			Color(1.0, 0.76, 0.30, 0.96)
+		)
+	}
+
+
+func _make_turret_action_hint_style(background: Color, border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.40)
+	style.shadow_size = 4
+	style.shadow_offset = Vector2(0.0, 2.0)
+	return style
+
+
+func _create_empty_category_state() -> void:
+	_empty_category_panel = PanelContainer.new()
+	_empty_category_panel.name = "EmptyCategoryPanel"
+	_empty_category_panel.position = Vector2(267.0, 396.0)
+	_empty_category_panel.size = Vector2(584.0, 162.0)
+	_empty_category_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_empty_category_panel.visible = false
+	_empty_category_panel.z_index = 1
+	_empty_category_panel.add_theme_stylebox_override("panel", _make_empty_category_style())
+	_page_root.add_child(_empty_category_panel)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_top", 18)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_bottom", 18)
+	_empty_category_panel.add_child(margin)
+
+	var content := VBoxContainer.new()
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 10)
+	margin.add_child(content)
+
+	_empty_category_title_label = Label.new()
+	_empty_category_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_empty_category_title_label.add_theme_font_size_override("font_size", 28)
+	_empty_category_title_label.add_theme_color_override("font_color", Color(0.96, 0.86, 0.58, 1.0))
+	_empty_category_title_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
+	_empty_category_title_label.add_theme_constant_override("outline_size", 5)
+	content.add_child(_empty_category_title_label)
+
+	_empty_category_body_label = Label.new()
+	_empty_category_body_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_empty_category_body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_empty_category_body_label.add_theme_font_size_override("font_size", 18)
+	_empty_category_body_label.add_theme_color_override("font_color", Color(0.72, 0.82, 0.66, 1.0))
+	_empty_category_body_label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
+	_empty_category_body_label.add_theme_constant_override("outline_size", 3)
+	content.add_child(_empty_category_body_label)
+
+
+func _make_empty_category_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.025, 0.034, 0.030, 0.88)
+	style.border_color = Color(0.44, 0.60, 0.40, 0.88)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(10)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.42)
+	style.shadow_size = 12
+	style.shadow_offset = Vector2(0.0, 5.0)
+	return style
+
+
 func _create_page_controls() -> void:
 	var left_arrow := _make_arrow_button(-1)
 	left_arrow.position = Vector2(342.0, 904.0)
 	left_arrow.scale = Vector2(-1.0, 1.0)
 	_page_root.add_child(left_arrow)
+	_page_navigation_buttons.append(left_arrow)
 
 	var right_arrow := _make_arrow_button(1)
 	right_arrow.position = Vector2(682.0, 904.0)
 	_page_root.add_child(right_arrow)
+	_page_navigation_buttons.append(right_arrow)
 
 	_page_label = Label.new()
 	_page_label.name = "ShopPageIndicator"
@@ -646,9 +776,13 @@ func _refresh_page() -> void:
 	var category_goods := _get_category_goods()
 	var page_count := _get_page_count()
 	_page = clampi(_page, 0, page_count - 1)
+	_refresh_empty_category_state(category_goods.is_empty())
 
 	if _page_label != null:
 		_page_label.text = "%d/%d" % [_page + 1, page_count]
+	for navigation_button in _page_navigation_buttons:
+		if navigation_button != null:
+			navigation_button.visible = not category_goods.is_empty()
 	_refresh_coin_balance()
 	var page_start := _page * GOODS_PER_PAGE
 	for slot_index in _slot_controls.size():
@@ -659,12 +793,18 @@ func _refresh_page() -> void:
 		var name_label := _slot_name_labels[slot_index]
 		var price_label := _slot_price_labels[slot_index]
 		var owned_label := _slot_owned_labels[slot_index]
+		var action_hint := _slot_action_hints[slot_index]
 
 		slot.mouse_filter = Control.MOUSE_FILTER_STOP if has_good else Control.MOUSE_FILTER_IGNORE
+		slot.mouse_default_cursor_shape = (
+			Control.CURSOR_POINTING_HAND if has_good else Control.CURSOR_ARROW
+		)
 		icon.visible = has_good
 		name_label.visible = has_good
 		price_label.visible = has_good
 		owned_label.visible = has_good
+		action_hint.visible = false
+		slot.tooltip_text = ""
 
 		if not has_good:
 			continue
@@ -684,8 +824,13 @@ func _refresh_page() -> void:
 		price_label.text = ("PRICE  %s" if _language == "en" else "价格 %s") % CurrencyDisplay.format_compact(price)
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
 		if turret:
-			owned_label.visible = true
+			# Keep the compact status label populated for scripts and screen readers,
+			# but render the player-facing action in a high-contrast, button-like
+			# strip so towers no longer read as inert furniture.
+			owned_label.visible = false
 			owned_label.text = _get_turret_card_status(good, tower_state)
+			_refresh_turret_action_hint(slot_index, good, tower_state, affordable)
+			slot.tooltip_text = _get_turret_action_hint(good, tower_state)
 			if tower_owned:
 				price_label.text = _get_turret_durability_text(good, tower_state)
 				price_label.add_theme_color_override("font_color", Color(0.70, 0.90, 1.0, 1.0))
@@ -695,6 +840,23 @@ func _refresh_page() -> void:
 		owned_label.visible = has_good and not offering
 		owned_label.text = ("OWNED %d" if _language == "en" else "已拥有 %d") % owned
 	_coin_balance_dirty = false
+
+
+func _refresh_empty_category_state(category_is_empty: bool) -> void:
+	if _empty_category_panel == null:
+		return
+	var show_furniture_empty_state := _active_category == FURNITURE_KIND and category_is_empty
+	_empty_category_panel.visible = show_furniture_empty_state
+	if not show_furniture_empty_state:
+		return
+	if _empty_category_title_label != null:
+		_empty_category_title_label.text = "FURNITURE" if _language == "en" else "家具"
+	if _empty_category_body_label != null:
+		_empty_category_body_label.text = (
+			"COMING SOON\nFurniture will appear here when it is added to the catalog."
+			if _language == "en"
+			else "敬请期待\n新的家具会在添加到目录后出现在这里。"
+		)
 
 
 func _refresh_coin_balance() -> void:
@@ -726,6 +888,8 @@ func _refresh_visible_slot_affordability() -> void:
 		var icon := _slot_icons[slot_index]
 		var price_label := _slot_price_labels[slot_index]
 		icon.modulate = Color.WHITE if affordable else Color(0.62, 0.62, 0.62, 0.9)
+		if turret:
+			_refresh_turret_action_hint(slot_index, good, tower_state, affordable)
 		if not tower_owned:
 			price_label.add_theme_color_override(
 				"font_color",
@@ -736,13 +900,6 @@ func _refresh_visible_slot_affordability() -> void:
 func _get_page_count() -> int:
 	var needed_pages := int(ceil(float(_get_category_goods().size()) / float(GOODS_PER_PAGE)))
 	return maxi(MIN_TOTAL_PAGES, needed_pages)
-
-
-func _has_goods_in_category(category: String) -> bool:
-	for good in _goods:
-		if String(good.get("kind", "")) == category:
-			return true
-	return false
 
 
 func _get_category_goods() -> Array[Dictionary]:
@@ -764,6 +921,52 @@ func _get_turret_card_status(_good: Dictionary, state: Dictionary) -> String:
 	if bool(state.get("deployed", false)):
 		return "RECALL" if _language == "en" else "收回"
 	return "DEPLOY" if _language == "en" else "放下"
+
+
+func _get_turret_action_hint(_good: Dictionary, state: Dictionary) -> String:
+	if not bool(state.get("owned", false)):
+		return "CLICK TO BUY & DEPLOY" if _language == "en" else "点击购买并部署"
+	if bool(state.get("deployed", false)):
+		return "DEPLOYED  ·  CLICK TO RECALL" if _language == "en" else "已部署  ·  点击收回"
+	return "READY  ·  CLICK TO DEPLOY" if _language == "en" else "待部署  ·  点击部署"
+
+
+func _refresh_turret_action_hint(
+	slot_index: int,
+	good: Dictionary,
+	state: Dictionary,
+	affordable: bool
+) -> void:
+	if slot_index < 0 or slot_index >= _slot_action_hints.size():
+		return
+	var action_hint := _slot_action_hints[slot_index]
+	var action_label := _slot_action_labels[slot_index]
+	var style_key := _get_turret_action_style_key(state, affordable)
+	action_hint.visible = true
+	action_hint.add_theme_stylebox_override(
+		"panel",
+		_turret_action_hint_styles.get(style_key, _turret_action_hint_styles.get("buy")) as StyleBoxFlat
+	)
+	action_label.text = _get_turret_action_hint(good, state)
+	action_label.add_theme_color_override("font_color", _get_turret_action_hint_color(style_key))
+
+
+func _get_turret_action_style_key(state: Dictionary, affordable: bool) -> String:
+	if not bool(state.get("owned", false)):
+		return "buy" if affordable else "locked"
+	return "recall" if bool(state.get("deployed", false)) else "deploy"
+
+
+func _get_turret_action_hint_color(style_key: String) -> Color:
+	match style_key:
+		"locked":
+			return Color(1.0, 0.74, 0.66, 1.0)
+		"deploy":
+			return Color(0.74, 0.92, 1.0, 1.0)
+		"recall":
+			return Color(1.0, 0.90, 0.62, 1.0)
+		_:
+			return Color(0.76, 1.0, 0.72, 1.0)
 
 
 func _get_turret_durability_text(good: Dictionary, state: Dictionary) -> String:

@@ -29,6 +29,7 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_turret_catalog(failures)
 	_test_turret_grounding(failures)
+	_test_turret_interaction_feedback(failures)
 	_test_shop_categories(failures)
 	_test_purchase_deploy_and_recall(failures)
 	_test_battle_durability_and_destruction(failures)
@@ -74,6 +75,27 @@ static func _test_turret_grounding(failures: Array[String]) -> void:
 	tower.free()
 
 
+static func _test_turret_interaction_feedback(failures: Array[String]) -> void:
+	var tower := TurretActor.new()
+	tower.setup("turret1", Vector2(320.0, 40.0), Vector2i(900, 600))
+	tower.set_language("zh")
+	tower.call("_set_pointer_hovered", true)
+	var hint := tower.get("_interaction_hint") as PanelContainer
+	var title_label := tower.get("_interaction_hint_title_label") as Label
+	var action_label := tower.get("_interaction_hint_action_label") as Label
+	if hint == null or title_label == null or action_label == null:
+		failures.append("a deployed tower must create a reusable interaction hint")
+	elif not hint.visible:
+		failures.append("tower interaction feedback must appear while it is hovered")
+	elif not ("耐久" in title_label.text) or not ("左键拖动" in action_label.text):
+		failures.append("tower hover feedback must explain durability, drag, and recall")
+
+	tower.set_battle_mode(true)
+	if action_label != null and not ("战斗中不可移动" in action_label.text):
+		failures.append("tower feedback must explain why movement is locked during battle")
+	tower.free()
+
+
 static func _test_shop_categories(failures: Array[String]) -> void:
 	var shop := ShopWindow.new()
 	shop.setup()
@@ -83,8 +105,9 @@ static func _test_shop_categories(failures: Array[String]) -> void:
 
 	var food_tab := shop.get_node_or_null("ShopRoot/ShopCategoryTabs/OfferingCategoryTab") as TextureButton
 	var tower_tab := shop.get_node_or_null("ShopRoot/ShopCategoryTabs/TurretCategoryTab") as TextureButton
-	if food_tab == null or tower_tab == null:
-		failures.append("the shop must provide separate food and tower category tabs")
+	var furniture_tab := shop.get_node_or_null("ShopRoot/ShopCategoryTabs/FurnitureCategoryTab") as TextureButton
+	if food_tab == null or tower_tab == null or furniture_tab == null:
+		failures.append("the shop must provide separate food, tower, and furniture category tabs")
 	elif tower_tab.position.x >= ShopWindow.PAGE_ORIGIN.x or tower_tab.position.x + tower_tab.size.x <= ShopWindow.PAGE_ORIGIN.x:
 		failures.append("the tower tab must protrude from and overlap the shop page edge")
 	elif tower_tab.texture_normal == null or tower_tab.texture_normal.resource_path != "res://assets/ui/newElements/书签.png":
@@ -102,27 +125,56 @@ static func _test_shop_categories(failures: Array[String]) -> void:
 		failures.append("shop tab hit regions must scale with the native shop window")
 	_assert_category_tab_edge_hit_coverage(shop, food_tab, "Offering", failures)
 	_assert_category_tab_edge_hit_coverage(shop, tower_tab, "Turret", failures)
+	_assert_category_tab_edge_hit_coverage(shop, furniture_tab, "Furniture", failures)
+
+	shop.set("_active_category", ShopWindow.FURNITURE_KIND)
+	shop.call("_refresh_page")
+	var empty_panel := shop.get_node_or_null("ShopRoot/ShopPage/EmptyCategoryPanel") as PanelContainer
+	var furniture_page_label := shop.get("_page_label") as Label
+	var furniture_slots: Array = shop.get("_slot_controls")
+	if empty_panel == null or not empty_panel.visible:
+		failures.append("the empty furniture category must show a deliberate coming-soon state")
+	if furniture_page_label == null or furniture_page_label.text != "1/1":
+		failures.append("the empty furniture category must keep the compact page indicator stable")
+	for slot_value in furniture_slots:
+		var furniture_slot := slot_value as Control
+		if furniture_slot != null and furniture_slot.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			failures.append("empty furniture cards must not emit purchase input")
+			break
+	shop.set_goods(goods)
+	if String(shop.get("_active_category")) != ShopWindow.FURNITURE_KIND:
+		failures.append("a shop state sync must not force the empty furniture category back to food")
 
 	shop.set("_active_category", TurretCatalog.KIND)
 	shop.call("_refresh_page")
 	var page_label := shop.get("_page_label") as Label
 	var owned_labels: Array = shop.get("_slot_owned_labels")
 	var price_labels: Array = shop.get("_slot_price_labels")
+	var action_labels: Array = shop.get("_slot_action_labels")
+	var slot_controls: Array = shop.get("_slot_controls")
 	if page_label == null or page_label.text != "1/1":
 		failures.append("the tower category must paginate its four towers independently")
 	if owned_labels.is_empty() or String((owned_labels[0] as Label).text) != "BUY":
 		failures.append("an unowned tower card must present a purchase action")
+	if action_labels.is_empty() or not ("CLICK TO BUY" in String((action_labels[0] as Label).text)):
+		failures.append("an unowned tower card must visibly tell the player to click to buy and deploy")
+	if slot_controls.is_empty() or (slot_controls[0] as Control).mouse_default_cursor_shape != Control.CURSOR_POINTING_HAND:
+		failures.append("tower shop cards must expose a pointing-hand cursor across their full card")
 
 	shop.set_turret_states({
 		"turret1": {"owned": true, "deployed": true, "current_hp": 19.0}
 	})
 	if String((owned_labels[0] as Label).text) != "RECALL":
 		failures.append("a deployed tower card must present recall instead of repurchase")
+	if not ("CLICK TO RECALL" in String((action_labels[0] as Label).text)):
+		failures.append("a deployed tower card must visibly tell the player how to recall it")
 	if price_labels.is_empty() or not ("DURABILITY" in String((price_labels[0] as Label).text)):
 		failures.append("an owned tower card must show its remaining durability")
 	shop.set_language("zh")
 	if String((owned_labels[0] as Label).text) != "收回":
 		failures.append("tower card actions must localize with the shop language")
+	if not ("点击收回" in String((action_labels[0] as Label).text)):
+		failures.append("tower card interaction prompts must localize with the shop language")
 	shop.free()
 
 

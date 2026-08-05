@@ -9,6 +9,8 @@ const INPUT_PROXY_PADDING := 8.0
 const INPUT_PROXY_REFRESH_SECONDS := 1.0 / 20.0
 const DRAG_MARGIN := 6.0
 const ATTACK_PULSE_SECONDS := 0.34
+const INTERACTION_HINT_SIZE := Vector2(236.0, 58.0)
+const INTERACTION_HINT_GAP := 16.0
 
 var turret_id := ""
 var turret_data: Dictionary = {}
@@ -24,16 +26,21 @@ var _destroyed := false
 var _interaction_enabled := true
 var _dragging := false
 var _recall_pointer_held := false
+var _pointer_hovered := false
 var _grab_offset := Vector2.ZERO
 var _aura_phase := 0.0
 var _attack_pulse := 0.0
 var _visual_scale := 0.5
 var _aura_color := Color(0.32, 0.84, 1.0, 1.0)
+var _language := "zh"
 
 var _sprite: Sprite2D
 var _visual_window: Window
 var _input_window: Window
 var _interaction_area: Control
+var _interaction_hint: PanelContainer
+var _interaction_hint_title_label: Label
+var _interaction_hint_action_label: Label
 var _interaction_rect := Rect2()
 var _input_proxy_elapsed := 0.0
 var _last_proxy_position := Vector2i(-100000, -100000)
@@ -47,6 +54,7 @@ func _ready() -> void:
 	_visual_window = get_window()
 	_create_input_proxy()
 	_refresh_input_proxy(true)
+	_refresh_interaction_hint()
 
 
 func _exit_tree() -> void:
@@ -76,7 +84,10 @@ func setup(new_turret_id: String, start_position: Vector2, window_size: Vector2i
 	_destroyed = false
 	_battle_mode = false
 	_interaction_enabled = true
+	_pointer_hovered = false
 	_create_or_refresh_sprite()
+	_create_interaction_hint()
+	_refresh_interaction_cursor()
 	set_window_bounds(window_size)
 	position = _clamp_to_window(start_position)
 	if _sprite != null:
@@ -84,7 +95,13 @@ func setup(new_turret_id: String, start_position: Vector2, window_size: Vector2i
 		_sprite.modulate = Color.WHITE
 	_update_health_bar()
 	_refresh_input_proxy(true)
+	_refresh_interaction_hint()
 	queue_redraw()
+
+
+func set_language(language_code: String) -> void:
+	_language = "en" if language_code.strip_edges().to_lower() == "en" else "zh"
+	_refresh_interaction_hint()
 
 
 # Towers are grounded furniture. Their base stays flush with the desktop's
@@ -96,6 +113,7 @@ func set_window_bounds(new_window_size: Vector2i) -> void:
 	_stage_ground_y = float(_window_size.y)
 	position = _clamp_to_window(position)
 	_refresh_input_proxy(true)
+	_refresh_interaction_hint()
 
 
 func set_battle_mode(enabled: bool) -> void:
@@ -109,6 +127,8 @@ func set_battle_mode(enabled: bool) -> void:
 		_attack_pulse = 0.0
 		if _sprite != null:
 			_sprite.modulate = Color.WHITE
+	_refresh_interaction_cursor()
+	_refresh_interaction_hint()
 	queue_redraw()
 
 
@@ -120,6 +140,8 @@ func set_durability(current_hp: float, maximum_hp: float) -> void:
 		_battle_mode = false
 	_update_health_bar()
 	_refresh_input_proxy(true)
+	_refresh_interaction_cursor()
+	_refresh_interaction_hint()
 	queue_redraw()
 
 
@@ -273,6 +295,7 @@ func hide_for_battle_defeat() -> void:
 	if health_bar != null:
 		health_bar.visible = false
 	_set_input_proxy_enabled(false)
+	_refresh_interaction_hint()
 	queue_redraw()
 
 
@@ -299,7 +322,7 @@ func _process(delta: float) -> void:
 	if _dragging or _input_proxy_elapsed >= INPUT_PROXY_REFRESH_SECONDS:
 		_input_proxy_elapsed = 0.0
 		_refresh_input_proxy()
-	if _battle_mode or _attack_pulse > 0.0:
+	if _battle_mode or _pointer_hovered or _dragging or _attack_pulse > 0.0:
 		queue_redraw()
 
 
@@ -325,7 +348,7 @@ func _draw() -> void:
 	var visual_size := _get_visual_size()
 	var anchor := Vector2(0.0, -visual_size.y * 0.10)
 	var base_radius := maxf(22.0, visual_size.x * 0.48)
-	var active_strength := 0.24 if _battle_mode else 0.06
+	var active_strength := 0.24 if _battle_mode else 0.22 if (_pointer_hovered or _dragging) else 0.08
 	var pulse_strength := _attack_pulse
 	var core_color := _aura_color
 	core_color.a = clampf(active_strength * 0.45 + pulse_strength * 0.32, 0.0, 0.46)
@@ -384,8 +407,121 @@ func _create_input_proxy() -> void:
 	_interaction_area.name = "TurretInteractionArea"
 	_interaction_area.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_interaction_area.mouse_filter = Control.MOUSE_FILTER_STOP
+	_interaction_area.mouse_entered.connect(_set_pointer_hovered.bind(true))
+	_interaction_area.mouse_exited.connect(_set_pointer_hovered.bind(false))
 	_interaction_area.gui_input.connect(_on_gui_input)
 	_input_window.add_child(_interaction_area)
+	_refresh_interaction_cursor()
+
+
+func _create_interaction_hint() -> void:
+	if _interaction_hint != null:
+		return
+	_interaction_hint = PanelContainer.new()
+	_interaction_hint.name = "TurretInteractionHint"
+	_interaction_hint.size = INTERACTION_HINT_SIZE
+	_interaction_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_interaction_hint.visible = false
+	_interaction_hint.z_index = 220
+	_interaction_hint.add_theme_stylebox_override("panel", _make_interaction_hint_style())
+	add_child(_interaction_hint)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	_interaction_hint.add_child(margin)
+
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 2)
+	margin.add_child(content)
+
+	_interaction_hint_title_label = Label.new()
+	_interaction_hint_title_label.name = "InteractionHintTitle"
+	_interaction_hint_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_interaction_hint_title_label.add_theme_font_size_override("font_size", 13)
+	_interaction_hint_title_label.add_theme_color_override("font_color", Color(0.92, 0.96, 0.82, 1.0))
+	_interaction_hint_title_label.add_theme_color_override("font_outline_color", Color(0.01, 0.015, 0.012, 1.0))
+	_interaction_hint_title_label.add_theme_constant_override("outline_size", 2)
+	content.add_child(_interaction_hint_title_label)
+
+	_interaction_hint_action_label = Label.new()
+	_interaction_hint_action_label.name = "InteractionHintAction"
+	_interaction_hint_action_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_interaction_hint_action_label.add_theme_font_size_override("font_size", 12)
+	_interaction_hint_action_label.add_theme_color_override("font_color", Color(0.70, 0.90, 1.0, 1.0))
+	_interaction_hint_action_label.add_theme_color_override("font_outline_color", Color(0.01, 0.015, 0.012, 1.0))
+	_interaction_hint_action_label.add_theme_constant_override("outline_size", 2)
+	content.add_child(_interaction_hint_action_label)
+
+
+func _make_interaction_hint_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.015, 0.028, 0.034, 0.92)
+	style.border_color = _aura_color.lerp(Color.WHITE, 0.18)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(7)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.52)
+	style.shadow_size = 8
+	style.shadow_offset = Vector2(0.0, 3.0)
+	return style
+
+
+func _set_pointer_hovered(hovered: bool) -> void:
+	if _pointer_hovered == hovered:
+		return
+	_pointer_hovered = hovered
+	_refresh_interaction_hint()
+	queue_redraw()
+
+
+func _refresh_interaction_cursor() -> void:
+	if _interaction_area == null:
+		return
+	if is_destroyed():
+		_interaction_area.mouse_default_cursor_shape = Control.CURSOR_ARROW
+		return
+	_interaction_area.mouse_default_cursor_shape = (
+		Control.CURSOR_FORBIDDEN if _battle_mode else Control.CURSOR_MOVE
+	)
+
+
+func _refresh_interaction_hint() -> void:
+	if _interaction_hint == null:
+		return
+	var visual_size := _get_visual_size()
+	_interaction_hint.position = Vector2(
+		-INTERACTION_HINT_SIZE.x * 0.5,
+		-visual_size.y * 0.5 - INTERACTION_HINT_SIZE.y - INTERACTION_HINT_GAP
+	)
+	var should_show := not is_destroyed() and (_pointer_hovered or _dragging)
+	_interaction_hint.visible = should_show
+	if not should_show:
+		return
+	var localized := TurretCatalog.localize(turret_data, _language)
+	var tower_name := String(localized.get("name", "Tower" if _language == "en" else "防御塔"))
+	var durability_text := (
+		"HP %d / %d" if _language == "en" else "耐久 %d / %d"
+	) % [roundi(_durability), roundi(_max_durability)]
+	_interaction_hint_title_label.text = "%s  ·  %s" % [tower_name, durability_text]
+	if _battle_mode:
+		_interaction_hint_action_label.text = (
+			"HOLDING LINE · LOCKED IN BATTLE"
+			if _language == "en"
+			else "防线就位 · 战斗中不可移动"
+		)
+	else:
+		_interaction_hint_action_label.text = (
+			"LEFT DRAG · RIGHT CLICK RECALL"
+			if _language == "en"
+			else "左键拖动 · 右键收回"
+		)
+	_interaction_hint_action_label.add_theme_color_override(
+		"font_color",
+		Color(1.0, 0.82, 0.48, 1.0) if _battle_mode else Color(0.70, 0.90, 1.0, 1.0)
+	)
 
 
 func _refresh_input_proxy(force := false) -> void:
@@ -445,15 +581,21 @@ func _on_gui_input(event: InputEvent) -> void:
 	var mouse_event := event as InputEventMouseButton
 	if mouse_event.button_index == MOUSE_BUTTON_LEFT:
 		if mouse_event.pressed:
-			_begin_drag()
+			if _battle_mode:
+				_set_pointer_hovered(true)
+			else:
+				_begin_drag()
 		elif _dragging:
 			_finish_drag()
 		_interaction_area.accept_event()
-	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT and not _battle_mode:
-		if mouse_event.pressed:
-			_recall_pointer_held = true
-		elif _recall_pointer_held:
-			_finish_recall()
+	elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+		if _battle_mode:
+			_set_pointer_hovered(true)
+		else:
+			if mouse_event.pressed:
+				_recall_pointer_held = true
+			elif _recall_pointer_held:
+				_finish_recall()
 		_interaction_area.accept_event()
 
 
@@ -463,6 +605,7 @@ func _begin_drag() -> void:
 	_dragging = true
 	_recall_pointer_held = false
 	_grab_offset = position - _get_pointer_position()
+	_refresh_interaction_hint()
 	grabbed_changed.emit(self, true)
 
 
@@ -477,6 +620,7 @@ func _finish_drag() -> void:
 	if not _dragging:
 		return
 	_dragging = false
+	_refresh_interaction_hint()
 	grabbed_changed.emit(self, false)
 	_refresh_input_proxy(true)
 

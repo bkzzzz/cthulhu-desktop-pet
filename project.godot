@@ -28,17 +28,13 @@ config/icon="res://assets/ui/starterUi/启动icon.png"
 
 [display]
 
-# Start windowed until Main has queried a valid work area and configured the
-# desktop layer.  A maximized borderless transparent root can otherwise cover
-# the screen with an unresponsive frame while Windows is re-enumerating GPUs
-# or displays.
-window/size/mode=0
 window/size/resizable=false
 window/size/borderless=true
 window/size/transparent=true
 window/subwindows/embed_subwindows=false
 window/stretch/aspect="ignore"
 window/per_pixel_transparency/allowed=true
+#StartwindoweduntilMainhasqueriedavalidworkareaandconfiguredthe#desktoplayer.Amaximizedborderlesstransparentrootcanotherwisecover#thescreenwithanunresponsiveframewhileWindowsisre-enumeratingGPUs#ordisplays.window/size/mode=0
 
 [rendering]
 

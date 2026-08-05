@@ -133,6 +133,8 @@ func _spawn_desktop_turret(turret_id: String, start_position := Vector2(-1.0, -1
 		spawn_position = _get_default_turret_position(turret_id)
 	var actor := TurretActor.new()
 	actor.setup(turret_id, spawn_position, _pet_window_size)
+	if actor.has_method("set_language"):
+		actor.call("set_language", _language)
 	var maximum_health := maxf(1.0, float(definition.get("max_health", 1.0)))
 	actor.set_durability(
 		clampf(float(state.get("current_hp", maximum_health)), 0.0, maximum_health),

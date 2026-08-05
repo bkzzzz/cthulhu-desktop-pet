@@ -23,6 +23,7 @@ func _verify() -> void:
 	var failures: Array[String] = []
 	await _verify_tab_samples(shop, "Offering", OfferingCatalog.KIND, TurretCatalog.KIND, failures)
 	await _verify_tab_samples(shop, "Turret", TurretCatalog.KIND, OfferingCatalog.KIND, failures)
+	await _verify_tab_samples(shop, "Furniture", ShopWindow.FURNITURE_KIND, OfferingCatalog.KIND, failures)
 	if failures.is_empty():
 		print("PASS: shop bookmark edge interaction")
 		quit(0)
