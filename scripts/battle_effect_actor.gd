@@ -38,26 +38,6 @@ const PROJECTILE_CONFIG := {
 		"launch_frames": 5,
 		"launch_fps": 15.0,
 		"launch_scale": 0.64
-	},
-	# The furniture sprites are static; their identities come alive through four
-	# distinct projectile signatures rather than fake sheet-frame animation.
-	"turret1": {
-		"sheet": SUPER_PIXEL_PROJECTILE_ROOT + "pj2_helix_beam_large_blue/spritesheet.png",
-		"frame_size": Vector2(64.0, 32.0), "frames": 30, "fps": 18.0, "scale": 0.68, "speed": 910.0
-	},
-	"turret2": {
-		"sheet": SUPER_PIXEL_PROJECTILE_ROOT + "pj2_lightning_orb_large_violet/spritesheet.png",
-		"frame_size": Vector2(64.0, 48.0), "frames": 8, "fps": 19.0, "scale": 0.74, "speed": 980.0
-	},
-	"turret3": {
-		"sheet": SUPER_PIXEL_PROJECTILE_ROOT + "pj2_shuriken_large_yellow/spritesheet.png",
-		"frame_size": Vector2(32.0, 32.0), "frames": 8, "fps": 17.0, "scale": 0.88, "speed": 1_060.0
-	},
-	"turret4": {
-		"sheet": SUPER_PIXEL_PROJECTILE_ROOT + "pj2_meteor_large_violet/spritesheet.png",
-		"frame_size": Vector2(96.0, 64.0), "frames": 8, "fps": 18.0, "scale": 0.58, "speed": 1_100.0,
-		"launch_sheet": SUPER_PIXEL_PROJECTILE_ROOT + "pj2_ground_shockwave_large_violet/spritesheet.png",
-		"launch_frame_size": Vector2(128.0, 64.0), "launch_frames": 5, "launch_fps": 16.0, "launch_scale": 0.54
 	}
 }
 const EXPLOSION_CONFIG := [

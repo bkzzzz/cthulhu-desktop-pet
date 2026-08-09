@@ -503,8 +503,8 @@ func _sync_shop_state() -> void:
 		_shop_window.call("set_coin_balance", _gold_coins)
 	if _shop_window.has_method("set_owned_counts"):
 		_shop_window.call("set_owned_counts", _shop_owned_counts)
-	if _shop_window.has_method("set_turret_states"):
-		_shop_window.call("set_turret_states", _turret_states)
+	if _shop_window.has_method("set_item_states"):
+		_shop_window.call("set_item_states", _item_states)
 
 func _sync_gacha_state() -> void:
 	if _gacha_window == null:

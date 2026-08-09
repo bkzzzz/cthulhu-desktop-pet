@@ -21,9 +21,8 @@ func _get_dynamic_shop_goods() -> Array[Dictionary]:
 		OfferingCatalog.make_shop_goods(),
 		_get_potential_coin_rate()
 	)
-	# Food prices intentionally follow the production curve. Turrets are durable
-	# mid-game purchases, so their authored prices must remain fixed.
-	goods.append_array(TurretCatalog.make_shop_goods())
+	# Desktop items have fixed authored prices and are reusable after purchase.
+	goods.append_array(DesktopItemCatalog.make_shop_goods())
 	return goods
 
 

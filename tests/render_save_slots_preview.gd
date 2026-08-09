@@ -23,7 +23,7 @@ func _render_preview() -> void:
 		},
 		{
 			"id": "slot_000002",
-			"display_name": "Tower Defense Test",
+			"display_name": "Desktop Items Test",
 			"has_data": true,
 			"is_active": false,
 			"playtime_seconds": 2_940.0

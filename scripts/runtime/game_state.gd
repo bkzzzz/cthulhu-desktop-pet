@@ -3,7 +3,7 @@ extends RefCounted
 const NewsFeed = preload("res://scripts/domain/news_feed.gd")
 
 var _pets: Array[Node2D] = []
-var _turrets: Array[Node2D] = []
+var _desktop_items: Array[Node2D] = []
 var _believers: Array[Node2D] = []
 var _coin_drops: Array[Node2D] = []
 var _hovered_pet: Node2D
@@ -54,10 +54,6 @@ var _battle_pet_target_x := {}
 var _battle_pet_formed := {}
 var _battle_pet_enemy_targets := {}
 var _battle_pet5_rolls := {}
-var _battle_turret_health := {}
-var _battle_turret_max_health := {}
-var _battle_turret_attack_at := {}
-var _battle_turret_enemy_targets := {}
 var _battle_save_pending := false
 var _battle_defeated_enemies := 0
 var _battle_dropped_coin_budget := 0
@@ -79,7 +75,7 @@ var _completion_window: Window
 var _follower_count := 0.0
 var _last_reported_follower_count := -1
 var _shop_owned_counts := {}
-var _turret_states := {}
+var _item_states := {}
 var _side_drawer: Node
 var _lifetime_faith := 0.0
 var _gold_coins := 0

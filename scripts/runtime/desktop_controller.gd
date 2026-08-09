@@ -48,22 +48,16 @@ func _create_desktop_pets() -> void:
 		_spawn_desktop_pet(pet_id, start_x)
 
 
-func _create_desktop_turrets() -> void:
-	for turret_id_value in TurretCatalog.TURRET_IDS:
-		var turret_id := String(turret_id_value)
-		var state_value: Variant = _turret_states.get(turret_id, {})
+func _create_desktop_items() -> void:
+	for item_id_value in DesktopItemCatalog.ITEM_IDS:
+		var item_id := String(item_id_value)
+		var state_value: Variant = _item_states.get(item_id, {})
 		if not state_value is Dictionary:
 			continue
 		var state: Dictionary = state_value
 		if not bool(state.get("owned", false)) or not bool(state.get("deployed", false)):
 			continue
-		_spawn_desktop_turret(
-			turret_id,
-			Vector2(
-				float(state.get("position_x", -1.0)),
-				float(state.get("position_y", -1.0))
-			)
-		)
+		_spawn_desktop_item(item_id, float(state.get("position_x", -1.0)))
 
 func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	if pet_id.is_empty():
@@ -112,137 +106,123 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	return actor
 
 
-func _spawn_desktop_turret(turret_id: String, start_position := Vector2(-1.0, -1.0)) -> Node2D:
-	var definition := TurretCatalog.get_definition(turret_id)
-	# Invalid IDs must never create a phantom click-through input window on the
-	# desktop.
-	if turret_id.is_empty() or definition.is_empty():
+func _spawn_desktop_item(item_id: String, start_x := -1.0) -> Node2D:
+	var definition := DesktopItemCatalog.get_definition(item_id)
+	# Invalid IDs must never create a phantom click-through input window on the desktop.
+	if item_id.is_empty() or definition.is_empty():
 		return null
-	var existing := _get_desktop_turret(turret_id)
+	var existing := _get_desktop_item(item_id)
 	if existing != null:
 		return existing
-	var state_value: Variant = _turret_states.get(turret_id, {})
+	var state_value: Variant = _item_states.get(item_id, {})
 	if not state_value is Dictionary:
 		return null
 	var state: Dictionary = state_value
 	if not bool(state.get("owned", false)):
 		return null
 
-	var spawn_position := start_position
-	if spawn_position.x < 0.0 or spawn_position.y < 0.0:
-		spawn_position = _get_default_turret_position(turret_id)
-	var actor := TurretActor.new()
-	actor.setup(turret_id, spawn_position, _pet_window_size)
+	var spawn_x := start_x
+	if spawn_x < 0.0:
+		spawn_x = _get_default_item_position(item_id)
+	var actor := DesktopItemActor.new()
+	actor.setup(item_id, Vector2(spawn_x, float(_pet_window_size.y)), _pet_window_size)
 	if actor.has_method("set_language"):
 		actor.call("set_language", _language)
-	var maximum_health := maxf(1.0, float(definition.get("max_health", 1.0)))
-	actor.set_durability(
-		clampf(float(state.get("current_hp", maximum_health)), 0.0, maximum_health),
-		maximum_health
-	)
-	actor.grabbed_changed.connect(_on_turret_grabbed_changed)
-	actor.recall_requested.connect(_on_turret_recall_requested)
+	actor.grabbed_changed.connect(_on_item_grabbed_changed)
+	actor.recall_requested.connect(_on_item_recall_requested)
 	add_child(actor)
-	_turrets.append(actor)
-	if _battle_active and actor.has_method("set_battle_mode"):
-		actor.call("set_battle_mode", true)
+	_desktop_items.append(actor)
 	return actor
 
 
-func _get_desktop_turret(turret_id: String) -> Node2D:
-	for turret in _turrets:
-		if not is_instance_valid(turret):
+func _get_desktop_item(item_id: String) -> Node2D:
+	for item in _desktop_items:
+		if not is_instance_valid(item):
 			continue
-		if turret.has_method("get_turret_id") and String(turret.call("get_turret_id")) == turret_id:
-			return turret
+		if item.has_method("get_item_id") and String(item.call("get_item_id")) == item_id:
+			return item
 	return null
 
 
-func _get_default_turret_position(turret_id: String) -> Vector2:
-	var turret_index := maxi(0, TurretCatalog.TURRET_IDS.find(turret_id))
-	var lane_fraction := 0.18 + float(turret_index) * 0.21
-	return Vector2(
-		float(_pet_window_size.x) * clampf(lane_fraction, 0.12, 0.84),
-		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
+func _get_default_item_position(item_id: String) -> float:
+	var definition := DesktopItemCatalog.get_definition(item_id)
+	return float(_pet_window_size.x) * clampf(
+		float(definition.get("default_x_fraction", 0.5)),
+		0.0,
+		1.0
 	)
 
 
-func _deploy_turret(turret_id: String) -> bool:
-	if _battle_active or turret_id.is_empty():
+func _deploy_item(item_id: String) -> bool:
+	if item_id.is_empty():
 		return false
-	var state_value: Variant = _turret_states.get(turret_id, {})
+	var state_value: Variant = _item_states.get(item_id, {})
 	if not state_value is Dictionary:
 		return false
 	var state: Dictionary = state_value
 	if not bool(state.get("owned", false)):
 		return false
-	if _get_desktop_turret(turret_id) != null:
+	if _get_desktop_item(item_id) != null:
 		return true
 	state["deployed"] = true
-	_turret_states[turret_id] = state
-	var actor := _spawn_desktop_turret(
-		turret_id,
-		Vector2(float(state.get("position_x", -1.0)), float(state.get("position_y", -1.0)))
-	)
+	_item_states[item_id] = state
+	var actor := _spawn_desktop_item(item_id, float(state.get("position_x", -1.0)))
 	if actor == null:
 		state["deployed"] = false
-		_turret_states[turret_id] = state
+		_item_states[item_id] = state
 		return false
-	_update_turret_state_from_actor(actor)
+	_update_item_state_from_actor(actor)
 	return true
 
 
-func _recall_turret(turret_id: String) -> bool:
-	if _battle_active or turret_id.is_empty():
+func _recall_item(item_id: String) -> bool:
+	if item_id.is_empty():
 		return false
-	var actor := _get_desktop_turret(turret_id)
+	var actor := _get_desktop_item(item_id)
 	if actor == null:
 		return false
-	_update_turret_state_from_actor(actor)
-	var state_value: Variant = _turret_states.get(turret_id, {})
+	_update_item_state_from_actor(actor)
+	var state_value: Variant = _item_states.get(item_id, {})
 	if state_value is Dictionary:
 		var state: Dictionary = state_value
 		state["deployed"] = false
-		_turret_states[turret_id] = state
-	_turrets.erase(actor)
+		_item_states[item_id] = state
+	_desktop_items.erase(actor)
 	actor.queue_free()
 	return true
 
 
-func _on_turret_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
+func _on_item_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
 	if actor == null or not is_instance_valid(actor):
 		return
 	if not grabbed:
-		_update_turret_state_from_actor(actor)
+		_update_item_state_from_actor(actor)
 		_host._sync_shop_state()
 		_host._request_save()
 
 
-func _on_turret_recall_requested(actor: Node2D) -> void:
-	if actor == null or not is_instance_valid(actor) or _battle_active:
+func _on_item_recall_requested(actor: Node2D) -> void:
+	if actor == null or not is_instance_valid(actor):
 		return
-	var turret_id := String(actor.call("get_turret_id")) if actor.has_method("get_turret_id") else ""
-	if turret_id.is_empty() or not _recall_turret(turret_id):
+	var item_id := String(actor.call("get_item_id")) if actor.has_method("get_item_id") else ""
+	if item_id.is_empty() or not _recall_item(item_id):
 		return
 	_host._sync_shop_state()
 	_host._request_save()
 
 
-func _update_turret_state_from_actor(actor: Node2D) -> void:
-	if actor == null or not is_instance_valid(actor) or not actor.has_method("get_turret_id"):
+func _update_item_state_from_actor(actor: Node2D) -> void:
+	if actor == null or not is_instance_valid(actor) or not actor.has_method("get_item_id"):
 		return
-	var turret_id := String(actor.call("get_turret_id"))
-	var state_value: Variant = _turret_states.get(turret_id, {})
+	var item_id := String(actor.call("get_item_id"))
+	var state_value: Variant = _item_states.get(item_id, {})
 	if not state_value is Dictionary:
 		return
 	var state: Dictionary = state_value
 	state["owned"] = true
 	state["deployed"] = true
 	state["position_x"] = actor.position.x
-	state["position_y"] = actor.position.y
-	if actor.has_method("get_durability"):
-		state["current_hp"] = maxf(0.0, float(actor.call("get_durability")))
-	_turret_states[turret_id] = state
+	_item_states[item_id] = state
 
 func _get_next_pet_start_x() -> float:
 	var min_x = _get_pet_stage_min_x()
@@ -302,9 +282,9 @@ func _update_actor_window_bounds() -> void:
 				restrict_activity
 			)
 
-	for turret in _turrets:
-		if is_instance_valid(turret) and turret.has_method("set_window_bounds"):
-			turret.call("set_window_bounds", _pet_window_size)
+	for item in _desktop_items:
+		if is_instance_valid(item) and item.has_method("set_window_bounds"):
+			item.call("set_window_bounds", _pet_window_size)
 
 	for believer in _believers:
 		if is_instance_valid(believer) and believer.has_method("set_window_size"):
@@ -353,9 +333,9 @@ func _cancel_all_pet_pointer_captures() -> void:
 	for pet in _pets:
 		if is_instance_valid(pet) and pet.has_method("cancel_pointer_capture"):
 			pet.call("cancel_pointer_capture")
-	for turret in _turrets:
-		if is_instance_valid(turret) and turret.has_method("cancel_pointer_capture"):
-			turret.call("cancel_pointer_capture")
+	for item in _desktop_items:
+		if is_instance_valid(item) and item.has_method("cancel_pointer_capture"):
+			item.call("cancel_pointer_capture")
 
 func _restore_desktop_input() -> void:
 	if not is_inside_tree():
@@ -376,9 +356,9 @@ func _has_captured_pet_pointer() -> bool:
 		if is_instance_valid(pet) and pet.has_method("is_pointer_captured"):
 			if bool(pet.call("is_pointer_captured")):
 				return true
-	for turret in _turrets:
-		if is_instance_valid(turret) and turret.has_method("is_pointer_captured"):
-			if bool(turret.call("is_pointer_captured")):
+	for item in _desktop_items:
+		if is_instance_valid(item) and item.has_method("is_pointer_captured"):
+			if bool(item.call("is_pointer_captured")):
 				return true
 	return false
 

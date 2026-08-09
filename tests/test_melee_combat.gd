@@ -8,7 +8,6 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_battle_facing_is_target_stable(failures)
 	_test_melee_chases_while_ranged_holds(failures)
-	_test_turrets_intercept_enemies_from_both_sides(failures)
 	_test_battle_pet_safe_horizontal_bounds(failures)
 	_test_freed_target_lock_recovers(failures)
 	_test_enemy_entry_can_take_damage(failures)
@@ -100,38 +99,6 @@ static func _test_melee_chases_while_ranged_holds(failures: Array[String]) -> vo
 	main.call("_update_battle_pet_formation", 0.1)
 	if melee_sprite != null and melee_sprite.animation != "attack":
 		failures.append("melee pursuit must not cancel an authored attack animation on its next frame")
-	main.free()
-
-
-static func _test_turrets_intercept_enemies_from_both_sides(failures: Array[String]) -> void:
-	var main := Main.new()
-	var left_enemy := EnemyActor.new()
-	left_enemy.setup("villager1", Vector2(-90.0, 704.0), 704.0, 1.0, 180.0, 1000.0)
-	var left_tower := Node2D.new()
-	left_tower.position = Vector2(360.0, 0.0)
-	var left_pet := Node2D.new()
-	left_pet.position = Vector2(700.0, 704.0)
-	main.add_child(left_enemy)
-	main.add_child(left_tower)
-	main.add_child(left_pet)
-	(main.get("_battle_turret_health") as Dictionary)[str(left_tower.get_instance_id())] = 10.0
-	var left_candidates: Array[Node2D] = [left_tower, left_pet]
-	if main.call("_get_battle_target_for_enemy", left_enemy, left_candidates) != left_tower:
-		failures.append("a left-side enemy must attack a tower that blocks its path to a pet")
-
-	var right_enemy := EnemyActor.new()
-	right_enemy.setup("soldier2", Vector2(1090.0, 704.0), 704.0, 1.0, 820.0, 1000.0)
-	var right_tower := Node2D.new()
-	right_tower.position = Vector2(650.0, 0.0)
-	var right_pet := Node2D.new()
-	right_pet.position = Vector2(300.0, 704.0)
-	main.add_child(right_enemy)
-	main.add_child(right_tower)
-	main.add_child(right_pet)
-	(main.get("_battle_turret_health") as Dictionary)[str(right_tower.get_instance_id())] = 10.0
-	var right_candidates: Array[Node2D] = [right_tower, right_pet]
-	if main.call("_get_battle_target_for_enemy", right_enemy, right_candidates) != right_tower:
-		failures.append("a right-side enemy must attack a tower that blocks its path to a pet")
 	main.free()
 
 

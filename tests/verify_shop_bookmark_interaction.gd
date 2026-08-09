@@ -1,7 +1,7 @@
 extends SceneTree
 
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
-const TurretCatalog = preload("res://scripts/domain/turret_catalog.gd")
+const DesktopItemCatalog = preload("res://scripts/domain/desktop_item_catalog.gd")
 const ShopWindow = preload("res://scripts/shop_window.gd")
 
 
@@ -14,16 +14,15 @@ func _verify() -> void:
 	root.add_child(shop)
 	shop.setup()
 	var goods := OfferingCatalog.make_shop_goods()
-	goods.append_array(TurretCatalog.make_shop_goods())
+	goods.append_array(DesktopItemCatalog.make_shop_goods())
 	shop.set_goods(goods)
 	shop.visible = true
 	await process_frame
 	await process_frame
 
 	var failures: Array[String] = []
-	await _verify_tab_samples(shop, "Offering", OfferingCatalog.KIND, TurretCatalog.KIND, failures)
-	await _verify_tab_samples(shop, "Turret", TurretCatalog.KIND, OfferingCatalog.KIND, failures)
-	await _verify_tab_samples(shop, "Furniture", ShopWindow.FURNITURE_KIND, OfferingCatalog.KIND, failures)
+	await _verify_tab_samples(shop, OfferingCatalog.KIND, ShopWindow.ITEM_KIND, failures)
+	await _verify_tab_samples(shop, ShopWindow.ITEM_KIND, OfferingCatalog.KIND, failures)
 	if failures.is_empty():
 		print("PASS: shop bookmark edge interaction")
 		quit(0)
@@ -35,16 +34,16 @@ func _verify() -> void:
 
 func _verify_tab_samples(
 	shop: Window,
-	tab_name: String,
 	expected_category: String,
 	reset_category: String,
 	failures: Array[String]
 ) -> void:
-	var hit_area := shop.get_node_or_null(
-		"ShopRoot/ShopCategoryTabHitAreas/%sCategoryTabHitArea" % tab_name
-	) as Control
+	var category_buttons: Dictionary = shop.get("_category_buttons")
+	var visual_tab := category_buttons.get(expected_category) as TextureButton
+	var hit_layer := shop.get_node_or_null("ShopRoot/ShopCategoryTabHitAreas") as Control
+	var hit_area := hit_layer.get_node_or_null("%sHitArea" % visual_tab.name) as Control if hit_layer != null and visual_tab != null else null
 	if hit_area == null:
-		failures.append("missing %s bookmark hit area" % tab_name)
+		failures.append("missing %s bookmark hit area" % expected_category)
 		return
 	var hit_rect := Rect2(hit_area.position, hit_area.size)
 	for y_factor in [0.06, 0.5, 0.94]:
@@ -55,7 +54,7 @@ func _verify_tab_samples(
 			_send_click(shop, point)
 			await process_frame
 			if String(shop.get("_active_category")) != expected_category:
-				failures.append("%s bookmark did not switch category at edge sample %s" % [tab_name, point])
+				failures.append("%s bookmark did not switch category at edge sample %s" % [expected_category, point])
 
 
 func _send_click(window: Window, local_position: Vector2) -> void:

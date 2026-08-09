@@ -124,7 +124,9 @@ func _load_game() -> void:
 		save.get_value("offerings", "active_buffs", {})
 	)
 	_shop_owned_counts = _sanitize_owned_counts(save.get_value("shop", "owned_counts", {}))
-	_turret_states = _sanitize_turret_states(save.get_value("turrets", "states", {}))
+	# Removed combat-object save data is intentionally ignored. Desktop items use
+	# their own namespace and are never inferred from an older save.
+	_item_states = _sanitize_item_states(save.get_value("items", "states", {}))
 	if loaded_save_version >= PET_UNLOCK_SAVE_VERSION:
 		_gacha_draw_count = clampi(int(save.get_value("gacha", "draw_count", 0)), 0, 1000000)
 		_gacha_pity_count = clampi(
@@ -245,7 +247,7 @@ func _save_game() -> Error:
 	save.set_value("pets", "unlocked_ids", _unlocked_pet_ids.duplicate())
 	save.set_value("pets", "deployed_ids", _deployed_pet_ids.duplicate())
 	save.set_value("shop", "owned_counts", _shop_owned_counts.duplicate(true))
-	save.set_value("turrets", "states", _turret_states.duplicate(true))
+	save.set_value("items", "states", _item_states.duplicate(true))
 	save.set_value("gacha", "draw_count", _gacha_draw_count)
 	save.set_value("gacha", "pity_count", _gacha_pity_count)
 	save.set_value("gacha", "history", _gacha_history.duplicate(true))
@@ -471,40 +473,28 @@ func _sanitize_owned_counts(raw_value: Variant) -> Dictionary:
 	return sanitized
 
 
-func _sanitize_turret_states(raw_value: Variant) -> Dictionary:
+func _sanitize_item_states(raw_value: Variant) -> Dictionary:
 	var sanitized := {}
 	if not raw_value is Dictionary:
 		return sanitized
 	var raw_states: Dictionary = raw_value
-	for turret_id_value in TurretCatalog.TURRET_IDS:
-		var turret_id := String(turret_id_value)
-		var raw_state_value: Variant = raw_states.get(turret_id, {})
+	for item_id_value in DesktopItemCatalog.ITEM_IDS:
+		var item_id := String(item_id_value)
+		var raw_state_value: Variant = raw_states.get(item_id, {})
 		if not raw_state_value is Dictionary:
 			continue
 		var raw_state: Dictionary = raw_state_value
 		# Ownership is an explicit purchase flag. A malformed/missing field must
-		# not silently mint a free permanent tower on load.
+		# not silently mint a free reusable desktop item on load.
 		if not bool(raw_state.get("owned", false)):
 			continue
-		var definition := TurretCatalog.get_definition(turret_id)
+		var definition := DesktopItemCatalog.get_definition(item_id)
 		if definition.is_empty():
 			continue
-		var maximum_health := maxf(1.0, float(definition.get("max_health", 1.0)))
-		var current_health := clampf(
-			float(raw_state.get("current_hp", maximum_health)),
-			0.0,
-			maximum_health
-		)
-		# A destroyed tower deliberately leaves no owned state: it must be bought
-		# again before it can return to the desktop.
-		if current_health <= 0.0:
-			continue
-		sanitized[turret_id] = {
+		sanitized[item_id] = {
 			"owned": true,
 			"deployed": bool(raw_state.get("deployed", false)),
-			"current_hp": current_health,
-			"position_x": clampf(float(raw_state.get("position_x", -1.0)), -10000.0, 10000.0),
-			"position_y": clampf(float(raw_state.get("position_y", -1.0)), -10000.0, 10000.0)
+			"position_x": clampf(float(raw_state.get("position_x", -1.0)), -10000.0, 10000.0)
 		}
 	return sanitized
 

@@ -67,7 +67,7 @@ func _ready() -> void:
 	_apply_offline_progress()
 	_initialize_news_feed()
 	_create_desktop_pets()
-	_create_desktop_turrets()
+	_create_desktop_items()
 	_create_news_broadcast()
 	_create_pilgrimage_broadcast()
 	_create_offering_input_window()
@@ -181,23 +181,23 @@ func _configure_pet_window() -> void:
 func _create_desktop_pets() -> void:
 	_desktop_controller._create_desktop_pets()
 
-func _create_desktop_turrets() -> void:
-	_desktop_controller._create_desktop_turrets()
+func _create_desktop_items() -> void:
+	_desktop_controller._create_desktop_items()
 
 func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	return _desktop_controller._spawn_desktop_pet(pet_id, start_x)
 
-func _spawn_desktop_turret(turret_id: String, start_position := Vector2(-1.0, -1.0)) -> Node2D:
-	return _desktop_controller._spawn_desktop_turret(turret_id, start_position)
+func _spawn_desktop_item(item_id: String, start_x := -1.0) -> Node2D:
+	return _desktop_controller._spawn_desktop_item(item_id, start_x)
 
-func _deploy_turret(turret_id: String) -> bool:
-	return _desktop_controller._deploy_turret(turret_id)
+func _deploy_item(item_id: String) -> bool:
+	return _desktop_controller._deploy_item(item_id)
 
-func _recall_turret(turret_id: String) -> bool:
-	return _desktop_controller._recall_turret(turret_id)
+func _recall_item(item_id: String) -> bool:
+	return _desktop_controller._recall_item(item_id)
 
-func _get_desktop_turret(turret_id: String) -> Node2D:
-	return _desktop_controller._get_desktop_turret(turret_id)
+func _get_desktop_item(item_id: String) -> Node2D:
+	return _desktop_controller._get_desktop_item(item_id)
 
 func _get_next_pet_start_x() -> float:
 	return _desktop_controller._get_next_pet_start_x()

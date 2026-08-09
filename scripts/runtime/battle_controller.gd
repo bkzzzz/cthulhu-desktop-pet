@@ -59,12 +59,6 @@ func _warm_battle_assets(schedule: Array, generation := -1) -> void:
 		BattleEffectActor.warm_up_pet(String(pet_id))
 		if is_inside_tree():
 			await get_tree().process_frame
-	for turret_id_value in TurretCatalog.TURRET_IDS:
-		if generation != _battle_warm_generation:
-			return
-		BattleEffectActor.warm_up_pet(String(turret_id_value))
-		if is_inside_tree():
-			await get_tree().process_frame
 	for tier in BattleEffectActor.EXPLOSION_CONFIG.size():
 		if generation != _battle_warm_generation:
 			return
@@ -345,10 +339,6 @@ func _start_battle() -> void:
 	_battle_pet_formed.clear()
 	_battle_pet_enemy_targets.clear()
 	_battle_pet5_rolls.clear()
-	_battle_turret_health.clear()
-	_battle_turret_max_health.clear()
-	_battle_turret_attack_at.clear()
-	_battle_turret_enemy_targets.clear()
 	_battle_save_pending = false
 	_battle_defeated_enemies = 0
 	_battle_dropped_coin_budget = 0
@@ -388,31 +378,6 @@ func _start_battle() -> void:
 		if pet.has_method("set_battle_mode"):
 			pet.call("set_battle_mode", true)
 		_attach_battle_health_bar(pet, max_health, max_health)
-
-	for turret in _turrets:
-		if not is_instance_valid(turret) or turret.is_queued_for_deletion():
-			continue
-		var turret_id := String(turret.call("get_turret_id")) if turret.has_method("get_turret_id") else ""
-		var turret_definition := TurretCatalog.get_definition(turret_id)
-		if turret_definition.is_empty():
-			continue
-		var turret_key := str(turret.get_instance_id())
-		var maximum_durability := maxf(1.0, float(turret_definition.get("max_health", 1.0)))
-		var current_durability := maximum_durability
-		if turret.has_method("get_durability"):
-			current_durability = clampf(
-				float(turret.call("get_durability")),
-				0.0,
-				maximum_durability
-			)
-		if current_durability <= 0.0:
-			continue
-		_battle_turret_health[turret_key] = current_durability
-		_battle_turret_max_health[turret_key] = maximum_durability
-		_battle_turret_attack_at[turret_key] = _battle_started_at + _rng.randf_range(0.22, 0.70)
-		if turret.has_method("set_battle_mode"):
-			turret.call("set_battle_mode", true)
-		_attach_battle_health_bar(turret, current_durability, maximum_durability)
 
 	_host._show_pilgrimage_broadcast(
 		"BATTLE EVENT" if _language == "en" else "战斗事件",
@@ -531,41 +496,6 @@ func _update_battle(delta: float) -> void:
 				float(pet.call("get_battle_attack_duration")) + 0.05
 			)
 		_battle_pet_attack_at[actor_key] = now + next_attack_delay
-
-	for turret in _get_alive_battle_turrets():
-		var turret_key := str(turret.get_instance_id())
-		if turret.has_method("is_pointer_captured") and bool(turret.call("is_pointer_captured")):
-			continue
-		if turret.has_method("is_battle_ready") and not bool(turret.call("is_battle_ready")):
-			continue
-		if _battle_enemies.is_empty() or now < float(_battle_turret_attack_at.get(turret_key, now)):
-			continue
-		var turret_target := _get_nearest_battle_enemy(turret)
-		if turret_target == null:
-			continue
-		var turret_range := float(turret.call("get_attack_range")) if turret.has_method("get_attack_range") else 720.0
-		if turret.position.distance_to(turret_target.position) > turret_range:
-			_battle_turret_attack_at[turret_key] = now + 0.16
-			continue
-		var turret_direction := turret_target.position.x - turret.position.x
-		if is_zero_approx(turret_direction):
-			turret_direction = -1.0
-		if turret.has_method("play_battle_attack_toward"):
-			turret.call("play_battle_attack_toward", signf(turret_direction))
-		var turret_id := String(turret.call("get_turret_id")) if turret.has_method("get_turret_id") else "turret1"
-		var turret_damage := float(turret.call("get_attack_damage")) if turret.has_method("get_attack_damage") else 1.0
-		var turret_cooldown := float(turret.call("get_attack_cooldown")) if turret.has_method("get_attack_cooldown") else 1.0
-		var turret_visual := String(turret.call("get_projectile_visual")) if turret.has_method("get_projectile_visual") else turret_id
-		_spawn_turret_projectile(
-			turret,
-			turret_visual,
-			turret_target,
-			signf(turret_direction),
-			maxf(0.0, turret_damage),
-			10.0 + float(maxi(0, TurretCatalog.TURRET_IDS.find(turret_id))) * 3.0,
-			_get_turret_visual_power(turret_id)
-		)
-		_battle_turret_attack_at[turret_key] = now + maxf(0.12, turret_cooldown)
 
 	_update_battle_status(now)
 	if _battle_next_wave_index >= _battle_wave_schedule.size() and _battle_enemies.is_empty():
@@ -795,50 +725,6 @@ func _spawn_pet_projectile(
 	_battle_effects.append(effect)
 
 
-func _spawn_turret_projectile(
-	turret: Node2D,
-	projectile_visual: String,
-	target: Node2D,
-	direction: float,
-	damage: float,
-	knockback: float,
-	visual_power: float
-) -> void:
-	if (
-		turret == null
-		or not is_instance_valid(turret)
-		or target == null
-		or not is_instance_valid(target)
-		or _battle_effects.size() >= BATTLE_EFFECT_LIMIT
-	):
-		return
-	var start_position := turret.position + Vector2(
-		(-1.0 if direction < 0.0 else 1.0) * 28.0,
-		-68.0
-	)
-	if turret.has_method("get_battle_attack_origin"):
-		start_position = turret.call("get_battle_attack_origin", direction)
-	var effect: Node2D = BattleEffectActor.new()
-	effect.set_meta("battle_runtime", true)
-	effect.call("setup_projectile", projectile_visual, start_position, target, visual_power, false)
-	effect.connect(
-		"projectile_impacted",
-		Callable(self, "_on_turret_projectile_impacted").bind(damage, knockback, visual_power)
-	)
-	effect.tree_exited.connect(_on_battle_effect_tree_exited.bind(effect))
-	add_child(effect)
-	_battle_effects.append(effect)
-
-
-func _on_turret_projectile_impacted(
-	effect: Node2D,
-	target: Node2D,
-	damage: float,
-	knockback: float,
-	visual_power: float
-) -> void:
-	_on_pet_projectile_impacted(effect, target, damage, knockback, visual_power)
-
 func _on_pet_projectile_impacted(
 	_effect: Node2D,
 	target: Node2D,
@@ -888,29 +774,8 @@ func _get_alive_battle_pets() -> Array[Node2D]:
 	return alive
 
 
-func _get_alive_battle_turrets() -> Array[Node2D]:
-	var alive: Array[Node2D] = []
-	for turret in _turrets:
-		if not is_instance_valid(turret) or turret.is_queued_for_deletion():
-			continue
-		var turret_key := str(turret.get_instance_id())
-		if not _battle_turret_health.has(turret_key):
-			continue
-		if turret.has_method("is_battle_collision_enabled") and not bool(turret.call("is_battle_collision_enabled")):
-			continue
-		alive.append(turret)
-	return alive
-
-
 func _get_alive_battle_defenders() -> Array[Node2D]:
-	var defenders := _get_alive_battle_pets()
-	defenders.append_array(_get_alive_battle_turrets())
-	return defenders
-
-
-func _get_turret_visual_power(turret_id: String) -> float:
-	var tier := maxi(0, TurretCatalog.TURRET_IDS.find(turret_id))
-	return 2.0 + float(tier) * 1.35
+	return _get_alive_battle_pets()
 
 
 func _attach_battle_health_bar(
@@ -959,65 +824,7 @@ func _get_nearest_battle_pet(enemy: Node2D, candidates: Array[Node2D]) -> Node2D
 func _get_battle_target_for_enemy(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
 	if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 		return null
-	# Towers are physical blockers. Select the first live tower between an enemy
-	# and its nearest pet, rather than letting vertical sprite offsets make an
-	# enemy path around a deployed tower.
-	var nearest_pet := _get_nearest_battle_pet_candidate(enemy, candidates)
-	var blocking_turret := _get_blocking_turret_for_enemy(enemy, nearest_pet, candidates)
-	if blocking_turret != null:
-		return blocking_turret
-	# Preserve the previous nearest-defender behavior when no deployed tower is
-	# in the route (including battles without towers).
 	return _get_nearest_battle_pet(enemy, candidates)
-
-
-func _get_nearest_battle_pet_candidate(enemy: Node2D, candidates: Array[Node2D]) -> Node2D:
-	var nearest: Node2D
-	var nearest_distance := INF
-	for defender in candidates:
-		if defender == null or not is_instance_valid(defender) or defender.is_queued_for_deletion():
-			continue
-		if _battle_turret_health.has(str(defender.get_instance_id())):
-			continue
-		var distance := defender.position.distance_squared_to(enemy.position)
-		if distance < nearest_distance:
-			nearest_distance = distance
-			nearest = defender
-	return nearest
-
-
-func _get_blocking_turret_for_enemy(
-	enemy: Node2D,
-	nearest_pet: Node2D,
-	candidates: Array[Node2D]
-) -> Node2D:
-	if nearest_pet == null or not is_instance_valid(nearest_pet):
-		return null
-	var direction := signf(nearest_pet.position.x - enemy.position.x)
-	if enemy.has_method("get_entry_side"):
-		direction = float(enemy.call("get_entry_side"))
-	if is_zero_approx(direction):
-		return null
-
-	var blocker: Node2D
-	var blocker_x := INF if direction < 0.0 else -INF
-	for defender in candidates:
-		if defender == null or not is_instance_valid(defender) or defender.is_queued_for_deletion():
-			continue
-		if not _battle_turret_health.has(str(defender.get_instance_id())):
-			continue
-		var defender_x := defender.position.x
-		var lies_in_path := (
-			defender_x >= enemy.position.x and defender_x <= nearest_pet.position.x
-			if direction < 0.0
-			else defender_x <= enemy.position.x and defender_x >= nearest_pet.position.x
-		)
-		if not lies_in_path:
-			continue
-		if (direction < 0.0 and defender_x < blocker_x) or (direction > 0.0 and defender_x > blocker_x):
-			blocker = defender
-			blocker_x = defender_x
-	return blocker
 
 
 func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
@@ -1127,38 +934,7 @@ func _damage_battle_pet(target: Node2D, damage: float, knockback: float) -> void
 
 
 func _damage_battle_defender(target: Node2D, damage: float, knockback: float) -> void:
-	if not _battle_active or target == null or not is_instance_valid(target):
-		return
-	var actor_key := str(target.get_instance_id())
-	if not _battle_turret_health.has(actor_key):
-		_damage_battle_pet(target, damage, knockback)
-		return
-	var maximum_health := float(_battle_turret_max_health.get(actor_key, 1.0))
-	var next_health := maxf(0.0, float(_battle_turret_health.get(actor_key, maximum_health)) - maxf(0.0, damage))
-	_battle_turret_health[actor_key] = next_health
-	if target.has_method("set_durability"):
-		target.call("set_durability", next_health, maximum_health)
-	_attach_battle_health_bar(target, next_health, maximum_health)
-	if target.has_method("receive_battle_hit"):
-		target.call("receive_battle_hit", knockback)
-	# Tower durability is a persisted resource, unlike a pet's battle-only HP.
-	# Mirror the runtime hit immediately so autosave/quit during a battle cannot
-	# restore a tower to its pre-battle durability.
-	var turret_id := String(target.call("get_turret_id")) if target.has_method("get_turret_id") else ""
-	if not turret_id.is_empty():
-		var state_value: Variant = _turret_states.get(turret_id, {})
-		if state_value is Dictionary:
-			var state: Dictionary = state_value
-			state["owned"] = true
-			state["deployed"] = true
-			state["current_hp"] = next_health
-			state["position_x"] = target.position.x
-			state["position_y"] = target.position.y
-			_turret_states[turret_id] = state
-	_battle_save_pending = true
-	_host._request_save()
-	if next_health <= 0.0:
-		_defeat_battle_turret(target)
+	_damage_battle_pet(target, damage, knockback)
 
 func _on_enemy_defeated(enemy: Node2D, reward_count: int) -> void:
 	if enemy == null or not is_instance_valid(enemy):
@@ -1236,27 +1012,6 @@ func _defeat_battle_pet(actor: Node2D) -> void:
 	_pet_upgrade_stats_dirty = true
 
 
-func _defeat_battle_turret(actor: Node2D) -> void:
-	if actor == null or not is_instance_valid(actor):
-		return
-	var actor_key := str(actor.get_instance_id())
-	var turret_id := String(actor.call("get_turret_id")) if actor.has_method("get_turret_id") else ""
-	_battle_turret_health.erase(actor_key)
-	_battle_turret_max_health.erase(actor_key)
-	_battle_turret_attack_at.erase(actor_key)
-	_battle_turret_enemy_targets.erase(actor_key)
-	if not turret_id.is_empty():
-		# Destruction removes ownership completely, reopening the purchase action
-		# for this tower in the shop.
-		_turret_states.erase(turret_id)
-	if actor.has_method("hide_for_battle_defeat"):
-		actor.call("hide_for_battle_defeat")
-	_spawn_smoke_effect(actor.position + Vector2(0.0, -58.0))
-	_turrets.erase(actor)
-	_battle_save_pending = true
-	_host._sync_shop_state()
-	actor.queue_free()
-
 func _set_pet_recovery(pet_id: String) -> void:
 	if pet_id.is_empty():
 		return
@@ -1311,24 +1066,6 @@ func _finish_battle(victory: bool, suppress_presentation := false) -> void:
 			_remove_battle_health_bar(pet)
 			if pet.has_method("set_battle_mode"):
 				pet.call("set_battle_mode", false)
-	for turret in _turrets:
-		if not is_instance_valid(turret):
-			continue
-		var turret_key := str(turret.get_instance_id())
-		var turret_id := String(turret.call("get_turret_id")) if turret.has_method("get_turret_id") else ""
-		if _battle_turret_health.has(turret_key) and not turret_id.is_empty():
-			var state_value: Variant = _turret_states.get(turret_id, {})
-			if state_value is Dictionary:
-				var state: Dictionary = state_value
-				state["owned"] = true
-				state["deployed"] = true
-				state["current_hp"] = maxf(0.0, float(_battle_turret_health[turret_key]))
-				state["position_x"] = turret.position.x
-				state["position_y"] = turret.position.y
-				_turret_states[turret_id] = state
-		_remove_battle_health_bar(turret)
-		if turret.has_method("set_battle_mode"):
-			turret.call("set_battle_mode", false)
 	_battle_pet_health.clear()
 	_battle_pet_max_health.clear()
 	_battle_pet_attack_at.clear()
@@ -1336,10 +1073,6 @@ func _finish_battle(victory: bool, suppress_presentation := false) -> void:
 	_battle_pet_formed.clear()
 	_battle_pet_enemy_targets.clear()
 	_battle_pet5_rolls.clear()
-	_battle_turret_health.clear()
-	_battle_turret_max_health.clear()
-	_battle_turret_attack_at.clear()
-	_battle_turret_enemy_targets.clear()
 	_battle_wave_schedule.clear()
 	_battle_enemy_damage_multiplier = 1.0
 	_active_battle_difficulty_scale = -1.0
