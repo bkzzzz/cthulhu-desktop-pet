@@ -214,6 +214,9 @@ func _on_sofa_deployed() -> void:
 func _release_sofa_interaction(pet_id := "", animate := true) -> void:
 	_sofa_controller._release_sofa_interaction(pet_id, animate)
 
+func _try_begin_manual_sofa_visit(actor: Node2D) -> bool:
+	return _sofa_controller._try_begin_manual_sofa_visit(actor)
+
 func _on_pet_sofa_reached(actor: Node2D) -> void:
 	_sofa_controller._on_pet_sofa_reached(actor)
 
@@ -901,6 +904,9 @@ func _on_pet_petted(actor: Node2D) -> void:
 
 func _on_pet_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
 	_desktop_controller._on_pet_grabbed_changed(actor, grabbed)
+
+func _on_pet_drag_released(actor: Node2D) -> void:
+	_desktop_controller._on_pet_drag_released(actor)
 
 func _on_pet_notable_action(actor: Node2D, action_id: String) -> void:
 	_desktop_controller._on_pet_notable_action(actor, action_id)

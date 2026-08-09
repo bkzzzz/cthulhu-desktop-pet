@@ -142,8 +142,11 @@ func _create_or_refresh_sprite() -> void:
 		_sprite.name = "DesktopItemSprite"
 		_sprite.centered = true
 		_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		_sprite.z_index = 198
 		add_child(_sprite)
+	# The sofa is a support surface, not foreground scenery.  Its pixels must
+	# always render behind a pet that is walking past or resting on it. Other
+	# taskbar goods keep their existing foreground depth.
+	_sprite.z_index = -10 if item_id == "sofa" else 198
 	_sprite.texture = load(String(item_data.get("texture", ""))) as Texture2D
 	_sprite.scale = Vector2.ONE * _visual_scale
 	_sprite.position = Vector2.ZERO

@@ -1,25 +1,19 @@
 extends Node2D
 
-# A visual helper owned by the coin collector. It is deliberately not a shop
-# item: the shovel only exists while its collector is deployed.
+# A short-lived visual helper owned by the coin collector. It deliberately is
+# not a shop item: the shovel only appears at a settled coin pile, sweeps it,
+# then disappears before the coins are deposited in the collector.
 const SHOVEL_TEXTURE := "res://assets/furniture/shopItems/铲子.png"
 const SHOVEL_SCALE := 0.74
-const SWEEP_OUT_SECONDS := 0.42
-const SWEEP_BACK_SECONDS := 0.34
-const IDLE_BOB_PIXELS := 2.0
+const SWEEP_STROKE_COUNT := 3
+const SWEEP_STROKE_SECONDS := 0.22
+const SWEEP_ARC_PIXELS := 17.0
+const SWEEP_LIFT_PIXELS := 6.0
 
 var _sprite: Sprite2D
-var _home_position := Vector2.ZERO
 var _active_coin: Node2D
-var _sweep_tween: Tween
-var _idle_elapsed := 0.0
-# Cache the unscaled opaque-bottom measurement for each texture. The shovel
-# recalculates its home position while idling, so repeatedly decoding an image
-# just to keep it taskbar-grounded would be needlessly expensive.
-var _opaque_bottom_offsets: Dictionary = {}
-# The approach intentionally leaves the coin available to a player mouse
-# magnet. Once transfer starts, though, an external cancellation must also
-# release this helper or it would remain permanently busy.
+var _batch_coins: Array[Node2D] = []
+var _sweep_elapsed := 0.0
 var _transfer_started := false
 
 
@@ -35,59 +29,41 @@ func _exit_tree() -> void:
 
 func setup() -> void:
 	_create_sprite()
-	_refresh_home_position()
-	if _sprite != null and not is_collecting():
-		_sprite.position = _home_position
+	_hide_shovel()
 
 
 func is_collecting() -> bool:
 	return _active_coin != null and is_instance_valid(_active_coin)
 
 
-func begin_collection(coin: Node2D) -> bool:
-	if is_collecting() or coin == null or not is_instance_valid(coin):
-		return false
-	if not coin.has_method("can_be_collected_by_collector"):
-		return false
-	if not bool(coin.call("can_be_collected_by_collector")):
+func is_visible_at_coin() -> bool:
+	return _sprite != null and _sprite.visible
+
+
+func begin_collection(coin: Node2D, batch_coins: Array[Node2D] = []) -> bool:
+	if is_collecting() or not _is_collectible(coin):
 		return false
 	_create_sprite()
-	_refresh_home_position()
 	_active_coin = coin
+	_batch_coins = _normalize_batch(coin, batch_coins)
 	_transfer_started = false
+	_sweep_elapsed = 0.0
 	_connect_active_coin(coin)
 
-	if not is_inside_tree() or _sprite == null:
-		_begin_coin_transfer()
-		return is_collecting()
-
-	var sweep_target := _get_sweep_target(coin)
-	_sweep_tween = create_tween()
-	_sweep_tween.set_trans(Tween.TRANS_SINE)
-	_sweep_tween.set_ease(Tween.EASE_IN_OUT)
-	_sweep_tween.tween_property(_sprite, "position", sweep_target, SWEEP_OUT_SECONDS)
-	_sweep_tween.parallel().tween_property(_sprite, "rotation", deg_to_rad(-14.0), SWEEP_OUT_SECONDS)
-	_sweep_tween.tween_callback(_begin_coin_transfer)
-	_sweep_tween.tween_property(_sprite, "position", _home_position, SWEEP_BACK_SECONDS)
-	_sweep_tween.parallel().tween_property(_sprite, "rotation", 0.0, SWEEP_BACK_SECONDS)
-	_sweep_tween.tween_callback(_finish_sweep_animation)
+	_show_shovel_at_coin()
 	return true
 
 
 func cancel_collection() -> void:
-	if _sweep_tween != null and is_instance_valid(_sweep_tween):
-		_sweep_tween.kill()
-	_sweep_tween = null
 	if _active_coin != null and is_instance_valid(_active_coin):
 		if _active_coin.has_method("cancel_collector_collection"):
 			_active_coin.call("cancel_collector_collection")
 		_disconnect_active_coin(_active_coin)
 	_active_coin = null
+	_batch_coins.clear()
 	_transfer_started = false
-	_refresh_home_position()
-	if _sprite != null:
-		_sprite.position = _home_position
-		_sprite.rotation = 0.0
+	_sweep_elapsed = 0.0
+	_hide_shovel()
 
 
 func get_deposit_position() -> Vector2:
@@ -97,14 +73,13 @@ func get_deposit_position() -> Vector2:
 
 
 func _process(delta: float) -> void:
-	if _sprite == null:
+	if not is_collecting():
+		_hide_shovel()
 		return
-	if is_collecting():
+	if _transfer_started:
 		_retarget_active_coin()
 		return
-	_idle_elapsed += maxf(0.0, delta)
-	_refresh_home_position()
-	_sprite.position = _home_position + Vector2(0.0, sin(_idle_elapsed * 2.1) * IDLE_BOB_PIXELS)
+	_update_sweep(maxf(0.0, delta))
 
 
 func _create_sprite() -> void:
@@ -113,22 +88,128 @@ func _create_sprite() -> void:
 		_sprite.name = "CoinCollectorShovelSprite"
 		_sprite.centered = true
 		_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		_sprite.z_index = 203
+		# Coins use z=210. The temporary shovel must visibly pass over the pile.
+		_sprite.z_index = 214
 		add_child(_sprite)
 	_sprite.texture = load(SHOVEL_TEXTURE) as Texture2D
 	_sprite.scale = Vector2.ONE * SHOVEL_SCALE
 
 
-func _refresh_home_position() -> void:
-	var collector_size := _get_collector_visual_size()
-	var collector_bottom := _get_collector_opaque_bottom_offset()
-	var shovel_bottom := _get_shovel_opaque_bottom_offset()
-	_home_position = Vector2(
-		-collector_size.x * 0.47,
-		# Both sprites are centered. Position the shovel by the difference
-		# between their visible bottoms so its actual opaque blade meets the
-		# collector's taskbar baseline, even if a future asset has padding.
-		collector_bottom - shovel_bottom
+func _update_sweep(delta: float) -> void:
+	# A player may begin a normal mouse-magnet pickup while the shovel is doing
+	# its visible work. Cancel without reserving or deleting that coin; the
+	# controller will retry another eligible drop later.
+	if not _is_collectible(_active_coin):
+		_finish_collection()
+		return
+	_sweep_elapsed += delta
+	_show_shovel_at_coin()
+	if _sweep_elapsed >= SWEEP_STROKE_COUNT * SWEEP_STROKE_SECONDS:
+		_hide_shovel()
+		_begin_coin_transfer()
+
+
+func _show_shovel_at_coin() -> void:
+	if _sprite == null or _active_coin == null or not is_instance_valid(_active_coin):
+		return
+	var phase := _sweep_elapsed / SWEEP_STROKE_SECONDS
+	var swing := sin(phase * TAU)
+	var center := _get_sweep_center(_active_coin)
+	_sprite.global_position = center + Vector2(
+		swing * SWEEP_ARC_PIXELS,
+		-absf(swing) * SWEEP_LIFT_PIXELS
+	)
+	_sprite.rotation = deg_to_rad(-9.0 + swing * 18.0)
+	_sprite.visible = true
+
+
+func _hide_shovel() -> void:
+	if _sprite == null:
+		return
+	_sprite.visible = false
+	_sprite.rotation = 0.0
+
+
+func _get_sweep_center(coin: Node2D) -> Vector2:
+	var shovel_size := _get_shovel_visual_size()
+	# Match the old blade-to-ground alignment but use the coin's current global
+	# coordinate. The shovel therefore appears directly at a real coin pile
+	# instead of travelling or teleporting from beside the collector.
+	return coin.global_position + Vector2(0.0, -shovel_size.y * 0.5 + 16.0)
+
+
+func _begin_coin_transfer() -> void:
+	if _active_coin == null or not is_instance_valid(_active_coin):
+		_finish_collection()
+		return
+	if not _active_coin.has_method("begin_collector_collection"):
+		_finish_collection()
+		return
+	if not _prepare_batch_for_transfer():
+		_finish_collection()
+		return
+	if not bool(_active_coin.call("begin_collector_collection", get_deposit_position())):
+		_finish_collection()
+		return
+	_transfer_started = true
+	_hide_shovel()
+
+
+func _prepare_batch_for_transfer() -> bool:
+	if not _is_collectible(_active_coin):
+		return false
+	var combined_value := 0
+	var consumed_coins: Array[Node2D] = []
+	for candidate in _batch_coins:
+		if not _is_collectible(candidate):
+			continue
+		combined_value += maxi(0, int(candidate.get("value")))
+		consumed_coins.append(candidate)
+	if combined_value <= 0:
+		return false
+	# Preserve one physical coin for the existing movement/reward path and fold
+	# its same-pile siblings into it. This produces one collector-side +N popup
+	# instead of a noisy burst of individual +1 labels.
+	if _active_coin.has_method("set_drop_value"):
+		_active_coin.call("set_drop_value", combined_value)
+	for candidate in consumed_coins:
+		if candidate != _active_coin and is_instance_valid(candidate):
+			candidate.queue_free()
+	_batch_coins.clear()
+	return true
+
+
+func _retarget_active_coin() -> void:
+	if _active_coin == null or not is_instance_valid(_active_coin):
+		_finish_collection()
+		return
+	if not _active_coin.has_method("is_collector_collecting"):
+		_finish_collection()
+		return
+	if not bool(_active_coin.call("is_collector_collecting")):
+		_finish_collection()
+		return
+	if _active_coin.has_method("retarget_collector_collection"):
+		_active_coin.call("retarget_collector_collection", get_deposit_position())
+
+
+func _normalize_batch(coin: Node2D, batch_coins: Array[Node2D]) -> Array[Node2D]:
+	var normalized: Array[Node2D] = [coin]
+	for candidate in batch_coins:
+		if candidate == null or not is_instance_valid(candidate) or candidate == coin:
+			continue
+		if candidate not in normalized:
+			normalized.append(candidate)
+	return normalized
+
+
+func _is_collectible(coin: Node2D) -> bool:
+	return (
+		coin != null
+		and is_instance_valid(coin)
+		and not coin.is_queued_for_deletion()
+		and coin.has_method("can_be_collected_by_collector")
+		and bool(coin.call("can_be_collected_by_collector"))
 	)
 
 
@@ -147,79 +228,6 @@ func _get_shovel_visual_size() -> Vector2:
 	if _sprite == null or _sprite.texture == null:
 		return Vector2(58.0, 120.0)
 	return _sprite.texture.get_size() * Vector2(absf(_sprite.scale.x), absf(_sprite.scale.y))
-
-
-func _get_collector_opaque_bottom_offset() -> float:
-	var collector := get_parent()
-	if collector != null and collector.has_method("get_item_definition"):
-		var definition: Dictionary = collector.call("get_item_definition")
-		var texture := load(String(definition.get("texture", ""))) as Texture2D
-		if texture != null:
-			var visual_scale := clampf(float(definition.get("visual_scale", 0.3)), 0.1, 2.0)
-			return _get_opaque_bottom_offset(texture, visual_scale)
-	return _get_collector_visual_size().y * 0.5
-
-
-func _get_shovel_opaque_bottom_offset() -> float:
-	if _sprite == null or _sprite.texture == null:
-		return _get_shovel_visual_size().y * 0.5
-	return _get_opaque_bottom_offset(_sprite.texture, absf(_sprite.scale.y))
-
-
-func _get_opaque_bottom_offset(texture: Texture2D, visual_scale: float) -> float:
-	var cache_key := texture.resource_path
-	if cache_key.is_empty():
-		cache_key = str(texture.get_instance_id())
-	if _opaque_bottom_offsets.has(cache_key):
-		return float(_opaque_bottom_offsets[cache_key]) * absf(visual_scale)
-	# get_used_rect().end is the edge immediately after the last opaque row,
-	# which is the correct edge to align with a sprite's visual baseline.
-	var unscaled_bottom := texture.get_size().y * 0.5
-	var image := texture.get_image()
-	if image != null:
-		var used_rect := image.get_used_rect()
-		if used_rect.size.y > 0:
-			unscaled_bottom = float(used_rect.end.y) - texture.get_size().y * 0.5
-	_opaque_bottom_offsets[cache_key] = unscaled_bottom
-	return unscaled_bottom * absf(visual_scale)
-
-
-func _get_sweep_target(coin: Node2D) -> Vector2:
-	var shovel_size := _get_shovel_visual_size()
-	var target_global := coin.global_position + Vector2(0.0, -shovel_size.y * 0.5 + 16.0)
-	return to_local(target_global)
-
-
-func _begin_coin_transfer() -> void:
-	if _active_coin == null or not is_instance_valid(_active_coin):
-		_finish_collection()
-		return
-	if not _active_coin.has_method("begin_collector_collection"):
-		_finish_collection()
-		return
-	if not bool(_active_coin.call("begin_collector_collection", get_deposit_position())):
-		_finish_collection()
-		return
-	_transfer_started = true
-
-
-func _retarget_active_coin() -> void:
-	if _active_coin == null or not is_instance_valid(_active_coin):
-		return
-	if not _active_coin.has_method("is_collector_collecting"):
-		return
-	if not bool(_active_coin.call("is_collector_collecting")):
-		if _transfer_started:
-			_finish_collection()
-		return
-	if _active_coin.has_method("retarget_collector_collection"):
-		_active_coin.call("retarget_collector_collection", get_deposit_position())
-
-
-func _finish_sweep_animation() -> void:
-	_sweep_tween = null
-	if _active_coin == null or not is_instance_valid(_active_coin):
-		_finish_collection()
 
 
 func _connect_active_coin(coin: Node2D) -> void:
@@ -254,9 +262,7 @@ func _finish_collection() -> void:
 	if _active_coin != null and is_instance_valid(_active_coin):
 		_disconnect_active_coin(_active_coin)
 	_active_coin = null
+	_batch_coins.clear()
 	_transfer_started = false
-	if _sweep_tween == null:
-		_refresh_home_position()
-		if _sprite != null:
-			_sprite.position = _home_position
-			_sprite.rotation = 0.0
+	_sweep_elapsed = 0.0
+	_hide_shovel()

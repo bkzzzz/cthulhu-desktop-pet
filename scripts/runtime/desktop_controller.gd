@@ -92,6 +92,7 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	actor.forced_target_reached.connect(_host._on_pet_forced_target_reached)
 	actor.notable_action.connect(_on_pet_notable_action)
 	actor.grabbed_changed.connect(_on_pet_grabbed_changed)
+	actor.drag_released.connect(_on_pet_drag_released)
 	actor.battle_roll_swept.connect(_host._on_pet5_battle_roll_swept)
 	actor.battle_roll_finished.connect(_host._on_pet5_battle_roll_finished)
 	actor.sofa_reached.connect(_host._on_pet_sofa_reached)
@@ -648,6 +649,17 @@ func _on_pet_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
 		_battle_pet_formed[str(actor.get_instance_id())] = true
 	else:
 		_battle_pet_attack_at[str(actor.get_instance_id())] = _get_now_seconds() + 0.06
+
+
+func _on_pet_drag_released(actor: Node2D) -> void:
+	if (
+		actor == null
+		or not is_instance_valid(actor)
+		or _battle_active
+		or _pilgrimage_active
+	):
+		return
+	_host._try_begin_manual_sofa_visit(actor)
 
 func _on_pet_notable_action(actor: Node2D, action_id: String) -> void:
 	if actor == null or not is_instance_valid(actor):

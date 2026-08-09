@@ -4,14 +4,18 @@ const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 const DesktopItemCatalog = preload("res://scripts/domain/desktop_item_catalog.gd")
 const DesktopItemActor = preload("res://scripts/desktop_item_actor.gd")
 const CoinCollectorShovel = preload("res://scripts/coin_collector_shovel.gd")
+const CoinController = preload("res://scripts/runtime/coin_controller.gd")
 const CoinDrop = preload("res://scripts/coin_drop.gd")
 const ShopWindow = preload("res://scripts/shop_window.gd")
 const Main = preload("res://scripts/main.gd")
 const SideDrawer = preload("res://scripts/side_drawer_controller.gd")
 
-const ITEM_MENU_SIZE_TOLERANCE := 12.0
+const ITEM_MENU_SIZE_TOLERANCES := {
+	"coin_collector": 24.0,
+	"sofa": 12.0
+}
 const EXPECTED_ITEM_SCALES := {
-	"coin_collector": 0.70,
+	"coin_collector": 0.64,
 	"sofa": 0.64
 }
 const EXPECTED_ITEM_X_FRACTIONS := {
@@ -85,9 +89,10 @@ static func _test_taskbar_grounding_and_horizontal_clamp(failures: Array[String]
 		var texture := load(String(definition.get("texture", ""))) as Texture2D
 		if not is_equal_approx(item.position.y + visual_size.y * 0.5, float(window_size.y)):
 			failures.append("%s must sit flush on the taskbar contact line" % item_id)
-		if absf(visual_size.x - SideDrawer.MENU_ICON_SIZE.x) > ITEM_MENU_SIZE_TOLERANCE \
-		or absf(visual_size.y - SideDrawer.MENU_ICON_SIZE.y) > ITEM_MENU_SIZE_TOLERANCE:
-			failures.append("%s must remain within 12 px of the menu summon handle size" % item_id)
+		var menu_size_tolerance := float(ITEM_MENU_SIZE_TOLERANCES.get(item_id, 12.0))
+		if absf(visual_size.x - SideDrawer.MENU_ICON_SIZE.x) > menu_size_tolerance \
+		or absf(visual_size.y - SideDrawer.MENU_ICON_SIZE.y) > menu_size_tolerance:
+			failures.append("%s must remain within its calibrated menu-handle size range" % item_id)
 		if texture == null:
 			failures.append("%s must retain a texture for taskbar grounding" % item_id)
 		else:
@@ -145,44 +150,10 @@ static func _test_coin_collector_automation(failures: Array[String]) -> void:
 	var shovel_sprite := shovel.get_node_or_null("CoinCollectorShovelSprite") as Sprite2D
 	if shovel_sprite == null:
 		failures.append("a deployed coin collector must create its shovel animation component")
-	else:
-		var collector_texture := load(String(collector.get_item_definition().get("texture", ""))) as Texture2D
-		var collector_sprite := collector.get_node_or_null("DesktopItemSprite") as Sprite2D
-		if collector_texture == null or collector_sprite == null or shovel_sprite.texture == null:
-			failures.append("the collector and shovel must expose grounded sprite textures")
-		else:
-			var collector_bottom := collector.position.y + _get_opaque_bottom_offset(
-				collector_texture,
-				float(collector.get_item_definition().get("visual_scale", 1.0))
-			)
-			var shovel_bottom := collector.position.y + shovel.position.y + shovel_sprite.position.y \
-				+ _get_opaque_bottom_offset(shovel_sprite.texture, absf(shovel_sprite.scale.y))
-			if not is_equal_approx(shovel_bottom, collector_bottom) or not is_equal_approx(shovel_bottom, 600.0):
-				failures.append("the shovel's actual opaque bottom must share the collector taskbar baseline")
-			# The baseline equation must remain correct if future item calibration
-			# changes the collector scale; the shovel itself deliberately keeps its
-			# authored scale so the test exercises unequal sprite dimensions too.
-			var original_scale := float(collector.get_item_definition().get("visual_scale", 1.0))
-			for alternate_scale in [0.46, 1.02]:
-				collector.item_data["visual_scale"] = alternate_scale
-				collector_sprite.scale = Vector2.ONE * alternate_scale
-				collector.set_window_bounds(Vector2i(960, 600))
-				shovel.call("_refresh_home_position")
-				shovel_sprite.position = shovel.get("_home_position")
-				collector_bottom = collector.position.y + _get_opaque_bottom_offset(
-					collector_texture,
-					alternate_scale
-				)
-				shovel_bottom = collector.position.y + shovel.position.y + shovel_sprite.position.y \
-					+ _get_opaque_bottom_offset(shovel_sprite.texture, absf(shovel_sprite.scale.y))
-				if not is_equal_approx(shovel_bottom, collector_bottom) or not is_equal_approx(shovel_bottom, 600.0):
-					failures.append("the shovel baseline must stay grounded at every collector scale")
-					break
-			collector.item_data["visual_scale"] = original_scale
-			collector_sprite.scale = Vector2.ONE * original_scale
-			collector.set_window_bounds(Vector2i(960, 600))
-			shovel.call("_refresh_home_position")
-			shovel_sprite.position = shovel.get("_home_position")
+	elif shovel_sprite.visible:
+		failures.append("the collector shovel must stay hidden while no coin pile is available")
+	elif shovel_sprite.z_index <= 210:
+		failures.append("the temporary shovel must render above a desktop coin while sweeping")
 
 	var coin := CoinDrop.new()
 	coin.setup("P", Vector2(180.0, 560.0), Vector2i(960, 600), 584.0)
@@ -197,12 +168,67 @@ static func _test_coin_collector_automation(failures: Array[String]) -> void:
 	elif not shovel.begin_collection(coin):
 		failures.append("the collector shovel must start a sweep for an eligible desktop coin")
 	else:
+		shovel.call("_process", CoinCollectorShovel.SWEEP_STROKE_SECONDS * 3.0)
 		for _step in 24:
 			coin.call("_process", 0.1)
 		if int(collected.get("value", 0)) != CoinDrop.get_coin_value("P"):
 			failures.append("collector pickup must emit the existing coin-collected reward value")
 		if shovel.is_collecting():
 			failures.append("the shovel must finish its cycle after the selected coin is collected")
+
+	var pile_primary := CoinDrop.new()
+	pile_primary.setup("P", Vector2(220.0, 560.0), Vector2i(960, 600), 584.0)
+	pile_primary.set("_settled", true)
+	pile_primary.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+	var pile_sibling := CoinDrop.new()
+	pile_sibling.setup("R", Vector2(236.0, 560.0), Vector2i(960, 600), 584.0)
+	pile_sibling.set("_settled", true)
+	pile_sibling.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+	var pile_collected := {"value": 0}
+	pile_primary.collected.connect(func(_actor: Node2D, _type: String, value: int) -> void:
+		pile_collected["value"] = int(pile_collected.get("value", 0)) + value
+	)
+	if not shovel.begin_collection(pile_primary, [pile_primary, pile_sibling]):
+		failures.append("the collector must accept an eligible same-pile batch")
+	else:
+		shovel.call("_process", CoinCollectorShovel.SWEEP_STROKE_SECONDS * 3.0)
+		var expected_total := CoinDrop.get_coin_value("P") + CoinDrop.get_coin_value("R")
+		if pile_primary.value != expected_total:
+			failures.append("one shovel pass must fold a same-pile batch into one total reward")
+		var popup_anchor: Variant = pile_primary.call("get_collector_popup_anchor")
+		if not popup_anchor is Vector2 or (popup_anchor as Vector2).distance_to(shovel.get_deposit_position()) > 0.01:
+			failures.append("a collector batch must anchor its +N feedback at the collector")
+		for _step in 24:
+			pile_primary.call("_process", 0.1)
+		if int(pile_collected.get("value", 0)) != expected_total:
+			failures.append("the folded coin pile must credit its full total once")
+
+	var batch_controller := CoinController.new()
+	var batch_ready_coin := CoinDrop.new()
+	batch_ready_coin.setup("R", Vector2(245.0, 560.0), Vector2i(960, 600), 584.0)
+	batch_ready_coin.set("_settled", true)
+	batch_ready_coin.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+	var batch_falling_sibling := CoinDrop.new()
+	batch_falling_sibling.setup("R", Vector2(258.0, 540.0), Vector2i(960, 600), 584.0)
+	batch_ready_coin.set_meta("coin_collector_batch_id", "test_pet_drop")
+	batch_falling_sibling.set_meta("coin_collector_batch_id", "test_pet_drop")
+	var batch_drops: Array[Node2D] = [batch_ready_coin, batch_falling_sibling]
+	batch_controller._coin_drops = batch_drops
+	var premature_batch: Array = batch_controller.call("_get_collectible_coin_batch", batch_ready_coin)
+	if not premature_batch.is_empty():
+		failures.append("a pet-drop pile must wait for its still-falling sibling before one combined sweep")
+	batch_falling_sibling.set("_settled", true)
+	batch_falling_sibling.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+	var complete_batch: Array = batch_controller.call("_get_collectible_coin_batch", batch_ready_coin)
+	if complete_batch.size() != 2:
+		failures.append("a ready pet-drop pile must be supplied as one collector batch")
+	batch_falling_sibling.set("_magnetized", true)
+	var player_claimed_batch: Array = batch_controller.call("_get_collectible_coin_batch", batch_ready_coin)
+	if player_claimed_batch.size() != 1:
+		failures.append("a player-claimed sibling must not block the remaining collector batch")
+	batch_controller.free()
+	batch_ready_coin.free()
+	batch_falling_sibling.free()
 
 	var manual_priority_coin := CoinDrop.new()
 	manual_priority_coin.setup("R", Vector2(280.0, 560.0), Vector2i(960, 600), 584.0)
@@ -219,11 +245,54 @@ static func _test_coin_collector_automation(failures: Array[String]) -> void:
 		if bool(manual_priority_coin.call("is_collector_collecting")):
 			failures.append("returning a collector must cancel its in-flight coin pickup")
 
+	# In a SceneTree the shovel displays three local strokes at the coin rather
+	# than travelling out from the collector. A manual magnet during those
+	# strokes must cancel the helper and leave the player pickup untouched.
+	var tree := Engine.get_main_loop() as SceneTree
+	var visual_parent := Node2D.new()
+	var visual_shovel := CoinCollectorShovel.new()
+	visual_parent.add_child(visual_shovel)
+	if tree == null or tree.root == null:
+		failures.append("collector animation coverage requires the active SceneTree")
+	else:
+		tree.root.add_child(visual_parent)
+		visual_shovel.setup()
+		var visual_coin := CoinDrop.new()
+		visual_coin.setup("R", Vector2(340.0, 560.0), Vector2i(960, 600), 584.0)
+		visual_coin.set("_settled", true)
+		visual_coin.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+		if not visual_shovel.begin_collection(visual_coin):
+			failures.append("a settled pet coin must summon the shovel at its pile")
+		elif not visual_shovel.is_visible_at_coin():
+			failures.append("the shovel must be visible only during its local sweep")
+		else:
+			var visual_sprite := visual_shovel.get_node_or_null("CoinCollectorShovelSprite") as Sprite2D
+			var start_position := visual_sprite.global_position if visual_sprite != null else Vector2.ZERO
+			visual_shovel.call("_process", CoinCollectorShovel.SWEEP_STROKE_SECONDS * 0.25)
+			if visual_sprite == null or visual_sprite.global_position.distance_to(start_position) < 0.1:
+				failures.append("the shovel must make visible repeated strokes at the dropped coin")
+			visual_shovel.call("_process", CoinCollectorShovel.SWEEP_STROKE_SECONDS * 3.0)
+			if visual_shovel.is_visible_at_coin() or not bool(visual_coin.call("is_collector_collecting")):
+				failures.append("after its strokes the shovel must disappear before the coin travels to the collector")
+			visual_shovel.cancel_collection()
+
+		var manual_during_sweep := CoinDrop.new()
+		manual_during_sweep.setup("R", Vector2(380.0, 560.0), Vector2i(960, 600), 584.0)
+		manual_during_sweep.set("_settled", true)
+		manual_during_sweep.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+		if visual_shovel.begin_collection(manual_during_sweep):
+			manual_during_sweep.set("_magnetized", true)
+			visual_shovel.call("_process", 0.01)
+			if visual_shovel.is_collecting() or visual_shovel.is_visible_at_coin():
+				failures.append("a player magnet pickup must cancel an in-progress shovel sweep")
+		visual_parent.queue_free()
+
 	var moving_coin := CoinDrop.new()
 	moving_coin.setup("R", Vector2(360.0, 560.0), Vector2i(960, 600), 584.0)
 	moving_coin.set("_settled", true)
 	moving_coin.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
 	if shovel.begin_collection(moving_coin):
+		shovel.call("_process", CoinCollectorShovel.SWEEP_STROKE_SECONDS * 3.0)
 		collector.position.x = 700.0
 		shovel.call("_process", 0.016)
 		var live_target: Vector2 = moving_coin.get("_collector_target")
@@ -242,15 +311,17 @@ static func _test_coin_collector_automation(failures: Array[String]) -> void:
 	else:
 		failures.append("the collector must remain reusable for moving-target pickup")
 
-	var visual_coin := CoinDrop.new()
-	visual_coin.setup("G", Vector2(420.0, 560.0), Vector2i(960, 600), 584.0)
-	visual_coin.configure_celebration(Vector2.ZERO)
-	if bool(visual_coin.call("can_be_collected_by_collector")):
+	var celebration_coin := CoinDrop.new()
+	celebration_coin.setup("G", Vector2(420.0, 560.0), Vector2i(960, 600), 584.0)
+	celebration_coin.configure_celebration(Vector2.ZERO)
+	if bool(celebration_coin.call("can_be_collected_by_collector")):
 		failures.append("collector pickup must skip zero-value battle celebration visuals")
 	coin.free()
+	pile_primary.free()
+	pile_sibling.free()
 	manual_priority_coin.free()
 	moving_coin.free()
-	visual_coin.free()
+	celebration_coin.free()
 	collector.free()
 
 

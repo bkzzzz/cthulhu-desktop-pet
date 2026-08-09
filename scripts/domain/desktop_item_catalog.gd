@@ -11,11 +11,11 @@ const DEFINITIONS := {
 		"kind": KIND,
 		"name": "金币收集器",
 		"name_en": "Coin Collector",
-		"description": "铲子会定时清扫桌面金币并送入收集器。",
-		"description_en": "Its shovel periodically sweeps desktop coins into the collector.",
+		"description": "铲子会在金币掉落处铲动几下，再把整堆金币送入收集器。",
+		"description_en": "Its shovel appears at dropped coin piles, sweeps them up, then deposits the total.",
 		"texture": "res://assets/furniture/shopItems/金币收集器.png",
 		"price": 2_000,
-		"visual_scale": 0.70,
+		"visual_scale": 0.64,
 		"default_x_fraction": 0.42
 	},
 	"sofa": {

@@ -4,6 +4,10 @@ signal petted(actor: Node2D)
 signal recall_requested(actor: Node2D)
 signal forced_target_reached(actor: Node2D)
 signal grabbed_changed(actor: Node2D, grabbed: bool)
+# Emitted only after a real left-drag is released.  Keeping this separate from
+# grabbed_changed lets desktop furniture react to a completed drop without
+# treating pointer-capture cancellation as an intentional placement.
+signal drag_released(actor: Node2D)
 signal notable_action(actor: Node2D, action_id: String)
 signal battle_roll_swept(actor: Node2D, from_x: float, to_x: float)
 signal battle_roll_finished(actor: Node2D)
@@ -841,7 +845,27 @@ func can_visit_sofa() -> bool:
 
 
 func begin_sofa_visit(target_x: float, seat_contact_y: float) -> bool:
-	if not can_visit_sofa() and not is_sofa_visit_active():
+	return _begin_sofa_visit(target_x, seat_contact_y, false)
+
+
+# Manual furniture drops happen one frame after the actor transitions from
+# GRABBED to FALLING.  They may safely interrupt that just-started fall, while
+# autonomous sofa visits still require a normally available pet.
+func begin_manual_sofa_visit(target_x: float, seat_contact_y: float) -> bool:
+	return _begin_sofa_visit(target_x, seat_contact_y, true)
+
+
+func _begin_sofa_visit(target_x: float, seat_contact_y: float, allow_drop_fall: bool) -> bool:
+	var can_claim_from_manual_drop := (
+		allow_drop_fall
+		and _behavior == Behavior.FALLING
+		and not _battle_mode
+		and not _autonomy_paused
+		and not _pointer_held
+		and not _recall_pointer_held
+		and not _forced_target_pending
+	)
+	if not can_visit_sofa() and not is_sofa_visit_active() and not can_claim_from_manual_drop:
 		return false
 	if is_sofa_visit_active():
 		_enable_sofa_bounds_override()
@@ -2189,7 +2213,6 @@ func _finish_pointer_hold(force_cancel := false) -> void:
 		z_index = 210 if _battle_mode else 0
 		if _interaction_area != null:
 			_interaction_area.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		grabbed_changed.emit(self, false)
 		var pointer_distance := INF
 		if not force_cancel:
 			pointer_distance = _get_pointer_position().distance_to(_press_position)
@@ -2205,6 +2228,12 @@ func _finish_pointer_hold(force_cancel := false) -> void:
 		else:
 			_behavior = Behavior.FALLING
 			_fall_velocity = 0.0
+		# Consumers need the post-drop behavior before deciding whether the pet
+		# landed on a furniture target. Battle formation still uses this signal;
+		# it does not depend on the previous GRABBED state.
+		grabbed_changed.emit(self, false)
+		if not force_cancel and not is_petting_click:
+			drag_released.emit(self)
 	_pointer_hold_time = 0.0
 
 

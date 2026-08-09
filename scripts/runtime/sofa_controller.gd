@@ -16,6 +16,10 @@ const SOFA_VISIT_COOLDOWN_MAX_SECONDS := 28.0
 const SOFA_RETRY_SECONDS := 4.0
 const SOFA_SEAT_X_FRACTION := 0.50
 const SOFA_SEAT_Y_FRACTION := 0.62
+# The pet's visual body must overlap this padded furniture rect on release.
+# This is forgiving enough for differently sized pets without turning a drop
+# merely near the sofa into an unintended rest session.
+const SOFA_MANUAL_DROP_PADDING := 18.0
 const SOFA_SESSION_KEY := "sofa_session"
 const SOFA_NEXT_VISIT_KEY := "sofa_next_visit_at"
 
@@ -74,6 +78,42 @@ func _release_sofa_interaction(pet_id := "", animate := true) -> void:
 	if actor != null and actor.has_method("leave_sofa_visit"):
 		actor.call("leave_sofa_visit", animate)
 	_refresh_sofa_production()
+
+
+func _try_begin_manual_sofa_visit(actor: Node2D) -> bool:
+	if (
+		actor == null
+		or not is_instance_valid(actor)
+		or _battle_active
+		or _pilgrimage_active
+	):
+		return false
+	var state := _get_sofa_item_state()
+	if state.is_empty() or not bool(state.get("owned", false)) or not bool(state.get("deployed", false)):
+		return false
+	var sofa := _get_sofa_actor()
+	if sofa == null or not _is_pet_dropped_on_sofa(actor, sofa):
+		return false
+	# A sofa intentionally has one seat. A player dropping a second pet on it
+	# must leave the existing guest and its boost untouched.
+	if not _get_sofa_session(state).is_empty():
+		return false
+	var pet_id := String(_host._get_actor_pet_id(actor))
+	if pet_id.is_empty() or _host._is_pet_recovering(pet_id):
+		return false
+	var seat := _get_sofa_seat_position(sofa)
+	if not actor.has_method("begin_manual_sofa_visit") or not bool(actor.call("begin_manual_sofa_visit", seat.x, seat.y)):
+		return false
+	var now: float = float(_host._get_now_seconds())
+	state[SOFA_SESSION_KEY] = {
+		"pet_id": pet_id,
+		"phase": "approaching",
+		"approach_expires_at": now + SOFA_APPROACH_TIMEOUT_SECONDS
+	}
+	state.erase(SOFA_NEXT_VISIT_KEY)
+	_write_sofa_item_state(state)
+	_host._request_save()
+	return true
 
 
 func _on_pet_sofa_reached(actor: Node2D) -> void:
@@ -234,15 +274,30 @@ func _get_desktop_pet_by_id(pet_id: String) -> Node2D:
 
 
 func _get_sofa_seat_position(sofa: Node2D) -> Vector2:
-	var definition := sofa.call("get_item_definition") as Dictionary if sofa.has_method("get_item_definition") else {}
-	var texture := load(String(definition.get("texture", ""))) as Texture2D
-	var scale := clampf(float(definition.get("visual_scale", 0.5)), 0.10, 2.0)
-	var visual_size := texture.get_size() * scale if texture != null else Vector2(180.0, 120.0)
+	var visual_size := _get_sofa_visual_size(sofa)
 	var visual_top := sofa.position.y - visual_size.y * 0.5
 	return Vector2(
 		sofa.position.x + visual_size.x * (SOFA_SEAT_X_FRACTION - 0.5),
 		visual_top + visual_size.y * SOFA_SEAT_Y_FRACTION
 	)
+
+
+func _is_pet_dropped_on_sofa(actor: Node2D, sofa: Node2D) -> bool:
+	var visual_size := _get_sofa_visual_size(sofa)
+	var sofa_rect := Rect2(sofa.position - visual_size * 0.5, visual_size).grow(SOFA_MANUAL_DROP_PADDING)
+	var pet_rect := Rect2(actor.position - Vector2(48.0, 96.0), Vector2(96.0, 128.0))
+	if actor.has_method("get_draw_rect"):
+		var reported_rect: Variant = actor.call("get_draw_rect")
+		if reported_rect is Rect2:
+			pet_rect = reported_rect
+	return sofa_rect.intersects(pet_rect)
+
+
+func _get_sofa_visual_size(sofa: Node2D) -> Vector2:
+	var definition := sofa.call("get_item_definition") as Dictionary if sofa.has_method("get_item_definition") else {}
+	var texture := load(String(definition.get("texture", ""))) as Texture2D
+	var scale := clampf(float(definition.get("visual_scale", 0.5)), 0.10, 2.0)
+	return texture.get_size() * scale if texture != null else Vector2(180.0, 120.0)
 
 
 func _get_sofa_item_state() -> Dictionary:

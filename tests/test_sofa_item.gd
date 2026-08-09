@@ -11,6 +11,8 @@ static func run() -> Array[String]:
 	var failures: Array[String] = []
 	_test_sofa_pet_climb_and_departure(failures)
 	_test_sofa_guest_can_cross_restricted_activity_range(failures)
+	_test_sofa_renders_below_pet(failures)
+	_test_manual_sofa_drop(failures)
 	_test_single_guest_production_boost_and_release(failures)
 	_test_sofa_approach_timeout(failures)
 	_test_sofa_state_save_sanitization(failures)
@@ -71,6 +73,71 @@ static func _test_sofa_guest_can_cross_restricted_activity_range(failures: Array
 	if pet.position.x > restricted_max_x + 0.1:
 		failures.append("a departing sofa guest must return to its configured activity segment")
 	pet.free()
+
+
+static func _test_sofa_renders_below_pet(failures: Array[String]) -> void:
+	var sofa := DesktopItemActor.new()
+	sofa.setup("sofa", Vector2(680.0, 720.0), Vector2i(1200, 720))
+	var pet := DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1200, 720), 0.0, 1200.0, 680.0, 720.0)
+	var sofa_sprite := sofa.get_node_or_null("DesktopItemSprite") as Sprite2D
+	if sofa_sprite == null:
+		failures.append("a deployed sofa must create a visual sprite")
+	elif sofa_sprite.z_index >= pet.z_index:
+		failures.append("the sofa visual must render behind desktop pets")
+	elif not pet.begin_sofa_visit(sofa.position.x, 650.0):
+		failures.append("a pet must be able to begin a sofa visit for layer verification")
+	else:
+		for _step in 8:
+			pet.call("_update_pet", 0.1)
+		if not pet.is_sofa_seated() or sofa_sprite.z_index >= pet.z_index:
+			failures.append("a seated pet must remain visibly above the sofa surface")
+	pet.free()
+	sofa.free()
+
+
+static func _test_manual_sofa_drop(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	main.set("_pet_window_size", Vector2i(1200, 720))
+	main.set("_simulation_now_seconds", 1_000.0)
+	var pet := DesktopPetActor.new()
+	pet.setup("pet1", Vector2i(1200, 720), 0.0, 1200.0, 320.0, 720.0)
+	main.add_child(pet)
+	(main.get("_pets") as Array).append(pet)
+	pet.sofa_reached.connect(main._on_pet_sofa_reached)
+	pet.sofa_departed.connect(main._on_pet_sofa_departed)
+	var sofa := DesktopItemActor.new()
+	sofa.setup("sofa", Vector2(720.0, 720.0), Vector2i(1200, 720))
+	main.add_child(sofa)
+	(main.get("_desktop_items") as Array).append(sofa)
+	main.set("_item_states", {
+		"sofa": {"owned": true, "deployed": true, "position_x": sofa.position.x}
+	})
+	# The actor origin is above its visible feet, so this position makes the pet
+	# body overlap the sofa in exactly the same way a user drop does.
+	pet.position = Vector2(sofa.position.x, sofa.position.y - 110.0)
+	# A real release enters FALLING before the new drag_released signal reaches
+	# DesktopController. Reproduce that post-release state without relying on a
+	# live test window or desktop mouse position.
+	pet.set("_behavior", DesktopPetActor.Behavior.FALLING)
+	main.call("_on_pet_drag_released", pet)
+	var state: Dictionary = (main.get("_item_states") as Dictionary).get("sofa", {})
+	var session: Dictionary = state.get("sofa_session", {})
+	if String(session.get("pet_id", "")) != "pet1" or String(session.get("phase", "")) != "approaching":
+		failures.append("dropping a pet on a deployed sofa must start that pet's rest visit")
+	else:
+		for _step in 8:
+			pet.call("_update_pet", 0.1)
+		if not pet.is_sofa_seated() or float(main.call("_get_pet_sofa_multiplier", "pet1")) != SofaController.SOFA_FAITH_MULTIPLIER:
+			failures.append("a manually dropped sofa guest must receive the normal seated comfort boost")
+	main.call("_release_sofa_interaction", "pet1", false)
+	pet.position = Vector2(80.0, sofa.position.y - 110.0)
+	main.call("_on_pet_drag_released", pet)
+	state = (main.get("_item_states") as Dictionary).get("sofa", {})
+	if state.has("sofa_session"):
+		failures.append("dropping a pet outside the sofa must not start a rest visit")
+	main.free()
 
 
 static func _test_single_guest_production_boost_and_release(failures: Array[String]) -> void:

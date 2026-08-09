@@ -46,6 +46,8 @@ var _magnet_speed := MAGNET_START_SPEED
 var _magnetized := false
 var _collector_collecting := false
 var _collector_target := Vector2.ZERO
+var _collector_popup_anchor := Vector2.ZERO
+var _collector_popup_pending := false
 var _settled := false
 var _settled_age := 0.0
 var _age := 0.0
@@ -144,6 +146,7 @@ func configure_celebration(launch_velocity: Vector2, collect_delay := INF) -> vo
 	# deliberately visual-only so they can never duplicate that reward.
 	value = 0
 	_collector_collecting = false
+	_collector_popup_pending = false
 	_velocity = launch_velocity
 	_pickup_enabled = false
 	_max_lifetime_seconds = CELEBRATION_LIFETIME_SECONDS
@@ -216,6 +219,7 @@ func expire() -> void:
 	_expiring = true
 	_magnetized = false
 	_collector_collecting = false
+	_collector_popup_pending = false
 	set_process(false)
 	if _sprite == null or not is_inside_tree():
 		queue_free()
@@ -333,11 +337,30 @@ func can_be_collected_by_collector() -> bool:
 	)
 
 
+func is_pending_for_collector_batch() -> bool:
+	# A sibling that is still falling or waiting through the pickup arm delay
+	# belongs to the same pet-drop pile and should keep that pile together. A
+	# player-magnetized, expired, celebration, or already-reserved coin must not
+	# block the remaining coins from being swept.
+	return (
+		_pickup_enabled
+		and value > 0
+		and not _expiring
+		and not _celebration_collecting
+		and not _collector_collecting
+		and not _magnetized
+	)
+
+
 func begin_collector_collection(target_position: Vector2) -> bool:
 	if not can_be_collected_by_collector():
 		return false
 	_collector_collecting = true
 	_collector_target = _clamp_collector_target(target_position)
+	# Keep the feedback source on the collector itself, even though the moving
+	# coin may be one frame short of the target when its reward signal fires.
+	_collector_popup_anchor = _collector_target
+	_collector_popup_pending = true
 	_magnetized = false
 	_settled = false
 	_velocity = Vector2.ZERO
@@ -349,6 +372,7 @@ func cancel_collector_collection() -> void:
 		return
 	_collector_collecting = false
 	_collector_target = position
+	_collector_popup_pending = false
 	_magnetized = false
 	_settled = false
 	_velocity = Vector2.ZERO
@@ -360,11 +384,16 @@ func retarget_collector_collection(target_position: Vector2) -> bool:
 	if not _collector_collecting:
 		return false
 	_collector_target = _clamp_collector_target(target_position)
+	_collector_popup_anchor = _collector_target
 	return true
 
 
 func is_collector_collecting() -> bool:
 	return _collector_collecting
+
+
+func get_collector_popup_anchor() -> Variant:
+	return _collector_popup_anchor if _collector_popup_pending else null
 
 
 func _update_collector_collection(delta: float) -> void:
