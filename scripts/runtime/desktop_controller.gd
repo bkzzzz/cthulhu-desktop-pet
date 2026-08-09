@@ -1,6 +1,7 @@
 extends "res://scripts/runtime/main_context.gd"
 
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
+const CoinCollectorShovel = preload("res://scripts/coin_collector_shovel.gd")
 
 func _configure_pet_window() -> void:
 	var window = get_window()
@@ -93,6 +94,8 @@ func _spawn_desktop_pet(pet_id: String, start_x := -1.0) -> Node2D:
 	actor.grabbed_changed.connect(_on_pet_grabbed_changed)
 	actor.battle_roll_swept.connect(_host._on_pet5_battle_roll_swept)
 	actor.battle_roll_finished.connect(_host._on_pet5_battle_roll_finished)
+	actor.sofa_reached.connect(_host._on_pet_sofa_reached)
+	actor.sofa_departed.connect(_host._on_pet_sofa_departed)
 	add_child(actor)
 	_pets.append(actor)
 	_host._schedule_pet_coin_drop(actor, _get_now_seconds())
@@ -126,6 +129,14 @@ func _spawn_desktop_item(item_id: String, start_x := -1.0) -> Node2D:
 		spawn_x = _get_default_item_position(item_id)
 	var actor := DesktopItemActor.new()
 	actor.setup(item_id, Vector2(spawn_x, float(_pet_window_size.y)), _pet_window_size)
+	if item_id == "coin_collector":
+		# The shovel is an animated child of the collector, never a separate
+		# purchasable desktop item. Attach it before the actor enters the tree so
+		# it appears with the collector on purchase, placement, and save restore.
+		var shovel := CoinCollectorShovel.new()
+		shovel.name = "CoinCollectorShovel"
+		actor.add_child(shovel)
+		shovel.call("setup")
 	if actor.has_method("set_language"):
 		actor.call("set_language", _language)
 	actor.grabbed_changed.connect(_on_item_grabbed_changed)
@@ -172,6 +183,8 @@ func _deploy_item(item_id: String) -> bool:
 		_item_states[item_id] = state
 		return false
 	_update_item_state_from_actor(actor)
+	if item_id == "sofa":
+		_host._on_sofa_deployed()
 	return true
 
 
@@ -181,6 +194,16 @@ func _recall_item(item_id: String) -> bool:
 	var actor := _get_desktop_item(item_id)
 	if actor == null:
 		return false
+	if item_id == "sofa":
+		# Returning the sofa must release its sole occupant before its actor is
+		# removed, so no production multiplier can outlive the furniture.
+		_host._release_sofa_interaction("", true)
+	# CoinCollectorShovel is an owned child of the collector actor. Stop its
+	# pickup before queue_free so a coin can never finish an old collection after
+	# the collector has been returned to the shop.
+	var collector_shovel := actor.get_node_or_null("CoinCollectorShovel") as Node2D
+	if collector_shovel != null and collector_shovel.has_method("cancel_collection"):
+		collector_shovel.call("cancel_collection")
 	_update_item_state_from_actor(actor)
 	var state_value: Variant = _item_states.get(item_id, {})
 	if state_value is Dictionary:
@@ -195,6 +218,10 @@ func _recall_item(item_id: String) -> bool:
 func _on_item_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
 	if actor == null or not is_instance_valid(actor):
 		return
+	if grabbed and actor.has_method("get_item_id") and String(actor.call("get_item_id")) == "sofa":
+		# A pet cannot remain seated at a moving target. It walks down as soon as
+		# the sofa starts moving and may revisit after the drag is complete.
+		_host._release_sofa_interaction("", true)
 	if not grabbed:
 		_update_item_state_from_actor(actor)
 		_host._sync_shop_state()
@@ -644,6 +671,7 @@ func _on_pet_recall_requested(actor: Node2D) -> void:
 	var pet_id = _get_actor_pet_id(actor)
 	if pet_id.is_empty():
 		return
+	_host._release_sofa_interaction(pet_id, false)
 
 	_deployed_pet_ids.erase(pet_id)
 	if _inventory_window != null:

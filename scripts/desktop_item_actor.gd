@@ -7,7 +7,7 @@ signal recall_requested(actor: Node2D)
 
 const INPUT_PROXY_PADDING := 8.0
 const INPUT_PROXY_REFRESH_SECONDS := 1.0 / 20.0
-const INTERACTION_HINT_SIZE := Vector2(258.0, 58.0)
+const INTERACTION_HINT_SIZE := Vector2(238.0, 32.0)
 const INTERACTION_HINT_GAP := 14.0
 
 var item_id := ""
@@ -27,7 +27,6 @@ var _visual_window: Window
 var _input_window: Window
 var _interaction_area: Control
 var _interaction_hint: PanelContainer
-var _interaction_hint_title_label: Label
 var _interaction_hint_action_label: Label
 var _interaction_rect := Rect2()
 var _input_proxy_elapsed := 0.0
@@ -199,27 +198,15 @@ func _create_interaction_hint() -> void:
 	margin.add_theme_constant_override("margin_bottom", 6)
 	_interaction_hint.add_child(margin)
 
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 2)
-	margin.add_child(content)
-
-	_interaction_hint_title_label = Label.new()
-	_interaction_hint_title_label.name = "InteractionHintTitle"
-	_interaction_hint_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_interaction_hint_title_label.add_theme_font_size_override("font_size", 13)
-	_interaction_hint_title_label.add_theme_color_override("font_color", Color(0.92, 0.96, 0.82, 1.0))
-	_interaction_hint_title_label.add_theme_color_override("font_outline_color", Color(0.01, 0.015, 0.012, 1.0))
-	_interaction_hint_title_label.add_theme_constant_override("outline_size", 2)
-	content.add_child(_interaction_hint_title_label)
-
 	_interaction_hint_action_label = Label.new()
 	_interaction_hint_action_label.name = "InteractionHintAction"
 	_interaction_hint_action_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_interaction_hint_action_label.add_theme_font_size_override("font_size", 12)
+	_interaction_hint_action_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_interaction_hint_action_label.add_theme_font_size_override("font_size", 13)
 	_interaction_hint_action_label.add_theme_color_override("font_color", Color(0.70, 0.90, 1.0, 1.0))
 	_interaction_hint_action_label.add_theme_color_override("font_outline_color", Color(0.01, 0.015, 0.012, 1.0))
 	_interaction_hint_action_label.add_theme_constant_override("outline_size", 2)
-	content.add_child(_interaction_hint_action_label)
+	margin.add_child(_interaction_hint_action_label)
 
 
 func _make_interaction_hint_style() -> StyleBoxFlat:
@@ -258,15 +245,10 @@ func _refresh_interaction_hint() -> void:
 	_interaction_hint.visible = should_show
 	if not should_show:
 		return
-	var localized := DesktopItemCatalog.localize(item_data, _language)
-	_interaction_hint_title_label.text = "%s  ·  %s" % [
-		String(localized.get("name", "Item" if _language == "en" else "道具")),
-		"TASKBAR ALIGNED" if _language == "en" else "紧贴任务栏"
-	]
 	_interaction_hint_action_label.text = (
-		"LEFT DRAG: MOVE HORIZONTALLY  ·  RIGHT CLICK: RETURN TO SHOP"
+		"DRAG HORIZONTALLY  ·  RIGHT-CLICK TO RETURN"
 		if _language == "en"
-		else "左键拖动：仅左右移动  ·  右键：收回商城"
+		else "左键左右拖动  ·  右键收回"
 	)
 
 

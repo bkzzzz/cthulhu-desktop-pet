@@ -9,6 +9,7 @@ const PersistenceController = preload("res://scripts/runtime/persistence_control
 const ProgressionController = preload("res://scripts/runtime/progression_controller.gd")
 const OfferingController = preload("res://scripts/runtime/offering_controller.gd")
 const CampaignController = preload("res://scripts/runtime/campaign_controller.gd")
+const SofaController = preload("res://scripts/runtime/sofa_controller.gd")
 const DISPLAY_LAYOUT_POLL_SECONDS := 1.0
 
 var _desktop_controller
@@ -20,6 +21,7 @@ var _persistence_controller
 var _progression_controller
 var _offering_controller
 var _campaign_controller
+var _sofa_controller
 var _display_layout_poll_elapsed := 0.0
 
 func _init() -> void:
@@ -51,6 +53,9 @@ func _init() -> void:
 	_campaign_controller = CampaignController.new()
 	_campaign_controller.share_context(_state, self)
 	add_child(_campaign_controller)
+	_sofa_controller = SofaController.new()
+	_sofa_controller.share_context(_state, self)
+	add_child(_sofa_controller)
 
 func _ready() -> void:
 	Input.use_accumulated_input = true
@@ -139,6 +144,7 @@ func _process(delta: float) -> void:
 		return
 	var logic_delta := _background_logic_time
 	_background_logic_time = 0.0
+	_update_sofa_interaction(logic_delta)
 	_update_pet_offering_buffs()
 	_update_recovery_states(logic_delta)
 	_background_faith_growth_cache = _calculate_faith_growth_rate()
@@ -198,6 +204,27 @@ func _recall_item(item_id: String) -> bool:
 
 func _get_desktop_item(item_id: String) -> Node2D:
 	return _desktop_controller._get_desktop_item(item_id)
+
+func _update_sofa_interaction(delta: float) -> void:
+	_sofa_controller._update_sofa_interaction(delta)
+
+func _on_sofa_deployed() -> void:
+	_sofa_controller._on_sofa_deployed()
+
+func _release_sofa_interaction(pet_id := "", animate := true) -> void:
+	_sofa_controller._release_sofa_interaction(pet_id, animate)
+
+func _on_pet_sofa_reached(actor: Node2D) -> void:
+	_sofa_controller._on_pet_sofa_reached(actor)
+
+func _on_pet_sofa_departed(actor: Node2D) -> void:
+	_sofa_controller._on_pet_sofa_departed(actor)
+
+func _get_pet_sofa_multiplier(pet_id: String, now := -1.0) -> float:
+	return _sofa_controller._get_pet_sofa_multiplier(pet_id, now)
+
+func _get_pet_sofa_seconds_remaining(pet_id: String, now := -1.0) -> float:
+	return _sofa_controller._get_pet_sofa_seconds_remaining(pet_id, now)
 
 func _get_next_pet_start_x() -> float:
 	return _desktop_controller._get_next_pet_start_x()
@@ -757,6 +784,9 @@ func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
 
 func _sanitize_owned_counts(raw_value: Variant) -> Dictionary:
 	return _persistence_controller._sanitize_owned_counts(raw_value)
+
+func _sanitize_item_states(raw_value: Variant) -> Dictionary:
+	return _persistence_controller._sanitize_item_states(raw_value)
 
 func _sanitize_loaded_offering_buffs(raw_value: Variant) -> Dictionary:
 	return _persistence_controller._sanitize_loaded_offering_buffs(raw_value)

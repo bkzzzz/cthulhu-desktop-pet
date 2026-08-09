@@ -61,11 +61,8 @@ var _slot_controls: Array[Control] = []
 var _slot_icons: Array[TextureRect] = []
 var _slot_name_labels: Array[Label] = []
 var _slot_price_labels: Array[Label] = []
-var _slot_owned_labels: Array[Label] = []
-var _slot_action_hints: Array[PanelContainer] = []
 var _slot_action_labels: Array[Label] = []
 var _page_navigation_buttons: Array[TextureButton] = []
-var _item_action_hint_styles := {}
 var _page := 0
 var _coin_balance := 0
 var _coin_balance_dirty := false
@@ -273,7 +270,6 @@ func _create_content() -> void:
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_page_root.add_child(background)
 
-	_create_item_action_hint_styles()
 	_create_slots()
 	_create_page_controls()
 	_create_close_button()
@@ -382,11 +378,18 @@ func _refresh_category_tabs() -> void:
 		if button == null:
 			continue
 		var label := button.get_node_or_null("CategoryLabel") as Label
-		button.modulate = Color.WHITE
+		var selected := kind == _active_category
+		# Both categories use the same bookmark and the same selected treatment;
+		# selection is communicated by a subtle brightness change rather than a
+		# second UI language for desktop items.
+		button.modulate = Color.WHITE if selected else Color(0.73, 0.73, 0.73, 1.0)
 		button.tooltip_text = _get_category_label(kind)
 		if label != null:
 			label.text = _get_category_label(kind)
-			label.add_theme_color_override("font_color", Color(0.97, 0.89, 0.66, 1.0))
+			label.add_theme_color_override(
+				"font_color",
+				Color(0.97, 0.89, 0.66, 1.0) if selected else Color(0.72, 0.69, 0.56, 1.0)
+			)
 
 
 func _get_category_label(kind: String) -> String:
@@ -453,8 +456,6 @@ func _create_slots() -> void:
 	_slot_icons.clear()
 	_slot_name_labels.clear()
 	_slot_price_labels.clear()
-	_slot_owned_labels.clear()
-	_slot_action_hints.clear()
 	_slot_action_labels.clear()
 
 	for index in SHOP_SLOT_RECTS.size():
@@ -493,26 +494,13 @@ func _create_slots() -> void:
 		slot.add_child(price_label)
 		_slot_price_labels.append(price_label)
 
-		var owned_label := _make_slot_label(14, Color(0.68, 0.78, 0.66, 1.0), 2)
-		owned_label.position = Vector2(20.0, 236.0)
-		owned_label.size = Vector2(slot_rect.size.x - 40.0, 24.0)
-		slot.add_child(owned_label)
-		_slot_owned_labels.append(owned_label)
-
-		var action_hint := PanelContainer.new()
-		action_hint.name = "ItemActionHint%d" % index
-		action_hint.position = Vector2(12.0, 232.0)
-		action_hint.size = Vector2(slot_rect.size.x - 24.0, 42.0)
-		action_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		action_hint.visible = false
-		action_hint.z_index = 1
-		slot.add_child(action_hint)
-		_slot_action_hints.append(action_hint)
-
-		var action_label := _make_slot_label(14, Color(0.86, 1.0, 0.78, 1.0), 2)
-		action_label.name = "ItemActionLabel"
-		action_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		action_hint.add_child(action_label)
+		# Every product uses this same quiet third row.  Food cards do not need a
+		# different component from desktop items; only the short action changes.
+		var action_label := _make_slot_label(14, Color(0.72, 0.84, 0.68, 1.0), 2)
+		action_label.name = "CardActionLabel%d" % index
+		action_label.position = Vector2(20.0, 236.0)
+		action_label.size = Vector2(slot_rect.size.x - 40.0, 24.0)
+		slot.add_child(action_label)
 		_slot_action_labels.append(action_label)
 
 
@@ -526,39 +514,6 @@ func _make_slot_label(font_size: int, color: Color, outline_size: int) -> Label:
 	label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
 	label.add_theme_constant_override("outline_size", outline_size)
 	return label
-
-
-func _create_item_action_hint_styles() -> void:
-	_item_action_hint_styles = {
-		"buy": _make_item_action_hint_style(
-			Color(0.055, 0.19, 0.11, 0.94),
-			Color(0.42, 0.92, 0.55, 0.96)
-		),
-		"locked": _make_item_action_hint_style(
-			Color(0.22, 0.075, 0.06, 0.94),
-			Color(0.94, 0.40, 0.30, 0.96)
-		),
-		"deploy": _make_item_action_hint_style(
-			Color(0.045, 0.13, 0.24, 0.94),
-			Color(0.36, 0.76, 1.0, 0.96)
-		),
-		"recall": _make_item_action_hint_style(
-			Color(0.24, 0.13, 0.035, 0.94),
-			Color(1.0, 0.76, 0.30, 0.96)
-		)
-	}
-
-
-func _make_item_action_hint_style(background: Color, border: Color) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = background
-	style.border_color = border
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.40)
-	style.shadow_size = 4
-	style.shadow_offset = Vector2(0.0, 2.0)
-	return style
 
 
 func _create_page_controls() -> void:
@@ -729,8 +684,7 @@ func _refresh_page() -> void:
 		var icon := _slot_icons[slot_index]
 		var name_label := _slot_name_labels[slot_index]
 		var price_label := _slot_price_labels[slot_index]
-		var owned_label := _slot_owned_labels[slot_index]
-		var action_hint := _slot_action_hints[slot_index]
+		var action_label := _slot_action_labels[slot_index]
 
 		slot.mouse_filter = Control.MOUSE_FILTER_STOP if has_good else Control.MOUSE_FILTER_IGNORE
 		slot.mouse_default_cursor_shape = (
@@ -739,8 +693,7 @@ func _refresh_page() -> void:
 		icon.visible = has_good
 		name_label.visible = has_good
 		price_label.visible = has_good
-		owned_label.visible = has_good
-		action_hint.visible = false
+		action_label.visible = has_good
 		slot.tooltip_text = ""
 
 		if not has_good:
@@ -749,33 +702,23 @@ func _refresh_page() -> void:
 		var good: Dictionary = category_goods[good_index]
 		var display_good := _localize_good(good)
 		var price := int(good.get("price", 0))
-		var offering := OfferingCatalog.is_offering(good)
 		var desktop_item := DesktopItemCatalog.is_item(good)
 		var item_state := _get_item_state(String(good.get("id", ""))) if desktop_item else {}
 		var item_owned := desktop_item and bool(item_state.get("owned", false))
 		var affordable := item_owned or _coin_balance >= price
-		var owned := int(_owned_counts.get(String(good.get("id", "")), 0))
 		icon.texture = load(String(good.get("texture", ""))) as Texture2D
 		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
 		name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
-		price_label.text = ("PRICE  %s" if _language == "en" else "价格 %s") % CurrencyDisplay.format_compact(price)
+		price_label.text = _get_card_price_text(good, item_state)
 		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
-		if desktop_item:
-			# Keep the compact status label populated for scripts and screen readers,
-			# and render the action in a high-contrast strip for clear placement and
-			# recall feedback.
-			owned_label.visible = false
-			owned_label.text = _get_item_card_status(item_state)
-			_refresh_item_action_hint(slot_index, item_state, affordable)
-			slot.tooltip_text = _get_item_action_hint(item_state)
-			if item_owned:
-				price_label.text = _get_item_location_text(item_state)
-				price_label.add_theme_color_override("font_color", Color(0.70, 0.90, 1.0, 1.0))
-			continue
-		# Food descriptions already explain duration and multiplier. Keep cards
-		# visually quiet and reserve this small line for ordinary inventory.
-		owned_label.visible = has_good and not offering
-		owned_label.text = ("OWNED %d" if _language == "en" else "已拥有 %d") % owned
+		# Price and action now share the exact same placement on every card. This
+		# makes food and desktop items feel like one shop while still making each
+		# item's next click unambiguous.
+		action_label.text = _get_card_action_text(good, item_state, affordable)
+		action_label.add_theme_color_override(
+			"font_color",
+			_get_card_action_color(affordable, item_owned)
+		)
 	_coin_balance_dirty = false
 
 
@@ -807,14 +750,17 @@ func _refresh_visible_slot_affordability() -> void:
 		var affordable := item_owned or _coin_balance >= int(good.get("price", 0))
 		var icon := _slot_icons[slot_index]
 		var price_label := _slot_price_labels[slot_index]
+		var action_label := _slot_action_labels[slot_index]
 		icon.modulate = Color.WHITE if affordable else Color(0.62, 0.62, 0.62, 0.9)
-		if desktop_item:
-			_refresh_item_action_hint(slot_index, item_state, affordable)
-		if not item_owned:
-			price_label.add_theme_color_override(
-				"font_color",
-				Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0)
-			)
+		price_label.add_theme_color_override(
+			"font_color",
+			Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0)
+		)
+		action_label.text = _get_card_action_text(good, item_state, affordable)
+		action_label.add_theme_color_override(
+			"font_color",
+			_get_card_action_color(affordable, item_owned)
+		)
 
 
 func _get_page_count() -> int:
@@ -835,63 +781,32 @@ func _get_item_state(item_id: String) -> Dictionary:
 	return state_value.duplicate(true) if state_value is Dictionary else {}
 
 
-func _get_item_card_status(state: Dictionary) -> String:
-	if not bool(state.get("owned", false)):
-		return "BUY & PLACE" if _language == "en" else "购买并摆放"
-	if bool(state.get("deployed", false)):
-		return "RETURN TO SHOP" if _language == "en" else "收回商城"
-	return "PLACE ON TASKBAR" if _language == "en" else "摆放到任务栏"
-
-
-func _get_item_action_hint(state: Dictionary) -> String:
-	if not bool(state.get("owned", false)):
-		return "CLICK TO BUY & PLACE" if _language == "en" else "点击购买并摆放"
-	if bool(state.get("deployed", false)):
-		return "ON TASKBAR  ·  CLICK TO RETURN TO SHOP" if _language == "en" else "已摆放在任务栏 · 点击收回商城"
-	return "IN SHOP  ·  CLICK TO PLACE" if _language == "en" else "已收回商城 · 点击摆放"
-
-
-func _refresh_item_action_hint(
-	slot_index: int,
-	state: Dictionary,
-	affordable: bool
-) -> void:
-	if slot_index < 0 or slot_index >= _slot_action_hints.size():
-		return
-	var action_hint := _slot_action_hints[slot_index]
-	var action_label := _slot_action_labels[slot_index]
-	var style_key := _get_item_action_style_key(state, affordable)
-	action_hint.visible = true
-	action_hint.add_theme_stylebox_override(
-		"panel",
-		_item_action_hint_styles.get(style_key, _item_action_hint_styles.get("buy")) as StyleBoxFlat
+func _get_card_price_text(good: Dictionary, item_state: Dictionary = {}) -> String:
+	if DesktopItemCatalog.is_item(good) and bool(item_state.get("owned", false)):
+		return "OWNED" if _language == "en" else "已拥有"
+	return ("PRICE  %s" if _language == "en" else "价格 %s") % CurrencyDisplay.format_compact(
+		int(good.get("price", 0))
 	)
-	action_label.text = _get_item_action_hint(state)
-	action_label.add_theme_color_override("font_color", _get_item_action_hint_color(style_key))
 
 
-func _get_item_action_style_key(state: Dictionary, affordable: bool) -> String:
-	if not bool(state.get("owned", false)):
-		return "buy" if affordable else "locked"
-	return "recall" if bool(state.get("deployed", false)) else "deploy"
+func _get_card_action_text(good: Dictionary, item_state: Dictionary, affordable: bool) -> String:
+	if not affordable:
+		return "NOT ENOUGH GOLD" if _language == "en" else "金币不足"
+	if DesktopItemCatalog.is_item(good):
+		if not bool(item_state.get("owned", false)):
+			return "BUY & PLACE" if _language == "en" else "购买并摆放"
+		if bool(item_state.get("deployed", false)):
+			return "RETURN TO SHOP" if _language == "en" else "收回商城"
+		return "PLACE ON TASKBAR" if _language == "en" else "摆放到任务栏"
+	return "BUY" if _language == "en" else "购买"
 
 
-func _get_item_action_hint_color(style_key: String) -> Color:
-	match style_key:
-		"locked":
-			return Color(1.0, 0.74, 0.66, 1.0)
-		"deploy":
-			return Color(0.74, 0.92, 1.0, 1.0)
-		"recall":
-			return Color(1.0, 0.90, 0.62, 1.0)
-		_:
-			return Color(0.76, 1.0, 0.72, 1.0)
-
-
-func _get_item_location_text(state: Dictionary) -> String:
-	return (
-		"ON TASKBAR" if _language == "en" else "已摆放在任务栏"
-	) if bool(state.get("deployed", false)) else ("IN SHOP" if _language == "en" else "已收回商城")
+func _get_card_action_color(affordable: bool, item_owned: bool) -> Color:
+	if not affordable:
+		return Color(1.0, 0.66, 0.54, 1.0)
+	# Keep the action row deliberately understated for both product types. Owned
+	# items get a small cool tint only to distinguish their free follow-up action.
+	return Color(0.72, 0.84, 0.68, 1.0) if not item_owned else Color(0.70, 0.86, 0.92, 1.0)
 
 
 func _localize_good(good: Dictionary) -> Dictionary:
@@ -930,20 +845,8 @@ func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
 	var display_good := _localize_good(good)
 	_info_name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
 	_info_desc_label.text = String(display_good.get("description", ""))
-	if DesktopItemCatalog.is_item(good):
-		var state := _get_item_state(String(good.get("id", "")))
-		var action := _get_item_card_status(state)
-		_info_price_label.text = "%s  ·  %s" % [
-			("PRICE: %s" if _language == "en" else "价格：%s") % CurrencyDisplay.format_compact(int(good.get("price", 0))),
-			action
-		]
-	elif OfferingCatalog.is_offering(good):
-		_info_price_label.text = ("PRICE: %s" if _language == "en" else "价格：%s") % CurrencyDisplay.format_compact(int(good.get("price", 0)))
-	else:
-		_info_price_label.text = ("PRICE: %s    OWNED: %d" if _language == "en" else "价格：%s    已拥有：%d") % [
-			CurrencyDisplay.format_compact(int(good.get("price", 0))),
-			int(_owned_counts.get(String(good.get("id", "")), 0))
-		]
+	var item_state := _get_item_state(String(good.get("id", ""))) if DesktopItemCatalog.is_item(good) else {}
+	_info_price_label.text = _get_card_price_text(good, item_state)
 	_info_panel.position = Vector2(
 		clampf(panel_position.x, 24.0, float(SHOP_PAGE_SIZE.x) - _info_panel.size.x - 24.0),
 		clampf(panel_position.y, 24.0, float(SHOP_PAGE_SIZE.y) - _info_panel.size.y - 24.0)

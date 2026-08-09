@@ -28,6 +28,8 @@ const MAGNET_START_SPEED := 260.0
 const MAGNET_ACCELERATION := 1150.0
 const PICKUP_ARM_DELAY_SECONDS := 0.20
 const COLLECT_DISTANCE := 15.0
+const COLLECTOR_TRAVEL_MIN_SPEED := 620.0
+const COLLECTOR_TRAVEL_TRACKING_RATE := 5.4
 const MAGNET_CHECK_INTERVAL_SECONDS := 0.14
 const MAX_LIFETIME_SECONDS := 120.0
 const EXPIRE_FADE_SECONDS := 0.24
@@ -42,6 +44,8 @@ var _ground_y := 420.0
 var _velocity := Vector2.ZERO
 var _magnet_speed := MAGNET_START_SPEED
 var _magnetized := false
+var _collector_collecting := false
+var _collector_target := Vector2.ZERO
 var _settled := false
 var _settled_age := 0.0
 var _age := 0.0
@@ -129,6 +133,8 @@ func set_window_bounds(window_size: Vector2i, ground_y: float) -> void:
 	_window_size = window_size
 	_ground_y = clampf(ground_y, 0.0, float(window_size.y))
 	position.x = clampf(position.x, 18.0, maxf(18.0, float(window_size.x) - 18.0))
+	if _collector_collecting:
+		_collector_target = _clamp_collector_target(_collector_target)
 	if _settled and _pickup_enabled:
 		position.y = _get_rest_y()
 
@@ -137,6 +143,7 @@ func configure_celebration(launch_velocity: Vector2, collect_delay := INF) -> vo
 	# Victory loot is already credited during battle settlement. These drops are
 	# deliberately visual-only so they can never duplicate that reward.
 	value = 0
+	_collector_collecting = false
 	_velocity = launch_velocity
 	_pickup_enabled = false
 	_max_lifetime_seconds = CELEBRATION_LIFETIME_SECONDS
@@ -150,6 +157,7 @@ func collect_celebration_to_pointer() -> void:
 	if not bool(get_meta("victory_loot_visual", false)) or _expiring:
 		return
 	_celebration_collecting = true
+	_collector_collecting = false
 	_settled = false
 	_velocity = Vector2.ZERO
 	_max_lifetime_seconds = INF
@@ -164,6 +172,9 @@ func _process(delta: float) -> void:
 		collect_celebration_to_pointer()
 	if _celebration_collecting:
 		_update_celebration_collection(_get_pointer_position(), safe_delta)
+		return
+	if _collector_collecting:
+		_update_collector_collection(safe_delta)
 		return
 	if _age >= _max_lifetime_seconds:
 		expire()
@@ -204,6 +215,7 @@ func expire() -> void:
 		return
 	_expiring = true
 	_magnetized = false
+	_collector_collecting = false
 	set_process(false)
 	if _sprite == null or not is_inside_tree():
 		queue_free()
@@ -284,6 +296,8 @@ func _can_start_magnet(pointer: Vector2) -> bool:
 	return (
 		_pickup_enabled
 		and
+		not _collector_collecting
+		and
 		_settled
 		and _settled_age >= PICKUP_ARM_DELAY_SECONDS
 		and position.distance_to(pointer) <= MAGNET_RADIUS
@@ -301,6 +315,90 @@ func _update_magnet(pointer: Vector2, delta: float) -> void:
 	var target_scale := maxf(0.55, distance / MAGNET_RADIUS) * COIN_SCALE
 	if _sprite != null:
 		_sprite.scale = _sprite.scale.lerp(Vector2.ONE * target_scale, minf(1.0, delta * 12.0))
+
+
+# The coin collector uses this API instead of synthesizing a mouse event. That
+# keeps automated pickup on the same reward path as manual magnet collection
+# while guaranteeing the two movements cannot run at the same time.
+func can_be_collected_by_collector() -> bool:
+	return (
+		_pickup_enabled
+		and value > 0
+		and not _expiring
+		and not _celebration_collecting
+		and not _collector_collecting
+		and not _magnetized
+		and _settled
+		and _settled_age >= PICKUP_ARM_DELAY_SECONDS
+	)
+
+
+func begin_collector_collection(target_position: Vector2) -> bool:
+	if not can_be_collected_by_collector():
+		return false
+	_collector_collecting = true
+	_collector_target = _clamp_collector_target(target_position)
+	_magnetized = false
+	_settled = false
+	_velocity = Vector2.ZERO
+	return true
+
+
+func cancel_collector_collection() -> void:
+	if not _collector_collecting:
+		return
+	_collector_collecting = false
+	_collector_target = position
+	_magnetized = false
+	_settled = false
+	_velocity = Vector2.ZERO
+	if _sprite != null:
+		_sprite.scale = Vector2.ONE * COIN_SCALE
+
+
+func retarget_collector_collection(target_position: Vector2) -> bool:
+	if not _collector_collecting:
+		return false
+	_collector_target = _clamp_collector_target(target_position)
+	return true
+
+
+func is_collector_collecting() -> bool:
+	return _collector_collecting
+
+
+func _update_collector_collection(delta: float) -> void:
+	if not _pickup_enabled or value <= 0 or _celebration_collecting:
+		cancel_collector_collection()
+		return
+	var distance := position.distance_to(_collector_target)
+	if distance <= COLLECT_DISTANCE:
+		_collector_collecting = false
+		collected.emit(self, coin_type, value)
+		queue_free()
+		return
+	var travel_speed := maxf(
+		COLLECTOR_TRAVEL_MIN_SPEED,
+		distance * COLLECTOR_TRAVEL_TRACKING_RATE
+	)
+	position = position.move_toward(_collector_target, travel_speed * delta)
+	if _sprite != null:
+		var scale_ratio := clampf(distance / 220.0, 0.48, 1.0)
+		_sprite.scale = _sprite.scale.lerp(
+			Vector2.ONE * COIN_SCALE * scale_ratio,
+			minf(1.0, delta * 12.0)
+		)
+
+
+func _clamp_collector_target(candidate: Vector2) -> Vector2:
+	var min_x := 18.0
+	var max_x := maxf(min_x, float(_window_size.x) - 18.0)
+	var min_y := 18.0
+	var max_y := maxf(min_y, _ground_y - 18.0)
+	return Vector2(
+		clampf(candidate.x, min_x, max_x),
+		clampf(candidate.y, min_y, max_y)
+	)
 
 
 func _get_rest_y() -> float:

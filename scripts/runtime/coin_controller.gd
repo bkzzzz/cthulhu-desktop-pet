@@ -1,5 +1,14 @@
 extends "res://scripts/runtime/main_context.gd"
 
+const CoinCollectorShovel = preload("res://scripts/coin_collector_shovel.gd")
+
+const COIN_COLLECTOR_ITEM_ID := "coin_collector"
+const COIN_COLLECTOR_EMPTY_RECHECK_SECONDS := 0.75
+const COIN_COLLECTOR_SWEEP_INTERVAL_MIN := 3.8
+const COIN_COLLECTOR_SWEEP_INTERVAL_MAX := 6.4
+
+var _next_coin_collector_sweep_at := 0.0
+
 func _schedule_next_ambient_coin_drop(now: float) -> void:
 	for pet in _pets:
 		if is_instance_valid(pet):
@@ -48,6 +57,73 @@ func _update_ambient_coin_drops() -> void:
 			continue
 		_next_pet_coin_drop_at.erase(actor_key)
 		_pet_coin_drop_intervals.erase(actor_key)
+	_update_coin_collector(now)
+
+
+func _update_coin_collector(now: float) -> void:
+	var collector := _host._get_desktop_item(COIN_COLLECTOR_ITEM_ID) as Node2D
+	if collector == null or not is_instance_valid(collector):
+		_next_coin_collector_sweep_at = 0.0
+		_cancel_coin_collector_pickups()
+		return
+	var shovel := _get_or_create_collector_shovel(collector)
+	if shovel == null:
+		return
+	if bool(shovel.call("is_collecting")):
+		return
+	if now < _next_coin_collector_sweep_at:
+		return
+	var coin := _get_nearest_collectible_coin(collector.position)
+	if coin == null:
+		_next_coin_collector_sweep_at = now + COIN_COLLECTOR_EMPTY_RECHECK_SECONDS
+		return
+	if bool(shovel.call("begin_collection", coin)):
+		_next_coin_collector_sweep_at = now + _rng.randf_range(
+			COIN_COLLECTOR_SWEEP_INTERVAL_MIN,
+			COIN_COLLECTOR_SWEEP_INTERVAL_MAX
+		)
+	else:
+		# A player can start mouse magnet pickup during the shovel's approach.
+		# Retry later instead of taking over that manual interaction.
+		_next_coin_collector_sweep_at = now + COIN_COLLECTOR_EMPTY_RECHECK_SECONDS
+
+
+func _get_or_create_collector_shovel(collector: Node2D) -> Node2D:
+	if collector == null or not is_instance_valid(collector):
+		return null
+	var existing := collector.get_node_or_null("CoinCollectorShovel") as Node2D
+	if existing != null:
+		return existing
+	var shovel := CoinCollectorShovel.new()
+	shovel.name = "CoinCollectorShovel"
+	collector.add_child(shovel)
+	shovel.call("setup")
+	return shovel
+
+
+func _get_nearest_collectible_coin(anchor: Vector2) -> Node2D:
+	var candidate: Node2D
+	var candidate_distance_squared := INF
+	for coin_value in _coin_drops:
+		var coin := coin_value as Node2D
+		if coin == null or not is_instance_valid(coin) or coin.is_queued_for_deletion():
+			continue
+		if not coin.has_method("can_be_collected_by_collector"):
+			continue
+		if not bool(coin.call("can_be_collected_by_collector")):
+			continue
+		var distance_squared := anchor.distance_squared_to(coin.position)
+		if candidate == null or distance_squared < candidate_distance_squared:
+			candidate = coin
+			candidate_distance_squared = distance_squared
+	return candidate
+
+
+func _cancel_coin_collector_pickups() -> void:
+	for coin_value in _coin_drops:
+		var coin := coin_value as Node2D
+		if coin != null and is_instance_valid(coin) and coin.has_method("cancel_collector_collection"):
+			coin.call("cancel_collector_collection")
 
 func _spawn_pet_coin_pile(actor: Node2D, interval_seconds: float) -> void:
 	if actor == null or not is_instance_valid(actor):

@@ -136,17 +136,24 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 		var is_max_level = level >= level_cap
 		var cost = 0 if is_max_level else _get_upgrade_cost(pet_id)
 		var offering_multiplier = _get_pet_offering_multiplier(pet_id)
+		var sofa_multiplier = _host._get_pet_sofa_multiplier(pet_id)
+		var sofa_seconds = _host._get_pet_sofa_seconds_remaining(pet_id)
+		var production_multiplier = offering_multiplier * sofa_multiplier
+		var production_seconds = maxf(
+			_get_pet_offering_seconds_remaining(pet_id),
+			sofa_seconds
+		)
 		var recovery_info = _get_pet_recovery_info(pet_id)
 		var recovering = bool(recovery_info.get("recovering", false))
 		var current_fps = (
 			_get_pet_faith_per_second(pet_id, level)
-			* offering_multiplier
+			* production_multiplier
 			* _get_total_faith_multiplier()
 		)
 		var next_fps = _get_pet_faith_per_second(
 			pet_id,
 			mini(level_cap, level + 1)
-		) * offering_multiplier * _get_total_faith_multiplier()
+		) * production_multiplier * _get_total_faith_multiplier()
 		var current_money_rate = _get_pet_money_value_per_minute(pet_id, level)
 		var next_money_rate = _get_pet_money_value_per_minute(
 			pet_id,
@@ -179,6 +186,10 @@ func _get_pet_upgrade_entries() -> Array[Dictionary]:
 			"money_rate_gain": maxf(0.0, next_money_rate - current_money_rate),
 			"offering_multiplier": offering_multiplier,
 			"offering_seconds_remaining": _get_pet_offering_seconds_remaining(pet_id),
+			"sofa_multiplier": sofa_multiplier,
+			"sofa_seconds_remaining": sofa_seconds,
+			"production_multiplier": production_multiplier,
+			"production_seconds_remaining": production_seconds,
 			"affordable": not is_max_level and int(floor(_faith_points)) >= cost
 		})
 		entries[entries.size() - 1].merge(recovery_info, true)
@@ -227,6 +238,7 @@ func _calculate_faith_growth_rate() -> float:
 		total_fps += (
 			_get_pet_faith_per_second(pet_id, PetProgression.progression_level(state))
 			* _get_pet_offering_multiplier(pet_id)
+			* _host._get_pet_sofa_multiplier(pet_id)
 		)
 
 	return total_fps * _get_total_faith_multiplier()
@@ -707,9 +719,9 @@ func _handle_item_shop_action(good: Dictionary) -> void:
 			item_id,
 			deployed,
 			(
-				"Purchased and placed %s. Left-drag horizontally; right-click to return it to the shop."
+				"Placed %s"
 				if _language == "en"
-				else "已购买并摆放 %s。左键仅可左右拖动，右键收回商城。"
+				else "已摆放 %s"
 			) % display_name
 		)
 		_host._refresh_coin_display()
@@ -730,7 +742,7 @@ func _handle_item_shop_action(good: Dictionary) -> void:
 			"set_purchase_result",
 			item_id,
 			true,
-			("Returned %s to the shop. Click its card to place it again." if _language == "en" else "已将 %s 收回商城。点击卡片可再次摆放。") % display_name
+		("Returned %s" if _language == "en" else "已收回 %s") % display_name
 		)
 		_host._request_save()
 		return
@@ -748,7 +760,7 @@ func _handle_item_shop_action(good: Dictionary) -> void:
 		"set_purchase_result",
 		item_id,
 		true,
-		("Placed %s on the taskbar. Left-drag it horizontally; right-click to return it to the shop." if _language == "en" else "已将 %s 摆放在任务栏边。左键仅可左右拖动，右键收回商城。") % display_name
+		("Placed %s" if _language == "en" else "已摆放 %s") % display_name
 	)
 	_host._request_save()
 
@@ -836,6 +848,9 @@ func _replace_deployed_pet_form(pet_id: String) -> void:
 	for pet in _pets.duplicate():
 		if not is_instance_valid(pet) or _host._get_actor_pet_id(pet) != pet_id:
 			continue
+		# Replacing a form invalidates the current desktop actor. End a possible
+		# sofa visit first so a stale actor cannot retain its comfort multiplier.
+		_host._release_sofa_interaction(pet_id, false)
 		var spawn_x: float = float(pet.position.x)
 		var old_actor_key = str(pet.get_instance_id())
 		var battle_health: Variant = _battle_pet_health.get(old_actor_key, null)

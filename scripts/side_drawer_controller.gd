@@ -280,15 +280,25 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		var name_label := _upgrade_name_labels.get(pet_id) as Label
 		var level := _get_upgrade_level(entry)
 		var recovering := bool(entry.get("recovering", false))
+		# Food and sofa comfort use the same production-aura contract. Older
+		# entries still fall back to the original food-only fields.
 		var offering_multiplier := maxf(1.0, float(entry.get("offering_multiplier", 1.0)))
 		var offering_seconds := maxf(0.0, float(entry.get("offering_seconds_remaining", 0.0)))
-		var boost_active := offering_multiplier > 1.001 and offering_seconds > 0.0
+		var production_multiplier := maxf(
+			1.0,
+			float(entry.get("production_multiplier", offering_multiplier))
+		)
+		var production_seconds := maxf(
+			0.0,
+			float(entry.get("production_seconds_remaining", offering_seconds))
+		)
+		var boost_active := production_multiplier > 1.001 and production_seconds > 0.0
 		any_boost_active = any_boost_active or boost_active
 		if boost_active:
-			strongest_boost = maxf(strongest_boost, offering_multiplier)
+			strongest_boost = maxf(strongest_boost, production_multiplier)
 		var boost_aura := _upgrade_boost_auras.get(pet_id) as Control
 		if boost_aura != null:
-			boost_aura.call("set_boost", boost_active, offering_multiplier)
+			boost_aura.call("set_boost", boost_active, production_multiplier)
 		if name_label != null:
 			_set_fitted_label_text(
 				name_label,

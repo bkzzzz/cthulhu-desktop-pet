@@ -325,6 +325,10 @@ func _start_battle() -> void:
 	_believers.clear()
 
 	_battle_active = true
+	# A comfort visit is a desktop-only activity. Clear it before snapshotting
+	# battle positions so its production multiplier and seated pose never cross
+	# into combat.
+	_host._release_sofa_interaction("", false)
 	if _active_battle_difficulty_scale < 0.0:
 		_active_battle_difficulty_scale = _roll_battle_difficulty_scale()
 	_battle_started_at = _host._get_now_seconds()

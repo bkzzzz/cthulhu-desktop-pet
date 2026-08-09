@@ -1,6 +1,7 @@
 extends RefCounted
 
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
+const DesktopItemCatalog = preload("res://scripts/domain/desktop_item_catalog.gd")
 const ShopWindow = preload("res://scripts/shop_window.gd")
 const SideDrawer = preload("res://scripts/side_drawer_controller.gd")
 const Main = preload("res://scripts/main.gd")
@@ -12,6 +13,7 @@ static func run() -> Array[String]:
 	_test_normalization(failures)
 	_test_shop_goods(failures)
 	_test_shop_balance_display(failures)
+	_test_unified_shop_card_layout(failures)
 	_test_shop_purchase_to_cursor(failures)
 	_test_pet_specific_timed_buff(failures)
 	_test_removed_altar_api(failures)
@@ -165,14 +167,69 @@ static func _test_shop_balance_display(failures: Array[String]) -> void:
 		failures.append("real purchase feedback must remain available after removing the default instruction")
 	if ShopWindow._format_compact_number(1_000_000_000_000_000.0) != "1.00Qa":
 		failures.append("the shop balance formatter must remain compact at quadrillion-scale progression")
-	var offering_sub_labels: Array = shop.get("_slot_owned_labels")
-	if not offering_sub_labels.is_empty() and (offering_sub_labels[0] as Label).visible:
-		failures.append("offering cards must hide the redundant duration and multiplier subtitle")
+	var offering_action_labels: Array = shop.get("_slot_action_labels")
+	if offering_action_labels.is_empty() or not (offering_action_labels[0] as Label).visible:
+		failures.append("food cards must use the shared compact action row")
+	elif (offering_action_labels[0] as Label).text != "BUY":
+		failures.append("food cards must use a concise purchase action instead of a long prompt")
 	var red_fruit := shop.get_good("red_fruit")
 	shop.call("_show_info_panel", red_fruit, Vector2(200.0, 200.0))
 	var info_price := shop.get("_info_price_label") as Label
 	if info_price != null and ("BOOST" in info_price.text or "×" in info_price.text):
 		failures.append("the shop detail footer must leave boost copy to the item description")
+	shop.free()
+
+
+static func _test_unified_shop_card_layout(failures: Array[String]) -> void:
+	var shop := ShopWindow.new()
+	shop.setup()
+	var goods := OfferingCatalog.make_shop_goods()
+	goods.append_array(DesktopItemCatalog.make_shop_goods())
+	shop.set_goods(goods)
+	shop.set_coin_balance(100_000)
+	shop.set_language("en")
+
+	var price_labels: Array = shop.get("_slot_price_labels")
+	var action_labels: Array = shop.get("_slot_action_labels")
+	var slots: Array = shop.get("_slot_controls")
+	if price_labels.is_empty() or action_labels.is_empty() or slots.is_empty():
+		failures.append("shop cards must expose shared price and action rows")
+		shop.free()
+		return
+	var food_price := price_labels[0] as Label
+	var food_action := action_labels[0] as Label
+	if food_price == null or food_action == null:
+		failures.append("food cards must create labels for the shared card layout")
+		shop.free()
+		return
+	if food_action.text != "BUY":
+		failures.append("food cards must keep their click guidance to one short action")
+	if not (slots[0] as Control).tooltip_text.is_empty():
+		failures.append("shop cards must not repeat their visible action in a native tooltip")
+
+	shop.set("_active_category", ShopWindow.ITEM_KIND)
+	shop.call("_refresh_page")
+	var item_price := price_labels[0] as Label
+	var item_action := action_labels[0] as Label
+	if item_price.position != food_price.position or item_price.size != food_price.size:
+		failures.append("food and item cards must share the exact same price row geometry")
+	if item_action.position != food_action.position or item_action.size != food_action.size:
+		failures.append("food and item cards must share the exact same action row geometry")
+	if item_action.text != "BUY & PLACE":
+		failures.append("unowned desktop items must use the compact buy-and-place action")
+	if shop.get_node_or_null("ShopRoot/ShopPage/ShopSlot0/ItemActionHint0") != null:
+		failures.append("desktop item cards must not use a separate oversized action strip")
+
+	var first_item_id := String(DesktopItemCatalog.ITEM_IDS[0]) if not DesktopItemCatalog.ITEM_IDS.is_empty() else ""
+	shop.set_item_states({first_item_id: {"owned": true, "deployed": true}})
+	if item_price.text != "OWNED" or item_action.text != "RETURN TO SHOP":
+		failures.append("owned desktop items must retain the shared rows with a concise return action")
+	var first_item := shop.get_good(first_item_id)
+	if not first_item.is_empty():
+		shop.call("_show_info_panel", first_item, Vector2(200.0, 200.0))
+		var info_price := shop.get("_info_price_label") as Label
+		if info_price == null or info_price.text != "OWNED":
+			failures.append("the shared hover footer must avoid repeating the card action")
 	shop.free()
 
 

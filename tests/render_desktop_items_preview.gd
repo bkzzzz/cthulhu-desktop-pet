@@ -3,6 +3,7 @@ extends SceneTree
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 const DesktopItemCatalog = preload("res://scripts/domain/desktop_item_catalog.gd")
 const DesktopItemActor = preload("res://scripts/desktop_item_actor.gd")
+const CoinCollectorShovel = preload("res://scripts/coin_collector_shovel.gd")
 const ShopWindow = preload("res://scripts/shop_window.gd")
 const OUTPUT_DIR := "res://tests/_artifacts"
 
@@ -23,8 +24,8 @@ func _render_previews() -> void:
 	shop.set_language("en")
 	shop.set_coin_balance(5_000_000)
 	shop.set_item_states({
-		"shovel": {"owned": true, "deployed": true},
-		"coin_collector": {"owned": true, "deployed": false}
+		"coin_collector": {"owned": true, "deployed": true},
+		"sofa": {"owned": true, "deployed": false}
 	})
 	shop.set("_active_category", ShopWindow.ITEM_KIND)
 	shop.call("_refresh_page")
@@ -45,6 +46,10 @@ func _render_previews() -> void:
 		Vector2(float(stage_size.x) * 0.5, float(stage_size.y) - 6.0),
 		stage_size
 	)
+	var shovel := CoinCollectorShovel.new()
+	shovel.name = "CoinCollectorShovel"
+	item.add_child(shovel)
+	shovel.setup()
 	item.set_language("en")
 	item.call("_set_pointer_hovered", true)
 	await process_frame

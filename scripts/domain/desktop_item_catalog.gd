@@ -3,31 +3,19 @@ extends RefCounted
 # Desktop items are visual, reusable shop goods. They deliberately have no
 # combat stats: placing one decorates the taskbar instead of changing battles.
 const KIND := "desktop_item"
-const ITEM_IDS := ["shovel", "coin_collector", "sofa"]
+const ITEM_IDS := ["coin_collector", "sofa"]
 
 const DEFINITIONS := {
-	"shovel": {
-		"id": "shovel",
-		"kind": KIND,
-		"name": "铲子",
-		"name_en": "Shovel",
-		"description": "可摆放在任务栏边的桌面道具。",
-		"description_en": "A desktop item that sits flush against the taskbar.",
-		"texture": "res://assets/furniture/shopItems/铲子.png",
-		"price": 500,
-		"visual_scale": 0.65,
-		"default_x_fraction": 0.26
-	},
 	"coin_collector": {
 		"id": "coin_collector",
 		"kind": KIND,
 		"name": "金币收集器",
 		"name_en": "Coin Collector",
-		"description": "可摆放在任务栏边的桌面道具。",
-		"description_en": "A desktop item that sits flush against the taskbar.",
+		"description": "铲子会定时清扫桌面金币并送入收集器。",
+		"description_en": "Its shovel periodically sweeps desktop coins into the collector.",
 		"texture": "res://assets/furniture/shopItems/金币收集器.png",
 		"price": 2_000,
-		"visual_scale": 0.40,
+		"visual_scale": 0.28,
 		"default_x_fraction": 0.50
 	},
 	"sofa": {
@@ -35,8 +23,8 @@ const DEFINITIONS := {
 		"kind": KIND,
 		"name": "沙发",
 		"name_en": "Sofa",
-		"description": "可摆放在任务栏边的桌面道具。",
-		"description_en": "A desktop item that sits flush against the taskbar.",
+		"description": "会邀请一只宠物休息；坐稳后信仰产出提升至 1.5 倍。",
+		"description_en": "Invites one pet to rest; seated pets gain x1.5 faith production.",
 		"texture": "res://assets/furniture/shopItems/沙发.png",
 		"price": 1_500,
 		"visual_scale": 0.50,

@@ -491,12 +491,65 @@ func _sanitize_item_states(raw_value: Variant) -> Dictionary:
 		var definition := DesktopItemCatalog.get_definition(item_id)
 		if definition.is_empty():
 			continue
-		sanitized[item_id] = {
+		var state := {
 			"owned": true,
 			"deployed": bool(raw_state.get("deployed", false)),
 			"position_x": clampf(float(raw_state.get("position_x", -1.0)), -10000.0, 10000.0)
 		}
+		if item_id == "sofa":
+			_sanitize_sofa_runtime_state(raw_state, state)
+		sanitized[item_id] = state
 	return sanitized
+
+
+func _sanitize_sofa_runtime_state(raw_state: Dictionary, state: Dictionary) -> void:
+	if not bool(state.get("deployed", false)):
+		return
+	var now: float = float(_host._get_now_seconds())
+	var raw_session_value: Variant = raw_state.get("sofa_session", {})
+	if raw_session_value is Dictionary:
+		var raw_session: Dictionary = raw_session_value
+		var pet_id := String(raw_session.get("pet_id", ""))
+		var phase := String(raw_session.get("phase", ""))
+		if PetCatalog.ACTIVE_DESKTOP_PETS.has(pet_id) and phase == "approaching":
+			# Version 18 stored this under ends_at before the guest reached the
+			# sofa. Read it once as an approach timeout, then persist the clearer
+			# field so only seated visits ever carry a comfort expiry.
+			var approach_expires_at := sanitize_finite_float(
+				raw_session.get("approach_expires_at", raw_session.get("ends_at", 0.0)),
+				0.0,
+				now + 3600.0,
+				0.0
+			)
+			if approach_expires_at > now:
+				state["sofa_session"] = {
+					"pet_id": pet_id,
+					"phase": phase,
+					"approach_expires_at": approach_expires_at
+				}
+				return
+		elif PetCatalog.ACTIVE_DESKTOP_PETS.has(pet_id) and phase == "seated":
+			var ends_at := sanitize_finite_float(
+				raw_session.get("ends_at", 0.0),
+				0.0,
+				now + 3600.0,
+				0.0
+			)
+			if ends_at > now:
+				state["sofa_session"] = {
+					"pet_id": pet_id,
+					"phase": phase,
+					"ends_at": ends_at
+				}
+				return
+	var next_visit_at := sanitize_finite_float(
+		raw_state.get("sofa_next_visit_at", 0.0),
+		0.0,
+		now + 3600.0,
+		0.0
+	)
+	if next_visit_at > now:
+		state["sofa_next_visit_at"] = next_visit_at
 
 func _sanitize_loaded_offering_buffs(raw_value: Variant) -> Dictionary:
 	var sanitized = {}

@@ -3,6 +3,8 @@ extends RefCounted
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 const DesktopItemCatalog = preload("res://scripts/domain/desktop_item_catalog.gd")
 const DesktopItemActor = preload("res://scripts/desktop_item_actor.gd")
+const CoinCollectorShovel = preload("res://scripts/coin_collector_shovel.gd")
+const CoinDrop = preload("res://scripts/coin_drop.gd")
 const ShopWindow = preload("res://scripts/shop_window.gd")
 const Main = preload("res://scripts/main.gd")
 
@@ -12,15 +14,20 @@ static func run() -> Array[String]:
 	_test_item_catalog_assets(failures)
 	_test_taskbar_grounding_and_horizontal_clamp(failures)
 	_test_desktop_item_interaction_feedback(failures)
+	_test_coin_collector_automation(failures)
 	_test_shop_item_category_and_actions(failures)
 	_test_purchase_place_and_recall(failures)
 	return failures
 
 
 static func _test_item_catalog_assets(failures: Array[String]) -> void:
-	var expected_ids := ["shovel", "coin_collector", "sofa"]
+	var expected_ids := ["coin_collector", "sofa"]
 	if DesktopItemCatalog.ITEM_IDS != expected_ids:
-		failures.append("the desktop item catalog must contain the three imported taskbar items")
+		failures.append("the desktop item catalog must contain only the two purchasable taskbar items")
+	if DesktopItemCatalog.has_item("shovel"):
+		failures.append("the shovel must remain a coin-collector component, not a shop item")
+	if not FileAccess.file_exists(CoinCollectorShovel.SHOVEL_TEXTURE):
+		failures.append("the coin collector's shovel component must use the imported shovel asset")
 
 	for item_id_value in DesktopItemCatalog.ITEM_IDS:
 		var item_id := String(item_id_value)
@@ -70,27 +77,103 @@ static func _test_taskbar_grounding_and_horizontal_clamp(failures: Array[String]
 
 static func _test_desktop_item_interaction_feedback(failures: Array[String]) -> void:
 	var item := DesktopItemActor.new()
-	item.setup("shovel", Vector2(320.0, 40.0), Vector2i(900, 600))
+	item.setup("coin_collector", Vector2(320.0, 40.0), Vector2i(900, 600))
 	item.set_language("en")
 	item.call("_set_pointer_hovered", true)
 	var hint := item.get("_interaction_hint") as PanelContainer
-	var title_label := item.get("_interaction_hint_title_label") as Label
 	var action_label := item.get("_interaction_hint_action_label") as Label
 	var interaction_area := item.get("_interaction_area") as Control
-	if hint == null or title_label == null or action_label == null or interaction_area == null:
+	if hint == null or action_label == null or interaction_area == null:
 		failures.append("a deployed desktop item must create its interaction feedback")
 	elif not hint.visible:
 		failures.append("desktop item feedback must appear while it is hovered")
-	elif not ("TASKBAR ALIGNED" in title_label.text):
-		failures.append("desktop item feedback must explain its taskbar placement")
-	elif not ("LEFT DRAG: MOVE HORIZONTALLY" in action_label.text) or not ("RIGHT CLICK: RETURN TO SHOP" in action_label.text):
-		failures.append("desktop item feedback must explain horizontal dragging and shop return")
+	elif action_label.text != "DRAG HORIZONTALLY  ·  RIGHT-CLICK TO RETURN":
+		failures.append("desktop item feedback must give one concise drag-and-return hint")
 	elif interaction_area.mouse_default_cursor_shape != Control.CURSOR_MOVE:
 		failures.append("desktop items must expose a move cursor for horizontal dragging")
 	item.call("_set_pointer_hovered", false)
 	if hint != null and hint.visible:
 		failures.append("desktop item feedback must hide after the pointer leaves")
 	item.free()
+
+
+static func _test_coin_collector_automation(failures: Array[String]) -> void:
+	var collector := DesktopItemActor.new()
+	collector.setup("coin_collector", Vector2(520.0, 40.0), Vector2i(960, 600))
+	var shovel := CoinCollectorShovel.new()
+	collector.add_child(shovel)
+	shovel.setup()
+	if shovel.get_node_or_null("CoinCollectorShovelSprite") == null:
+		failures.append("a deployed coin collector must create its shovel animation component")
+
+	var coin := CoinDrop.new()
+	coin.setup("P", Vector2(180.0, 560.0), Vector2i(960, 600), 584.0)
+	coin.set("_settled", true)
+	coin.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+	var collected := {"value": 0}
+	coin.collected.connect(func(_actor: Node2D, _type: String, value: int) -> void:
+		collected["value"] = int(collected.get("value", 0)) + value
+	)
+	if not bool(coin.call("can_be_collected_by_collector")):
+		failures.append("only visibly settled currency should be eligible for collector pickup")
+	elif not shovel.begin_collection(coin):
+		failures.append("the collector shovel must start a sweep for an eligible desktop coin")
+	else:
+		for _step in 24:
+			coin.call("_process", 0.1)
+		if int(collected.get("value", 0)) != CoinDrop.get_coin_value("P"):
+			failures.append("collector pickup must emit the existing coin-collected reward value")
+		if shovel.is_collecting():
+			failures.append("the shovel must finish its cycle after the selected coin is collected")
+
+	var manual_priority_coin := CoinDrop.new()
+	manual_priority_coin.setup("R", Vector2(280.0, 560.0), Vector2i(960, 600), 584.0)
+	manual_priority_coin.set("_settled", true)
+	manual_priority_coin.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+	manual_priority_coin.set("_magnetized", true)
+	if shovel.begin_collection(manual_priority_coin):
+		failures.append("a player-started mouse magnet pickup must win over a pending shovel sweep")
+	manual_priority_coin.set("_magnetized", false)
+	if not shovel.begin_collection(manual_priority_coin):
+		failures.append("the collector must retry a coin after the manual magnet pickup is no longer active")
+	else:
+		shovel.cancel_collection()
+		if bool(manual_priority_coin.call("is_collector_collecting")):
+			failures.append("returning a collector must cancel its in-flight coin pickup")
+
+	var moving_coin := CoinDrop.new()
+	moving_coin.setup("R", Vector2(360.0, 560.0), Vector2i(960, 600), 584.0)
+	moving_coin.set("_settled", true)
+	moving_coin.set("_settled_age", CoinDrop.PICKUP_ARM_DELAY_SECONDS)
+	if shovel.begin_collection(moving_coin):
+		collector.position.x = 700.0
+		shovel.call("_process", 0.016)
+		var live_target: Vector2 = moving_coin.get("_collector_target")
+		if not is_equal_approx(live_target.x, shovel.get_deposit_position().x):
+			failures.append("an in-flight coin must retarget when its collector moves")
+		moving_coin.call("retarget_collector_collection", Vector2(-500.0, 10_000.0))
+		var bounded_target: Vector2 = moving_coin.get("_collector_target")
+		if bounded_target.x < 18.0 or bounded_target.y > 566.0:
+			failures.append("collector retargeting must remain inside the current desktop bounds")
+		# Simulate the production fallback cancelling a coin directly after the
+		# transfer began. The shovel must release its busy state too.
+		moving_coin.call("cancel_collector_collection")
+		shovel.call("_process", 0.016)
+		if shovel.is_collecting():
+			failures.append("external post-transfer coin cancellation must not leave the shovel busy")
+	else:
+		failures.append("the collector must remain reusable for moving-target pickup")
+
+	var visual_coin := CoinDrop.new()
+	visual_coin.setup("G", Vector2(420.0, 560.0), Vector2i(960, 600), 584.0)
+	visual_coin.configure_celebration(Vector2.ZERO)
+	if bool(visual_coin.call("can_be_collected_by_collector")):
+		failures.append("collector pickup must skip zero-value battle celebration visuals")
+	coin.free()
+	manual_priority_coin.free()
+	moving_coin.free()
+	visual_coin.free()
+	collector.free()
 
 
 static func _test_shop_item_category_and_actions(failures: Array[String]) -> void:
@@ -122,34 +205,25 @@ static func _test_shop_item_category_and_actions(failures: Array[String]) -> voi
 	shop.set("_active_category", ShopWindow.ITEM_KIND)
 	shop.call("_refresh_page")
 	var page_label := shop.get("_page_label") as Label
-	var owned_labels: Array = shop.get("_slot_owned_labels")
 	var price_labels: Array = shop.get("_slot_price_labels")
 	var action_labels: Array = shop.get("_slot_action_labels")
 	var slot_controls: Array = shop.get("_slot_controls")
 	if page_label == null or page_label.text != "1/1":
-		failures.append("the three desktop items must paginate independently in one item page")
-	if owned_labels.is_empty() or String((owned_labels[0] as Label).text) != "BUY & PLACE":
-		failures.append("an unowned desktop item must present a buy-and-place action")
-	if action_labels.is_empty() or not ("CLICK TO BUY & PLACE" in String((action_labels[0] as Label).text)):
-		failures.append("an unowned desktop item card must explain how to buy and place it")
+		failures.append("the two desktop items must paginate independently in one item page")
+	if action_labels.is_empty() or String((action_labels[0] as Label).text) != "BUY & PLACE":
+		failures.append("an unowned desktop item must present the shared buy-and-place action row")
 	if slot_controls.is_empty() or (slot_controls[0] as Control).mouse_default_cursor_shape != Control.CURSOR_POINTING_HAND:
 		failures.append("desktop item cards must expose a pointing-hand cursor across their full card")
-	if not slot_controls.is_empty() and not ("CLICK TO BUY & PLACE" in String((slot_controls[0] as Control).tooltip_text)):
-		failures.append("desktop item cards must expose their action as an interaction tooltip")
 
-	shop.set_item_states({"shovel": {"owned": true, "deployed": true}})
-	if String((owned_labels[0] as Label).text) != "RETURN TO SHOP":
-		failures.append("a taskbar item card must present return-to-shop instead of repurchase")
-	if not ("RETURN TO SHOP" in String((action_labels[0] as Label).text)):
-		failures.append("a placed item card must clearly explain shop return")
-	if price_labels.is_empty() or String((price_labels[0] as Label).text) != "ON TASKBAR":
-		failures.append("a placed item card must show that it is on the taskbar")
+	shop.set_item_states({"coin_collector": {"owned": true, "deployed": true}})
+	if String((action_labels[0] as Label).text) != "RETURN TO SHOP":
+		failures.append("a placed item card must present return-to-shop instead of repurchase")
+	if price_labels.is_empty() or String((price_labels[0] as Label).text) != "OWNED":
+		failures.append("a placed item card must share the owned price presentation with the unified shop")
 
-	shop.set_item_states({"shovel": {"owned": true, "deployed": false}})
-	if String((owned_labels[0] as Label).text) != "PLACE ON TASKBAR":
+	shop.set_item_states({"coin_collector": {"owned": true, "deployed": false}})
+	if String((action_labels[0] as Label).text) != "PLACE ON TASKBAR":
 		failures.append("a returned item card must present placement without another purchase")
-	if not ("CLICK TO PLACE" in String((action_labels[0] as Label).text)):
-		failures.append("a returned item card must clearly explain placement")
 	shop.free()
 
 
@@ -199,11 +273,13 @@ static func _test_purchase_place_and_recall(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_persistence_enabled", false)
 	main.set("_pet_window_size", Vector2i(900, 600))
+	main.set("_language", "en")
 	var shop := ShopWindow.new()
 	shop.setup()
+	shop.set_language("en")
 	shop.set_goods(DesktopItemCatalog.make_shop_goods())
 	main.set("_shop_window", shop)
-	var item_id := "shovel"
+	var item_id := "coin_collector"
 	var price := int(DesktopItemCatalog.get_definition(item_id).get("price", 0))
 	main.set("_gold_coins", price)
 
@@ -213,8 +289,13 @@ static func _test_purchase_place_and_recall(failures: Array[String]) -> void:
 	var deployed_actor := main.call("_get_desktop_item", item_id) as Node2D
 	if not bool(state.get("owned", false)) or not bool(state.get("deployed", false)) or deployed_actor == null:
 		failures.append("buying an item must create one deployed taskbar actor")
+	elif deployed_actor.get_node_or_null("CoinCollectorShovel") == null:
+		failures.append("buying the collector must spawn its attached shovel component")
 	if int(main.get("_gold_coins")) != 0:
 		failures.append("the first item purchase must charge its fixed catalog price once")
+	var result_label := shop.get("_result_label") as Label
+	if result_label == null or not result_label.text.begins_with("Placed ") or result_label.text.contains("drag"):
+		failures.append("item purchase feedback must stay a short placement confirmation")
 
 	main.call("_on_shop_purchase_requested", item_id)
 	states = main.get("_item_states")
@@ -223,6 +304,8 @@ static func _test_purchase_place_and_recall(failures: Array[String]) -> void:
 		failures.append("using a placed item card must return it to the shop without duplication")
 	if int(main.get("_gold_coins")) != 0:
 		failures.append("returning an item to the shop must not charge or refund gold")
+	if result_label == null or not result_label.text.begins_with("Returned ") or result_label.text.contains("Click"):
+		failures.append("item return feedback must stay a short return confirmation")
 
 	main.call("_on_shop_purchase_requested", item_id)
 	states = main.get("_item_states")

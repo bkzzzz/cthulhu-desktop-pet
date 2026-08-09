@@ -7,6 +7,8 @@ signal grabbed_changed(actor: Node2D, grabbed: bool)
 signal notable_action(actor: Node2D, action_id: String)
 signal battle_roll_swept(actor: Node2D, from_x: float, to_x: float)
 signal battle_roll_finished(actor: Node2D)
+signal sofa_reached(actor: Node2D)
+signal sofa_departed(actor: Node2D)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
@@ -48,6 +50,10 @@ const LEVEL_SIZE_MIN_MULTIPLIER := 0.70
 const LEVEL_SIZE_BASE_FORM_MAX_MULTIPLIER := 0.94
 const LEVEL_SIZE_MAX_MULTIPLIER := 1.16
 const LEVEL_SIZE_POST_BASELINE_LOG_RATE := 0.04
+const SOFA_WALK_SPEED := 128.0
+const SOFA_CLIMB_DURATION := 0.38
+const SOFA_DESCEND_DURATION := 0.30
+const SOFA_REST_BOB_AMPLITUDE := 1.2
 
 static var _stable_hit_image_cache := {}
 static var _stable_hit_polygon_cache := {}
@@ -97,7 +103,10 @@ enum Behavior {
 	AIR_ROAM_RETURN,
 	GRABBED,
 	FALLING,
-	SWALLOWED
+	SWALLOWED,
+	SOFA_CLIMB,
+	SOFA_REST,
+	SOFA_DESCEND
 }
 
 enum SwallowPhase {
@@ -221,6 +230,13 @@ var _swallow_hold_time := 0.0
 var _swallow_start_position := Vector2.ZERO
 var _swallow_target_position := Vector2.ZERO
 var _swallower: Node2D
+var _sofa_pending := false
+var _sofa_seated := false
+var _sofa_seat_position := Vector2.ZERO
+var _sofa_climb_start_position := Vector2.ZERO
+var _sofa_descend_start_position := Vector2.ZERO
+var _sofa_transition_progress := 0.0
+var _sofa_bounds_override_active := false
 var _hover_hint: Label
 var _hovering := false
 var _hover_time := 0.0
@@ -366,7 +382,13 @@ func set_pet_level(new_level: int) -> void:
 		and _behavior in [Behavior.IDLE, Behavior.WALK, Behavior.SLEEP_CLOSING, Behavior.SLEEPING, Behavior.SLEEP_OPENING, Behavior.DOZING]
 	):
 		position.y = _get_rest_y()
-	_set_safe_bounds(_stage_min_x, _stage_max_x)
+	if _sofa_bounds_override_active:
+		# A level-up can resize the sprite while the pet is travelling to, or
+		# resting on, a sofa outside its normal activity segment. Keep the
+		# temporary whole-desktop route intact until the visit finishes.
+		_set_safe_bounds(0.0, float(_window_size.x))
+	else:
+		_set_safe_bounds(_stage_min_x, _stage_max_x)
 	position.x = clampf(position.x, _min_x, _max_x)
 	_target_x = clampf(_target_x, _min_x, _max_x)
 	_update_interaction_area()
@@ -408,7 +430,19 @@ func set_window_bounds(
 		_pop_target_position.y += ground_shift
 		_air_path_start.y += ground_shift
 		_air_path_target.y += ground_shift
+		if is_sofa_visit_active() or _behavior == Behavior.SOFA_DESCEND:
+			# The sofa target is stored in desktop-window coordinates. Keep all
+			# legs of an in-flight climb/descend on the same baseline when the
+			# taskbar or DPI changes the usable desktop rect.
+			_sofa_seat_position.y += ground_shift
+			_sofa_climb_start_position.y += ground_shift
+			_sofa_descend_start_position.y += ground_shift
 	_set_safe_bounds(min_x, max_x)
+	if _sofa_bounds_override_active:
+		# Activity-range settings should not pull a travelling guest off a sofa
+		# on the other half of the desktop. The temporary full-desktop bounds
+		# still use the pet's opaque-pixel safe insets.
+		_set_safe_bounds(0.0, float(_window_size.x))
 	_activity_restricted = restrict_activity
 	# Combat movement and knockback already respect the pet's visible-screen
 	# limits. Do not recenter an in-progress reaction when bounds are refreshed.
@@ -416,6 +450,15 @@ func set_window_bounds(
 		position.x = clampf(position.x, _get_drag_min_x(), _get_drag_max_x())
 	_target_x = clampf(_target_x, _min_x, _max_x)
 	_pop_target_position.x = clampf(_pop_target_position.x, _min_x, _max_x)
+	if is_sofa_visit_active() or _behavior == Behavior.SOFA_DESCEND:
+		_sofa_seat_position.x = clampf(_sofa_seat_position.x, _min_x, _max_x)
+		_sofa_climb_start_position.x = clampf(_sofa_climb_start_position.x, _min_x, _max_x)
+		_sofa_descend_start_position.x = clampf(_sofa_descend_start_position.x, _min_x, _max_x)
+		var sofa_min_y := _get_drag_min_y()
+		var sofa_max_y := _get_rest_y()
+		_sofa_seat_position.y = clampf(_sofa_seat_position.y, sofa_min_y, sofa_max_y)
+		_sofa_climb_start_position.y = clampf(_sofa_climb_start_position.y, sofa_min_y, sofa_max_y)
+		_sofa_descend_start_position.y = clampf(_sofa_descend_start_position.y, sofa_min_y, sofa_max_y)
 	if _behavior_style == "sleepy_floater":
 		_float_anchor_y = clampf(_float_anchor_y, _get_drag_min_y(), _get_rest_y())
 	_update_interaction_area()
@@ -784,6 +827,79 @@ func walk_to_offering_x(target_x: float) -> void:
 	_sprite.play("walk")
 
 
+func can_visit_sofa() -> bool:
+	if _battle_mode or _autonomy_paused or _pointer_held or _recall_pointer_held:
+		return false
+	if _forced_target_pending or _behavior in [
+		Behavior.GRABBED,
+		Behavior.FALLING,
+		Behavior.SWALLOWED,
+		Behavior.SOFA_DESCEND
+	]:
+		return false
+	return true
+
+
+func begin_sofa_visit(target_x: float, seat_contact_y: float) -> bool:
+	if not can_visit_sofa() and not is_sofa_visit_active():
+		return false
+	if is_sofa_visit_active():
+		_enable_sofa_bounds_override()
+		_update_sofa_visit_target(target_x, seat_contact_y)
+		return true
+
+	_cancel_special_behavior()
+	# Canceling a prior special behavior can restore the usual activity segment.
+	# Enable the sofa route afterwards so a guest can reach furniture placed on
+	# either side of the desktop instead of being pinned to that segment's edge.
+	_enable_sofa_bounds_override()
+	_update_sofa_visit_target(target_x, seat_contact_y)
+	_sofa_pending = true
+	_sofa_seated = false
+	_target_x = _sofa_seat_position.x
+	_walk_speed = SOFA_WALK_SPEED
+	if absf(_target_x - position.x) < 4.0:
+		_start_sofa_climb()
+		return true
+	_behavior = Behavior.WALK
+	_face_direction(_target_x - position.x)
+	_sprite.play("walk")
+	return true
+
+
+func update_sofa_visit_target(target_x: float, seat_contact_y: float) -> void:
+	_update_sofa_visit_target(target_x, seat_contact_y)
+
+
+func is_sofa_visit_active() -> bool:
+	return _sofa_pending or _sofa_seated or _behavior in [
+		Behavior.SOFA_CLIMB,
+		Behavior.SOFA_REST
+	]
+
+
+func is_sofa_seated() -> bool:
+	return _sofa_seated and _behavior == Behavior.SOFA_REST
+
+
+func leave_sofa_visit(animate := true) -> bool:
+	if not is_sofa_visit_active():
+		return false
+	var was_seated := _sofa_seated or _behavior == Behavior.SOFA_REST
+	_clear_sofa_visit_state(true)
+	if animate and was_seated and not _battle_mode and not _autonomy_paused:
+		_sofa_descend_start_position = position
+		_sofa_transition_progress = 0.0
+		_behavior = Behavior.SOFA_DESCEND
+		_sprite.play("walk")
+		return true
+	_restore_sofa_activity_bounds()
+	position.x = clampf(position.x, _min_x, _max_x)
+	position.y = _get_rest_y()
+	_start_idle()
+	return true
+
+
 func is_pointer_captured() -> bool:
 	return _pointer_held or _behavior == Behavior.GRABBED
 
@@ -815,6 +931,8 @@ func react_to_emotion(emotion: String) -> void:
 
 func _react_to_emotion(emotion: String) -> void:
 	if _pointer_held or _behavior == Behavior.GRABBED or _behavior == Behavior.FALLING:
+		return
+	if is_sofa_visit_active():
 		return
 	if _forced_target_pending:
 		return
@@ -1087,6 +1205,12 @@ func _update_pet(delta: float) -> void:
 			_update_swallowed(delta)
 		Behavior.WALK:
 			_update_walking(delta)
+		Behavior.SOFA_CLIMB:
+			_update_sofa_climb(delta)
+		Behavior.SOFA_REST:
+			_update_sofa_rest()
+		Behavior.SOFA_DESCEND:
+			_update_sofa_descend(delta)
 		Behavior.IDLE:
 			_update_idle(delta)
 		Behavior.UNDERGROUND:
@@ -1222,6 +1346,9 @@ func _update_walking(delta: float) -> void:
 	var distance := _target_x - position.x
 	if absf(distance) <= step:
 		position.x = _target_x
+		if _sofa_pending:
+			_start_sofa_climb()
+			return
 		if _hide_pending:
 			_start_hidden()
 			return
@@ -1249,6 +1376,115 @@ func _update_walking(delta: float) -> void:
 		_apply_floating_position(_float_bob_amplitude)
 	else:
 		_apply_grounded_position(false)
+
+
+func _update_sofa_visit_target(target_x: float, seat_contact_y: float) -> void:
+	var safe_contact_y := clampf(seat_contact_y, 0.0, float(_window_size.y))
+	var safe_x := clampf(target_x, _min_x, _max_x)
+	var seat_y := clampf(
+		_get_rest_y_for_contact(safe_contact_y),
+		_get_drag_min_y(),
+		_get_rest_y()
+	)
+	_sofa_seat_position = Vector2(safe_x, seat_y)
+	if _sofa_pending:
+		_target_x = safe_x
+	elif _behavior == Behavior.SOFA_CLIMB:
+		# Resolution changes and sofa repositioning retarget the end of the climb
+		# instead of snapping a pet through the sofa.
+		pass
+	elif _behavior == Behavior.SOFA_REST:
+		position = _sofa_seat_position
+
+
+func _start_sofa_climb() -> void:
+	_sofa_pending = false
+	_sofa_transition_progress = 0.0
+	_sofa_climb_start_position = position
+	_behavior = Behavior.SOFA_CLIMB
+	z_index = 199
+	_sprite.speed_scale = 1.0
+	_sprite.play("walk")
+
+
+func _update_sofa_climb(delta: float) -> void:
+	_sofa_transition_progress = minf(
+		1.0,
+		_sofa_transition_progress + maxf(0.0, delta) / SOFA_CLIMB_DURATION
+	)
+	var eased := ease(_sofa_transition_progress, -1.55)
+	position = _sofa_climb_start_position.lerp(_sofa_seat_position, eased)
+	position.y -= sin(_sofa_transition_progress * PI) * 14.0
+	_face_direction(_sofa_seat_position.x - _sofa_climb_start_position.x)
+	if _sofa_transition_progress < 1.0:
+		return
+	position = _sofa_seat_position
+	_sofa_seated = true
+	_behavior = Behavior.SOFA_REST
+	_sprite.play("idle")
+	sofa_reached.emit(self)
+
+
+func _update_sofa_rest() -> void:
+	position = _sofa_seat_position + Vector2(0.0, sin(_float_phase * 0.70) * SOFA_REST_BOB_AMPLITUDE)
+	if _sprite.animation != "idle":
+		_sprite.play("idle")
+
+
+func _update_sofa_descend(delta: float) -> void:
+	_sofa_transition_progress = minf(
+		1.0,
+		_sofa_transition_progress + maxf(0.0, delta) / SOFA_DESCEND_DURATION
+	)
+	var target := Vector2(clampf(position.x, _min_x, _max_x), _get_rest_y())
+	var eased := smoothstep(0.0, 1.0, _sofa_transition_progress)
+	position = _sofa_descend_start_position.lerp(target, eased)
+	position.y -= sin(_sofa_transition_progress * PI) * 10.0
+	if _sofa_transition_progress < 1.0:
+		return
+	position = target
+	z_index = 0 if not _battle_mode else 210
+	_restore_sofa_activity_bounds()
+	var return_x := clampf(position.x, _min_x, _max_x)
+	if (
+		not _battle_mode
+		and not _autonomy_paused
+		and absf(return_x - position.x) > 4.0
+	):
+		_target_x = return_x
+		_walk_speed = SOFA_WALK_SPEED
+		_behavior = Behavior.WALK
+		_face_direction(_target_x - position.x)
+		_sprite.play("walk")
+		return
+	position.x = return_x
+	_start_idle()
+
+
+func _clear_sofa_visit_state(emit_departed := false) -> void:
+	var had_visit := is_sofa_visit_active()
+	_sofa_pending = false
+	_sofa_seated = false
+	_sofa_transition_progress = 0.0
+	_sofa_seat_position = Vector2.ZERO
+	if had_visit:
+		z_index = 0 if not _battle_mode else 210
+		if emit_departed:
+			sofa_departed.emit(self)
+
+
+func _enable_sofa_bounds_override() -> void:
+	if _sofa_bounds_override_active:
+		return
+	_sofa_bounds_override_active = true
+	_set_safe_bounds(0.0, float(_window_size.x))
+
+
+func _restore_sofa_activity_bounds() -> void:
+	if not _sofa_bounds_override_active:
+		return
+	_sofa_bounds_override_active = false
+	_set_safe_bounds(_stage_min_x, _stage_max_x)
 
 
 func _update_idle(delta: float) -> void:
@@ -1818,6 +2054,12 @@ func _warm_battle_frame_metrics() -> void:
 
 func _cancel_special_behavior() -> void:
 	var restore_ground := _hide_pending or _behavior in [Behavior.DOZING, Behavior.HIDDEN, Behavior.POPPING]
+	if is_sofa_visit_active():
+		restore_ground = true
+		_clear_sofa_visit_state(true)
+		_restore_sofa_activity_bounds()
+	elif _sofa_bounds_override_active:
+		_restore_sofa_activity_bounds()
 	_wall_pending = false
 	_hide_pending = false
 	_air_roam_legs_remaining = 0
@@ -2208,6 +2450,11 @@ func _get_rest_y() -> float:
 	# pixel visible all the way to the taskbar without leaving a transparent row.
 	var scaled_foot_bottom := (_frame_foot_y + 1.0 - _frame_center_y) * _pet_scale
 	return _get_ground_contact_y() - scaled_foot_bottom
+
+
+func _get_rest_y_for_contact(contact_y: float) -> float:
+	var scaled_foot_bottom := (_frame_foot_y + 1.0 - _frame_center_y) * _pet_scale
+	return contact_y - scaled_foot_bottom
 
 
 func _get_ground_contact_y() -> float:
