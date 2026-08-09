@@ -15,8 +15,8 @@ const DEFINITIONS := {
 		"description_en": "Its shovel periodically sweeps desktop coins into the collector.",
 		"texture": "res://assets/furniture/shopItems/金币收集器.png",
 		"price": 2_000,
-		"visual_scale": 0.28,
-		"default_x_fraction": 0.50
+		"visual_scale": 0.70,
+		"default_x_fraction": 0.42
 	},
 	"sofa": {
 		"id": "sofa",
@@ -27,8 +27,8 @@ const DEFINITIONS := {
 		"description_en": "Invites one pet to rest; seated pets gain x1.5 faith production.",
 		"texture": "res://assets/furniture/shopItems/沙发.png",
 		"price": 1_500,
-		"visual_scale": 0.50,
-		"default_x_fraction": 0.74
+		"visual_scale": 0.64,
+		"default_x_fraction": 0.72
 	}
 }
 

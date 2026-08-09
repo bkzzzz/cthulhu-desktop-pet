@@ -13,6 +13,10 @@ var _home_position := Vector2.ZERO
 var _active_coin: Node2D
 var _sweep_tween: Tween
 var _idle_elapsed := 0.0
+# Cache the unscaled opaque-bottom measurement for each texture. The shovel
+# recalculates its home position while idling, so repeatedly decoding an image
+# just to keep it taskbar-grounded would be needlessly expensive.
+var _opaque_bottom_offsets: Dictionary = {}
 # The approach intentionally leaves the coin available to a player mouse
 # magnet. Once transfer starts, though, an external cancellation must also
 # release this helper or it would remain permanently busy.
@@ -117,10 +121,14 @@ func _create_sprite() -> void:
 
 func _refresh_home_position() -> void:
 	var collector_size := _get_collector_visual_size()
-	var shovel_size := _get_shovel_visual_size()
+	var collector_bottom := _get_collector_opaque_bottom_offset()
+	var shovel_bottom := _get_shovel_opaque_bottom_offset()
 	_home_position = Vector2(
 		-collector_size.x * 0.47,
-		-shovel_size.y * 0.5
+		# Both sprites are centered. Position the shovel by the difference
+		# between their visible bottoms so its actual opaque blade meets the
+		# collector's taskbar baseline, even if a future asset has padding.
+		collector_bottom - shovel_bottom
 	)
 
 
@@ -139,6 +147,41 @@ func _get_shovel_visual_size() -> Vector2:
 	if _sprite == null or _sprite.texture == null:
 		return Vector2(58.0, 120.0)
 	return _sprite.texture.get_size() * Vector2(absf(_sprite.scale.x), absf(_sprite.scale.y))
+
+
+func _get_collector_opaque_bottom_offset() -> float:
+	var collector := get_parent()
+	if collector != null and collector.has_method("get_item_definition"):
+		var definition: Dictionary = collector.call("get_item_definition")
+		var texture := load(String(definition.get("texture", ""))) as Texture2D
+		if texture != null:
+			var visual_scale := clampf(float(definition.get("visual_scale", 0.3)), 0.1, 2.0)
+			return _get_opaque_bottom_offset(texture, visual_scale)
+	return _get_collector_visual_size().y * 0.5
+
+
+func _get_shovel_opaque_bottom_offset() -> float:
+	if _sprite == null or _sprite.texture == null:
+		return _get_shovel_visual_size().y * 0.5
+	return _get_opaque_bottom_offset(_sprite.texture, absf(_sprite.scale.y))
+
+
+func _get_opaque_bottom_offset(texture: Texture2D, visual_scale: float) -> float:
+	var cache_key := texture.resource_path
+	if cache_key.is_empty():
+		cache_key = str(texture.get_instance_id())
+	if _opaque_bottom_offsets.has(cache_key):
+		return float(_opaque_bottom_offsets[cache_key]) * absf(visual_scale)
+	# get_used_rect().end is the edge immediately after the last opaque row,
+	# which is the correct edge to align with a sprite's visual baseline.
+	var unscaled_bottom := texture.get_size().y * 0.5
+	var image := texture.get_image()
+	if image != null:
+		var used_rect := image.get_used_rect()
+		if used_rect.size.y > 0:
+			unscaled_bottom = float(used_rect.end.y) - texture.get_size().y * 0.5
+	_opaque_bottom_offsets[cache_key] = unscaled_bottom
+	return unscaled_bottom * absf(visual_scale)
 
 
 func _get_sweep_target(coin: Node2D) -> Vector2:

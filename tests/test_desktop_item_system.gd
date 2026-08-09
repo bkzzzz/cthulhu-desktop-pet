@@ -7,6 +7,17 @@ const CoinCollectorShovel = preload("res://scripts/coin_collector_shovel.gd")
 const CoinDrop = preload("res://scripts/coin_drop.gd")
 const ShopWindow = preload("res://scripts/shop_window.gd")
 const Main = preload("res://scripts/main.gd")
+const SideDrawer = preload("res://scripts/side_drawer_controller.gd")
+
+const ITEM_MENU_SIZE_TOLERANCE := 12.0
+const EXPECTED_ITEM_SCALES := {
+	"coin_collector": 0.70,
+	"sofa": 0.64
+}
+const EXPECTED_ITEM_X_FRACTIONS := {
+	"coin_collector": 0.42,
+	"sofa": 0.72
+}
 
 
 static func run() -> Array[String]:
@@ -44,6 +55,16 @@ static func _test_item_catalog_assets(failures: Array[String]) -> void:
 			failures.append("%s must have a positive fixed catalog price" % item_id)
 		if float(definition.get("visual_scale", 0.0)) <= 0.0:
 			failures.append("%s must define a visible desktop scale" % item_id)
+		if not is_equal_approx(
+			float(definition.get("visual_scale", 0.0)),
+			float(EXPECTED_ITEM_SCALES.get(item_id, 0.0))
+		):
+			failures.append("%s must use the calibrated taskbar visual scale" % item_id)
+		if not is_equal_approx(
+			float(definition.get("default_x_fraction", -1.0)),
+			float(EXPECTED_ITEM_X_FRACTIONS.get(item_id, -1.0))
+		):
+			failures.append("%s must use its calibrated default taskbar position" % item_id)
 
 	var first_id := String(expected_ids[0])
 	var forged := DesktopItemCatalog.normalize_item({"id": first_id, "kind": "food", "price": 1})
@@ -60,8 +81,26 @@ static func _test_taskbar_grounding_and_horizontal_clamp(failures: Array[String]
 		var item := DesktopItemActor.new()
 		item.setup(item_id, Vector2(480.0, 20.0), window_size)
 		var visual_size: Vector2 = item.call("_get_visual_size")
+		var definition := item.get_item_definition()
+		var texture := load(String(definition.get("texture", ""))) as Texture2D
 		if not is_equal_approx(item.position.y + visual_size.y * 0.5, float(window_size.y)):
 			failures.append("%s must sit flush on the taskbar contact line" % item_id)
+		if absf(visual_size.x - SideDrawer.MENU_ICON_SIZE.x) > ITEM_MENU_SIZE_TOLERANCE \
+		or absf(visual_size.y - SideDrawer.MENU_ICON_SIZE.y) > ITEM_MENU_SIZE_TOLERANCE:
+			failures.append("%s must remain within 12 px of the menu summon handle size" % item_id)
+		if texture == null:
+			failures.append("%s must retain a texture for taskbar grounding" % item_id)
+		else:
+			var image := texture.get_image()
+			if image == null or not _has_opaque_bottom_pixel(image):
+				failures.append("%s must retain opaque pixels on its bottom canvas row" % item_id)
+			else:
+				var visible_bottom := item.position.y + _get_opaque_bottom_offset(
+					texture,
+					float(definition.get("visual_scale", 1.0))
+				)
+				if not is_equal_approx(visible_bottom, float(window_size.y)):
+					failures.append("%s opaque visual base must meet the taskbar without a gap" % item_id)
 
 		var left_clamp: Vector2 = item.call("_clamp_to_window", Vector2(-10_000.0, -10_000.0))
 		var horizontal_move: Vector2 = item.call("_clamp_to_window", Vector2(680.0, 40.0))
@@ -103,8 +142,47 @@ static func _test_coin_collector_automation(failures: Array[String]) -> void:
 	var shovel := CoinCollectorShovel.new()
 	collector.add_child(shovel)
 	shovel.setup()
-	if shovel.get_node_or_null("CoinCollectorShovelSprite") == null:
+	var shovel_sprite := shovel.get_node_or_null("CoinCollectorShovelSprite") as Sprite2D
+	if shovel_sprite == null:
 		failures.append("a deployed coin collector must create its shovel animation component")
+	else:
+		var collector_texture := load(String(collector.get_item_definition().get("texture", ""))) as Texture2D
+		var collector_sprite := collector.get_node_or_null("DesktopItemSprite") as Sprite2D
+		if collector_texture == null or collector_sprite == null or shovel_sprite.texture == null:
+			failures.append("the collector and shovel must expose grounded sprite textures")
+		else:
+			var collector_bottom := collector.position.y + _get_opaque_bottom_offset(
+				collector_texture,
+				float(collector.get_item_definition().get("visual_scale", 1.0))
+			)
+			var shovel_bottom := collector.position.y + shovel.position.y + shovel_sprite.position.y \
+				+ _get_opaque_bottom_offset(shovel_sprite.texture, absf(shovel_sprite.scale.y))
+			if not is_equal_approx(shovel_bottom, collector_bottom) or not is_equal_approx(shovel_bottom, 600.0):
+				failures.append("the shovel's actual opaque bottom must share the collector taskbar baseline")
+			# The baseline equation must remain correct if future item calibration
+			# changes the collector scale; the shovel itself deliberately keeps its
+			# authored scale so the test exercises unequal sprite dimensions too.
+			var original_scale := float(collector.get_item_definition().get("visual_scale", 1.0))
+			for alternate_scale in [0.46, 1.02]:
+				collector.item_data["visual_scale"] = alternate_scale
+				collector_sprite.scale = Vector2.ONE * alternate_scale
+				collector.set_window_bounds(Vector2i(960, 600))
+				shovel.call("_refresh_home_position")
+				shovel_sprite.position = shovel.get("_home_position")
+				collector_bottom = collector.position.y + _get_opaque_bottom_offset(
+					collector_texture,
+					alternate_scale
+				)
+				shovel_bottom = collector.position.y + shovel.position.y + shovel_sprite.position.y \
+					+ _get_opaque_bottom_offset(shovel_sprite.texture, absf(shovel_sprite.scale.y))
+				if not is_equal_approx(shovel_bottom, collector_bottom) or not is_equal_approx(shovel_bottom, 600.0):
+					failures.append("the shovel baseline must stay grounded at every collector scale")
+					break
+			collector.item_data["visual_scale"] = original_scale
+			collector_sprite.scale = Vector2.ONE * original_scale
+			collector.set_window_bounds(Vector2i(960, 600))
+			shovel.call("_refresh_home_position")
+			shovel_sprite.position = shovel.get("_home_position")
 
 	var coin := CoinDrop.new()
 	coin.setup("P", Vector2(180.0, 560.0), Vector2i(960, 600), 584.0)
@@ -317,3 +395,25 @@ static func _test_purchase_place_and_recall(failures: Array[String]) -> void:
 	main.set("_shop_window", null)
 	shop.free()
 	main.free()
+
+
+static func _has_opaque_bottom_pixel(image: Image) -> bool:
+	if image == null or image.get_width() <= 0 or image.get_height() <= 0:
+		return false
+	var bottom_y := image.get_height() - 1
+	for x in image.get_width():
+		if image.get_pixel(x, bottom_y).a > 0.02:
+			return true
+	return false
+
+
+static func _get_opaque_bottom_offset(texture: Texture2D, visual_scale: float) -> float:
+	if texture == null:
+		return 0.0
+	var bottom_edge := texture.get_size().y * 0.5
+	var image := texture.get_image()
+	if image != null:
+		var used_rect := image.get_used_rect()
+		if used_rect.size.y > 0:
+			bottom_edge = float(used_rect.end.y) - texture.get_size().y * 0.5
+	return bottom_edge * absf(visual_scale)
