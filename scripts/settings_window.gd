@@ -545,8 +545,15 @@ func _create_save_slots_panel() -> void:
 	_save_slots_panel.z_index = 30
 	_save_slots_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var panel_style := _make_panel_style()
-	panel_style.bg_color = Color(0.025, 0.012, 0.050, 1.0)
-	panel_style.border_color = Color(0.72, 0.54, 0.92, 0.94)
+	# Save management shares the game's ink, aged brass and muted verdigris
+	# palette. The former violet cards read as a separate application rather
+	# than part of the desktop-pet interface.
+	panel_style.bg_color = Color(0.012, 0.026, 0.020, 0.985)
+	panel_style.border_color = Color(0.70, 0.60, 0.34, 0.88)
+	panel_style.set_corner_radius_all(7)
+	panel_style.shadow_color = Color(0.0, 0.0, 0.0, 0.46)
+	panel_style.shadow_size = 12
+	panel_style.shadow_offset = Vector2(0.0, 4.0)
 	_save_slots_panel.add_theme_stylebox_override("panel", panel_style)
 	_root.add_child(_save_slots_panel)
 
@@ -561,11 +568,11 @@ func _create_save_slots_panel() -> void:
 	content.add_theme_constant_override("separation", 9)
 	margin.add_child(content)
 
-	_save_slots_title_label = _make_label("SAVE SLOTS", 29, Color(0.92, 0.80, 1.0, 1.0))
+	_save_slots_title_label = _make_label("SAVE SLOTS", 29, Color(0.96, 0.84, 0.60, 1.0))
 	_save_slots_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_save_slots_title_label.custom_minimum_size = Vector2(584.0, 42.0)
 	content.add_child(_save_slots_title_label)
-	_save_slots_hint_label = _make_label("Each slot keeps its own progress and backup.", 15, Color(0.76, 0.70, 0.88, 1.0))
+	_save_slots_hint_label = _make_label("Each slot keeps its own progress and backup.", 15, Color(0.70, 0.78, 0.69, 1.0))
 	_save_slots_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_save_slots_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_save_slots_hint_label.custom_minimum_size = Vector2(584.0, 38.0)
@@ -577,7 +584,9 @@ func _create_save_slots_panel() -> void:
 	_save_slots_notice_label.custom_minimum_size = Vector2(584.0, 0.0)
 	_save_slots_notice_label.visible = false
 	content.add_child(_save_slots_notice_label)
-	content.add_child(HSeparator.new())
+	var title_rule := HSeparator.new()
+	title_rule.modulate = Color(0.76, 0.66, 0.38, 0.68)
+	content.add_child(title_rule)
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "SaveSlotsScroll"
@@ -599,8 +608,8 @@ func _create_save_slots_panel() -> void:
 	_save_slots_back_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	_save_slots_back_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_save_slots_back_button.add_theme_font_size_override("font_size", 18)
-	_save_slots_back_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.10, 0.06, 0.15, 0.98), Color(0.62, 0.52, 0.82, 0.94)))
-	_save_slots_back_button.add_theme_stylebox_override("hover", _make_button_style(Color(0.16, 0.10, 0.24, 1.0), Color(0.88, 0.72, 1.0, 1.0)))
+	_save_slots_back_button.add_theme_stylebox_override("normal", _make_save_slot_button_style(Color(0.026, 0.060, 0.045, 0.98), Color(0.56, 0.64, 0.42, 0.88)))
+	_save_slots_back_button.add_theme_stylebox_override("hover", _make_save_slot_button_style(Color(0.060, 0.12, 0.080, 1.0), Color(0.84, 0.74, 0.42, 1.0)))
 	_save_slots_back_button.pressed.connect(_close_save_slots_panel)
 	content.add_child(_save_slots_back_button)
 
@@ -681,8 +690,12 @@ func _create_save_slot_card(slot: Dictionary) -> void:
 	card.custom_minimum_size = Vector2(562.0, 120.0)
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	var card_style := _make_panel_style()
-	card_style.bg_color = Color(0.09, 0.045, 0.15, 0.96) if is_active else Color(0.035, 0.025, 0.070, 0.94)
-	card_style.border_color = Color(0.94, 0.72, 0.42, 0.96) if is_active else Color(0.54, 0.42, 0.70, 0.82)
+	card_style.bg_color = Color(0.085, 0.066, 0.030, 0.97) if is_active else Color(0.020, 0.040, 0.030, 0.95)
+	card_style.border_color = Color(0.96, 0.74, 0.38, 0.94) if is_active else Color(0.42, 0.54, 0.40, 0.76)
+	card_style.set_corner_radius_all(5)
+	card_style.shadow_color = Color(0.0, 0.0, 0.0, 0.24)
+	card_style.shadow_size = 4
+	card_style.shadow_offset = Vector2(0.0, 2.0)
 	card.add_theme_stylebox_override("panel", card_style)
 	_save_slots_list.add_child(card)
 	var margin := MarginContainer.new()
@@ -697,7 +710,7 @@ func _create_save_slot_card(slot: Dictionary) -> void:
 	var header := HBoxContainer.new()
 	header.add_theme_constant_override("separation", 10)
 	content.add_child(header)
-	var name_label := _make_label(String(slot.get("display_name", slot_id)), 20, Color(0.98, 0.88, 0.72, 1.0))
+	var name_label := _make_label(String(slot.get("display_name", slot_id)), 20, Color(0.96, 0.88, 0.70, 1.0))
 	name_label.custom_minimum_size = Vector2(348.0, 30.0)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -705,12 +718,12 @@ func _create_save_slot_card(slot: Dictionary) -> void:
 	var state_label := _make_label(
 		("ACTIVE" if _language == "en" else "当前使用") if is_active else ("EMPTY" if _language == "en" else "空槽位") if not has_data else ("READY" if _language == "en" else "可切换"),
 		14,
-		Color(1.0, 0.76, 0.42, 1.0) if is_active else Color(0.72, 0.74, 0.92, 1.0)
+		Color(1.0, 0.78, 0.40, 1.0) if is_active else Color(0.66, 0.80, 0.66, 1.0)
 	)
 	state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	state_label.custom_minimum_size = Vector2(146.0, 30.0)
 	header.add_child(state_label)
-	var description := _make_label(_get_save_slot_description(slot), 14, Color(0.76, 0.70, 0.84, 1.0))
+	var description := _make_label(_get_save_slot_description(slot), 14, Color(0.70, 0.76, 0.67, 1.0))
 	description.custom_minimum_size = Vector2(528.0, 22.0)
 	description.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	content.add_child(description)
@@ -719,14 +732,14 @@ func _create_save_slot_card(slot: Dictionary) -> void:
 	content.add_child(actions)
 	if not has_data:
 		if is_active:
-			var active_empty_button := _make_save_slot_button("ACTIVE NEW SAVE" if _language == "en" else "当前新存档", Color(0.09, 0.09, 0.11, 0.98), Color(0.48, 0.48, 0.54, 0.88))
+			var active_empty_button := _make_save_slot_button("ACTIVE NEW SAVE" if _language == "en" else "当前新存档", Color(0.065, 0.070, 0.058, 0.98), Color(0.42, 0.46, 0.38, 0.82))
 			active_empty_button.name = "ActiveEmptySaveSlot_%s" % slot_id
 			active_empty_button.custom_minimum_size = Vector2(528.0, 34.0)
 			active_empty_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			active_empty_button.disabled = true
 			actions.add_child(active_empty_button)
 		else:
-			var create_button := _make_save_slot_button("CREATE NEW SAVE" if _language == "en" else "新建存档", Color(0.10, 0.15, 0.12, 0.98), Color(0.50, 0.84, 0.58, 0.96))
+			var create_button := _make_save_slot_button("CREATE NEW SAVE" if _language == "en" else "新建存档", Color(0.035, 0.10, 0.060, 0.98), Color(0.48, 0.74, 0.48, 0.90))
 			create_button.name = "CreateSaveSlot_%s" % slot_id
 			create_button.custom_minimum_size = Vector2(528.0, 34.0)
 			create_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -734,19 +747,19 @@ func _create_save_slot_card(slot: Dictionary) -> void:
 			actions.add_child(create_button)
 		return
 	if not is_active:
-		var switch_button := _make_save_slot_button("SWITCH" if _language == "en" else "切换", Color(0.09, 0.12, 0.19, 0.98), Color(0.44, 0.68, 0.98, 0.96))
+		var switch_button := _make_save_slot_button("SWITCH" if _language == "en" else "切换", Color(0.025, 0.080, 0.072, 0.98), Color(0.40, 0.70, 0.64, 0.90))
 		switch_button.name = "SwitchSaveSlot_%s" % slot_id
 		switch_button.custom_minimum_size = Vector2(156.0, 34.0)
 		switch_button.pressed.connect(_on_save_slot_switch_pressed.bind(slot_id))
 		actions.add_child(switch_button)
-	var rename_button := _make_save_slot_button("RENAME" if _language == "en" else "重命名", Color(0.14, 0.09, 0.18, 0.98), Color(0.72, 0.56, 0.94, 0.96))
+	var rename_button := _make_save_slot_button("RENAME" if _language == "en" else "重命名", Color(0.095, 0.075, 0.030, 0.98), Color(0.70, 0.60, 0.34, 0.88))
 	rename_button.name = "RenameSaveSlot_%s" % slot_id
 	rename_button.custom_minimum_size = Vector2(218.0, 34.0)
 	rename_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rename_button.pressed.connect(_on_save_slot_rename_pressed.bind(slot_id))
 	actions.add_child(rename_button)
 	if not is_active:
-		var delete_button := _make_save_slot_button("DELETE" if _language == "en" else "删除", Color(0.22, 0.06, 0.08, 0.98), Color(0.90, 0.30, 0.34, 0.98))
+		var delete_button := _make_save_slot_button("DELETE" if _language == "en" else "删除", Color(0.16, 0.046, 0.040, 0.98), Color(0.72, 0.30, 0.25, 0.92))
 		delete_button.name = "DeleteSaveSlot_%s" % slot_id
 		delete_button.custom_minimum_size = Vector2(122.0, 34.0)
 		delete_button.pressed.connect(_on_save_slot_delete_pressed.bind(slot_id))
@@ -760,10 +773,27 @@ func _make_save_slot_button(text_value: String, background: Color, border: Color
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.add_theme_font_size_override("font_size", 15)
-	button.add_theme_stylebox_override("normal", _make_button_style(background, border))
-	button.add_theme_stylebox_override("hover", _make_button_style(background.lightened(0.14), border.lightened(0.12)))
-	button.add_theme_stylebox_override("pressed", _make_button_style(background.darkened(0.16), border))
+	button.add_theme_color_override("font_color", Color(0.91, 0.88, 0.76, 1.0))
+	button.add_theme_color_override("font_hover_color", Color(1.0, 0.94, 0.76, 1.0))
+	button.add_theme_stylebox_override("normal", _make_save_slot_button_style(background, border))
+	button.add_theme_stylebox_override("hover", _make_save_slot_button_style(background.lightened(0.10), border.lightened(0.12)))
+	button.add_theme_stylebox_override("pressed", _make_save_slot_button_style(background.darkened(0.12), border))
 	return button
+
+
+func _make_save_slot_button_style(background: Color, border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = background
+	style.border_color = border
+	# Fine horizontal rules feel like an inscription strip and avoid the stock,
+	# fully outlined rounded-button appearance used by the earlier save cards.
+	style.set_border_width_all(0)
+	style.border_width_top = 1
+	style.border_width_bottom = 1
+	style.set_corner_radius_all(3)
+	style.content_margin_left = 12.0
+	style.content_margin_right = 12.0
+	return style
 
 
 func _get_save_slot_description(slot: Dictionary) -> String:

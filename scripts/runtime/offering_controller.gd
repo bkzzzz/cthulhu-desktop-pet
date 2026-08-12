@@ -1,5 +1,10 @@
 extends "res://scripts/runtime/main_context.gd"
 
+# Transient feedback is deliberately kept out of permanent HUD cards.  Keep a
+# small per-area lane so simultaneous coin, faith, and food feedback does not
+# render directly on top of itself.
+var _status_popup_lanes := {}
+
 func _update_offering_cursor_state() -> void:
 	if not _carried_offering.is_empty():
 		_refresh_offering_cursor()
@@ -429,27 +434,72 @@ func _show_coin_change_popup(anchor: Vector2, amount: int, coin_type := "") -> v
 func _show_status_popup(anchor: Vector2, text_value: String, color: Color) -> void:
 	if not is_inside_tree():
 		return
+	var lane_key := _get_status_popup_lane_key(anchor)
 	var label = Label.new()
 	label.text = text_value
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.size = Vector2(280.0, 34.0)
-	label.position = _get_safe_control_position(anchor + Vector2(-140.0, -96.0), label.size, SAFE_CANVAS_MARGIN)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size = Vector2(300.0, 42.0)
+	var lane_index := _register_status_popup(lane_key, label)
+	var horizontal_stagger := (float((lane_index % 3) - 1)) * 16.0
+	var vertical_stagger := float(mini(lane_index, 4)) * 21.0
+	label.position = _get_safe_control_position(
+		anchor + Vector2(-label.size.x * 0.5 + horizontal_stagger, -92.0 - vertical_stagger),
+		label.size,
+		SAFE_CANVAS_MARGIN
+	)
 	label.z_index = 360
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_override("font", LanguageSettings.get_ui_font(_language))
-	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
-	label.add_theme_constant_override("outline_size", 4)
+	label.add_theme_constant_override("outline_size", 3)
 	add_child(label)
 
 	var tween = create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "position", _get_safe_control_position(label.position + Vector2(0.0, -28.0), label.size, SAFE_CANVAS_MARGIN), 0.58)
-	tween.parallel().tween_property(label, "modulate", Color(1.0, 1.0, 1.0, 0.0), 0.58)
+	tween.tween_property(label, "position", _get_safe_control_position(label.position + Vector2(0.0, -24.0), label.size, SAFE_CANVAS_MARGIN), 0.62)
+	tween.parallel().tween_property(label, "modulate", Color(1.0, 1.0, 1.0, 0.0), 0.62)
+	tween.tween_callback(_release_status_popup_lane.bind(lane_key, label))
 	tween.tween_callback(Callable(label, "queue_free"))
+
+
+func _get_status_popup_lane_key(anchor: Vector2) -> String:
+	return "%d:%d" % [int(round(anchor.x / 180.0)), int(round(anchor.y / 160.0))]
+
+
+func _register_status_popup(lane_key: String, label: Label) -> int:
+	var active_labels: Array[Label] = []
+	for label_value in _status_popup_lanes.get(lane_key, []):
+		var existing_label := label_value as Label
+		if existing_label != null and is_instance_valid(existing_label) and not existing_label.is_queued_for_deletion():
+			active_labels.append(existing_label)
+	var lane_index := active_labels.size()
+	active_labels.append(label)
+	_status_popup_lanes[lane_key] = active_labels
+	return lane_index
+
+
+func _release_status_popup_lane(lane_key: String, label: Label) -> void:
+	if not _status_popup_lanes.has(lane_key):
+		return
+	var remaining_labels: Array[Label] = []
+	for label_value in _status_popup_lanes.get(lane_key, []):
+		var existing_label := label_value as Label
+		if (
+			existing_label != null
+			and existing_label != label
+			and is_instance_valid(existing_label)
+			and not existing_label.is_queued_for_deletion()
+		):
+			remaining_labels.append(existing_label)
+	if remaining_labels.is_empty():
+		_status_popup_lanes.erase(lane_key)
+	else:
+		_status_popup_lanes[lane_key] = remaining_labels
 
 func _get_safe_control_position(raw_position: Vector2, size: Vector2, margin: float) -> Vector2:
 	var right = float(_pet_window_size.x) - size.x - margin

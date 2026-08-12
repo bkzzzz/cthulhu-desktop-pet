@@ -24,7 +24,18 @@ const SHOP_CATEGORIES := [OfferingCatalog.KIND, ITEM_KIND]
 
 const GOODS_PER_PAGE := 6
 const MIN_TOTAL_PAGES := 1
-const GOOD_ICON_SIZE := Vector2(134.0, 134.0)
+## The parchment already supplies the card frame.  Keep the content inside its
+## calm inner area instead of adding another generic panel on top of it.
+const GOOD_ICON_SIZE := Vector2(152.0, 118.0)
+const SLOT_ICON_TOP := 16.0
+const SLOT_TEXT_SURFACE_RECT := Rect2(18.0, 141.0, 216.0, 87.0)
+const SLOT_NAME_RECT := Rect2(18.0, 143.0, 216.0, 27.0)
+const SLOT_PRICE_RECT := Rect2(18.0, 171.0, 216.0, 24.0)
+const SLOT_ACTION_RECT := Rect2(24.0, 199.0, 204.0, 27.0)
+# Reserve a true two-line copy area above the first product row.  It remains
+# left of the shop crest and gold controls, and stops before the card frame.
+const INFO_STRIP_POSITION := Vector2(135.0, 171.0)
+const INFO_STRIP_SIZE := Vector2(310.0, 70.0)
 const CATEGORY_TAB_SIZE := Vector2(258.0, 82.0)
 # Deliberately overlap the parchment edge. This reads as a physical bookmark
 # tucked into the shop, rather than two floating controls beside it.
@@ -53,12 +64,13 @@ var _category_hit_layer: Control
 var _page_label: Label
 var _coin_balance_label: Label
 var _result_label: Label
-var _info_panel: PanelContainer
+var _info_panel: Control
 var _info_name_label: Label
 var _info_desc_label: Label
 var _info_price_label: Label
 var _slot_controls: Array[Control] = []
 var _slot_icons: Array[TextureRect] = []
+var _slot_text_surfaces: Array[ColorRect] = []
 var _slot_name_labels: Array[Label] = []
 var _slot_price_labels: Array[Label] = []
 var _slot_action_labels: Array[Label] = []
@@ -168,7 +180,7 @@ func get_good(good_id: String) -> Dictionary:
 func set_purchase_result(good_id: String, success: bool, message: String) -> void:
 	if _result_label == null:
 		return
-	_result_label.text = message
+	_fit_card_label_text(_result_label, message, 18, 13)
 	_result_label.visible = not message.strip_edges().is_empty()
 	_result_label.add_theme_color_override("font_color", Color(0.78, 1.0, 0.62, 1.0) if success else Color(1.0, 0.58, 0.46, 1.0))
 	_refresh_page()
@@ -310,9 +322,11 @@ func _create_category_tabs() -> void:
 		label.position = Vector2(74.0, 8.0)
 		label.size = Vector2(124.0, 66.0)
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.add_theme_font_size_override("font_size", 19)
+		label.clip_text = true
+		label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		label.add_theme_font_size_override("font_size", 20)
 		label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 0.95))
-		label.add_theme_constant_override("outline_size", 3)
+		label.add_theme_constant_override("outline_size", 2)
 		button.add_child(label)
 
 		var hit_area := Control.new()
@@ -454,6 +468,7 @@ func _animate_category_tab_press(button: TextureButton) -> void:
 func _create_slots() -> void:
 	_slot_controls.clear()
 	_slot_icons.clear()
+	_slot_text_surfaces.clear()
 	_slot_name_labels.clear()
 	_slot_price_labels.clear()
 	_slot_action_labels.clear()
@@ -474,7 +489,7 @@ func _create_slots() -> void:
 
 		var icon := TextureRect.new()
 		icon.name = "GoodIcon%d" % index
-		icon.position = Vector2((slot_rect.size.x - GOOD_ICON_SIZE.x) * 0.5, 28.0)
+		icon.position = Vector2((slot_rect.size.x - GOOD_ICON_SIZE.x) * 0.5, SLOT_ICON_TOP)
 		icon.size = GOOD_ICON_SIZE
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -482,24 +497,46 @@ func _create_slots() -> void:
 		slot.add_child(icon)
 		_slot_icons.append(icon)
 
-		var name_label := _make_slot_label(18, Color(0.96, 0.88, 0.62, 1.0), 4)
-		name_label.position = Vector2(18.0, 168.0)
-		name_label.size = Vector2(slot_rect.size.x - 36.0, 30.0)
+		# A soft content band gives every card the same readable text hierarchy
+		# while leaving the authored parchment frame as the only outer frame.
+		var text_surface := ColorRect.new()
+		text_surface.name = "CardTextSurface%d" % index
+		text_surface.position = SLOT_TEXT_SURFACE_RECT.position
+		text_surface.size = SLOT_TEXT_SURFACE_RECT.size
+		# This is a warm, translucent ink wash rather than another framed panel.
+		# It preserves the card art underneath while giving small scaled text a
+		# stable contrast field.
+		text_surface.color = Color(0.075, 0.055, 0.035, 0.50)
+		text_surface.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(text_surface)
+		_slot_text_surfaces.append(text_surface)
+
+		var text_rule := ColorRect.new()
+		text_rule.name = "CardTextRule%d" % index
+		text_rule.position = Vector2(25.0, 0.0)
+		text_rule.size = Vector2(text_surface.size.x - 50.0, 1.0)
+		text_rule.color = Color(0.83, 0.72, 0.48, 0.54)
+		text_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		text_surface.add_child(text_rule)
+
+		var name_label := _make_slot_label(20, Color(0.96, 0.89, 0.70, 1.0), 2)
+		name_label.position = SLOT_NAME_RECT.position
+		name_label.size = SLOT_NAME_RECT.size
 		slot.add_child(name_label)
 		_slot_name_labels.append(name_label)
 
-		var price_label := _make_slot_label(17, Color(0.78, 1.0, 0.68, 1.0), 3)
-		price_label.position = Vector2(20.0, 206.0)
-		price_label.size = Vector2(slot_rect.size.x - 40.0, 28.0)
+		var price_label := _make_slot_label(18, Color(0.91, 0.76, 0.43, 1.0), 2)
+		price_label.position = SLOT_PRICE_RECT.position
+		price_label.size = SLOT_PRICE_RECT.size
 		slot.add_child(price_label)
 		_slot_price_labels.append(price_label)
 
-		# Every product uses this same quiet third row.  Food cards do not need a
-		# different component from desktop items; only the short action changes.
-		var action_label := _make_slot_label(14, Color(0.72, 0.84, 0.68, 1.0), 2)
+		# Every product uses the same final row.  Food and desktop items only
+		# differ in the concise verb, never in their card construction.
+		var action_label := _make_slot_label(15, Color(0.73, 0.84, 0.72, 1.0), 1)
 		action_label.name = "CardActionLabel%d" % index
-		action_label.position = Vector2(20.0, 236.0)
-		action_label.size = Vector2(slot_rect.size.x - 40.0, 24.0)
+		action_label.position = SLOT_ACTION_RECT.position
+		action_label.size = SLOT_ACTION_RECT.size
 		slot.add_child(action_label)
 		_slot_action_labels.append(action_label)
 
@@ -508,10 +545,12 @@ func _make_slot_label(font_size: int, color: Color, outline_size: int) -> Label:
 	var label := Label.new()
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.clip_text = true
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
-	label.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.018, 1.0))
+	label.add_theme_color_override("font_outline_color", Color(0.015, 0.018, 0.017, 0.96))
 	label.add_theme_constant_override("outline_size", outline_size)
 	return label
 
@@ -569,6 +608,8 @@ func _create_result_label() -> void:
 	_result_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_result_label.position = Vector2(360.0, 870.0)
 	_result_label.size = Vector2(400.0, 32.0)
+	_result_label.clip_text = true
+	_result_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_result_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_result_label.add_theme_font_size_override("font_size", 18)
 	_result_label.add_theme_color_override("font_color", Color(0.76, 0.86, 0.68, 1.0))
@@ -593,56 +634,56 @@ func _create_coin_balance() -> void:
 
 
 func _create_info_panel() -> void:
-	_info_panel = PanelContainer.new()
+	# Keep product detail in one reserved header strip.  The old floating panel
+	# covered whichever neighbouring card the pointer happened to cross, making
+	# both copy and art feel misaligned.  This deliberately has no box frame:
+	# the shop parchment remains the only structural surround.
+	_info_panel = Control.new()
 	_info_panel.name = "GoodInfoPanel"
 	_info_panel.visible = false
-	_info_panel.size = Vector2(292.0, 150.0)
+	_info_panel.position = INFO_STRIP_POSITION
+	_info_panel.size = INFO_STRIP_SIZE
 	_info_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_info_panel.z_index = 20
-	_info_panel.add_theme_stylebox_override("panel", _make_info_panel_style())
 	_page_root.add_child(_info_panel)
 
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	_info_panel.add_child(margin)
-
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 6)
-	margin.add_child(content)
+	var rule := ColorRect.new()
+	rule.name = "InfoRule"
+	rule.position = Vector2(0.0, 1.0)
+	rule.size = Vector2(74.0, 1.0)
+	rule.color = Color(0.85, 0.73, 0.48, 0.72)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info_panel.add_child(rule)
 
 	_info_name_label = Label.new()
-	_info_name_label.add_theme_font_size_override("font_size", 18)
-	_info_name_label.add_theme_color_override("font_color", Color(0.96, 0.86, 0.58, 1.0))
-	content.add_child(_info_name_label)
+	_info_name_label.position = Vector2(0.0, 4.0)
+	_info_name_label.size = Vector2(INFO_STRIP_SIZE.x, 20.0)
+	_info_name_label.clip_text = true
+	_info_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_info_name_label.add_theme_font_size_override("font_size", 16)
+	_info_name_label.add_theme_color_override("font_color", Color(0.94, 0.87, 0.68, 1.0))
+	_info_name_label.add_theme_color_override("font_outline_color", Color(0.015, 0.018, 0.017, 0.90))
+	_info_name_label.add_theme_constant_override("outline_size", 1)
+	_info_panel.add_child(_info_name_label)
 
 	_info_desc_label = Label.new()
+	_info_desc_label.position = Vector2(0.0, 25.0)
+	_info_desc_label.size = Vector2(INFO_STRIP_SIZE.x, 43.0)
 	_info_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_info_desc_label.custom_minimum_size = Vector2(260.0, 70.0)
-	_info_desc_label.add_theme_font_size_override("font_size", 16)
-	_info_desc_label.add_theme_constant_override("line_spacing", 3)
-	_info_desc_label.add_theme_color_override("font_color", Color(0.72, 0.82, 0.66, 1.0))
-	content.add_child(_info_desc_label)
+	_info_desc_label.clip_text = true
+	_info_desc_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_WORD_ELLIPSIS
+	_info_desc_label.add_theme_font_size_override("font_size", 14)
+	_info_desc_label.add_theme_constant_override("line_spacing", 0)
+	_info_desc_label.add_theme_color_override("font_color", Color(0.73, 0.82, 0.70, 1.0))
+	_info_desc_label.add_theme_color_override("font_outline_color", Color(0.015, 0.018, 0.017, 0.86))
+	_info_desc_label.add_theme_constant_override("outline_size", 1)
+	_info_panel.add_child(_info_desc_label)
 
+	# Retain this label as a data mirror for accessibility/tests, while the
+	# visible card price remains the single price treatment players see.
 	_info_price_label = Label.new()
-	_info_price_label.add_theme_font_size_override("font_size", 15)
-	_info_price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0))
-	content.add_child(_info_price_label)
-
-
-func _make_info_panel_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.018, 0.024, 0.022, 0.95)
-	style.border_color = Color(0.46, 0.62, 0.42, 0.9)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(7)
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.38)
-	style.shadow_size = 10
-	style.shadow_offset = Vector2(0, 4)
-	return style
+	_info_price_label.visible = false
+	_info_panel.add_child(_info_price_label)
 
 
 func _make_arrow_button(direction: int) -> TextureButton:
@@ -682,6 +723,7 @@ func _refresh_page() -> void:
 		var has_good := good_index < category_goods.size()
 		var slot := _slot_controls[slot_index]
 		var icon := _slot_icons[slot_index]
+		var text_surface := _slot_text_surfaces[slot_index]
 		var name_label := _slot_name_labels[slot_index]
 		var price_label := _slot_price_labels[slot_index]
 		var action_label := _slot_action_labels[slot_index]
@@ -691,6 +733,7 @@ func _refresh_page() -> void:
 			Control.CURSOR_POINTING_HAND if has_good else Control.CURSOR_ARROW
 		)
 		icon.visible = has_good
+		text_surface.visible = has_good
 		name_label.visible = has_good
 		price_label.visible = has_good
 		action_label.visible = has_good
@@ -708,13 +751,21 @@ func _refresh_page() -> void:
 		var affordable := item_owned or _coin_balance >= price
 		icon.texture = load(String(good.get("texture", ""))) as Texture2D
 		icon.modulate = Color(1.0, 1.0, 1.0, 1.0) if affordable else Color(0.62, 0.62, 0.62, 0.9)
-		name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
-		price_label.text = _get_card_price_text(good, item_state)
-		price_label.add_theme_color_override("font_color", Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0))
+		_fit_card_label_text(
+			name_label,
+			String(display_good.get("name", "Item" if _language == "en" else "商品")),
+			20,
+			14
+		)
+		_fit_card_label_text(price_label, _get_card_price_text(good, item_state), 18, 12)
+		price_label.add_theme_color_override(
+			"font_color",
+			Color(0.91, 0.76, 0.43, 1.0) if affordable else Color(0.96, 0.57, 0.46, 1.0)
+		)
 		# Price and action now share the exact same placement on every card. This
 		# makes food and desktop items feel like one shop while still making each
 		# item's next click unambiguous.
-		action_label.text = _get_card_action_text(good, item_state, affordable)
+		_fit_card_label_text(action_label, _get_card_action_text(good, item_state, affordable), 15, 11)
 		action_label.add_theme_color_override(
 			"font_color",
 			_get_card_action_color(affordable, item_owned)
@@ -754,9 +805,9 @@ func _refresh_visible_slot_affordability() -> void:
 		icon.modulate = Color.WHITE if affordable else Color(0.62, 0.62, 0.62, 0.9)
 		price_label.add_theme_color_override(
 			"font_color",
-			Color(0.82, 1.0, 0.68, 1.0) if affordable else Color(1.0, 0.58, 0.46, 1.0)
+			Color(0.91, 0.76, 0.43, 1.0) if affordable else Color(0.96, 0.57, 0.46, 1.0)
 		)
-		action_label.text = _get_card_action_text(good, item_state, affordable)
+		_fit_card_label_text(action_label, _get_card_action_text(good, item_state, affordable), 15, 11)
 		action_label.add_theme_color_override(
 			"font_color",
 			_get_card_action_color(affordable, item_owned)
@@ -784,9 +835,14 @@ func _get_item_state(item_id: String) -> Dictionary:
 func _get_card_price_text(good: Dictionary, item_state: Dictionary = {}) -> String:
 	if DesktopItemCatalog.is_item(good) and bool(item_state.get("owned", false)):
 		return "OWNED" if _language == "en" else "已拥有"
-	return ("PRICE  %s" if _language == "en" else "价格 %s") % CurrencyDisplay.format_compact(
-		int(good.get("price", 0))
-	)
+	var price := maxi(0, int(good.get("price", 0)))
+	var amount_text := CurrencyDisplay.format_compact(price)
+	# The header intentionally keeps exact account values.  A fixed 252px card
+	# does not have that room, so switch to a compact amount before any label can
+	# collide with the card ornament or be reduced to an unreadable font size.
+	if price >= 10_000:
+		amount_text = "$ %s" % _format_compact_number(float(price))
+	return ("PRICE  %s" if _language == "en" else "价格 %s") % amount_text
 
 
 func _get_card_action_text(good: Dictionary, item_state: Dictionary, affordable: bool) -> String:
@@ -803,16 +859,39 @@ func _get_card_action_text(good: Dictionary, item_state: Dictionary, affordable:
 
 func _get_card_action_color(affordable: bool, item_owned: bool) -> Color:
 	if not affordable:
-		return Color(1.0, 0.66, 0.54, 1.0)
+		return Color(0.94, 0.63, 0.52, 1.0)
 	# Keep the action row deliberately understated for both product types. Owned
 	# items get a small cool tint only to distinguish their free follow-up action.
-	return Color(0.72, 0.84, 0.68, 1.0) if not item_owned else Color(0.70, 0.86, 0.92, 1.0)
+	return Color(0.73, 0.84, 0.72, 1.0) if not item_owned else Color(0.70, 0.84, 0.90, 1.0)
 
 
 func _localize_good(good: Dictionary) -> Dictionary:
 	if DesktopItemCatalog.is_item(good):
 		return DesktopItemCatalog.localize(good, _language)
 	return OfferingCatalog.localize(good, _language)
+
+
+func _fit_card_label_text(label: Label, value: String, max_font_size: int, min_font_size: int) -> void:
+	if label == null:
+		return
+	label.text = value
+	label.add_theme_font_size_override("font_size", max_font_size)
+	var font := label.get_theme_font("font")
+	if font == null:
+		return
+	var available_width := maxf(1.0, label.size.x - 8.0)
+	var font_size := max_font_size
+	while font_size > min_font_size:
+		var measured_width := font.get_string_size(
+			value,
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1.0,
+			font_size
+		).x
+		if measured_width <= available_width:
+			break
+		font_size -= 1
+	label.add_theme_font_size_override("font_size", font_size)
 
 
 func _turn_page(direction: int) -> void:
@@ -831,26 +910,26 @@ func _on_slot_hovered(slot_index: int, hovered: bool) -> void:
 	if good_index < 0 or good_index >= category_goods.size():
 		return
 
-	var slot := _slot_controls[slot_index]
-	var position_hint := slot.position + Vector2(slot.size.x - 18.0, 18.0)
-	if position_hint.x + _info_panel.size.x > float(SHOP_PAGE_SIZE.x) - 32.0:
-		position_hint.x = slot.position.x - _info_panel.size.x + 18.0
-	_show_info_panel(category_goods[good_index], position_hint)
+	_show_info_panel(category_goods[good_index], INFO_STRIP_POSITION)
 
 
-func _show_info_panel(good: Dictionary, panel_position: Vector2) -> void:
+func _show_info_panel(good: Dictionary, _panel_position: Vector2) -> void:
 	if _info_panel == null:
 		return
 
 	var display_good := _localize_good(good)
-	_info_name_label.text = String(display_good.get("name", "Item" if _language == "en" else "商品"))
+	_fit_card_label_text(
+		_info_name_label,
+		String(display_good.get("name", "Item" if _language == "en" else "商品")),
+		16,
+		12
+	)
 	_info_desc_label.text = String(display_good.get("description", ""))
 	var item_state := _get_item_state(String(good.get("id", ""))) if DesktopItemCatalog.is_item(good) else {}
 	_info_price_label.text = _get_card_price_text(good, item_state)
-	_info_panel.position = Vector2(
-		clampf(panel_position.x, 24.0, float(SHOP_PAGE_SIZE.x) - _info_panel.size.x - 24.0),
-		clampf(panel_position.y, 24.0, float(SHOP_PAGE_SIZE.y) - _info_panel.size.y - 24.0)
-	)
+	# Callers may still pass a position for compatibility, but detail always uses
+	# the reserved header strip so it never lands on another item card.
+	_info_panel.position = INFO_STRIP_POSITION
 	_info_panel.visible = true
 
 

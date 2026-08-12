@@ -18,7 +18,7 @@ static func run() -> Array[String]:
 
 	drawer.call("set_pet_name", "pet2", "Leaked Name")
 	var pet2_name := (drawer.get("_upgrade_name_labels") as Dictionary).get("pet2") as Label
-	if pet2_name == null or pet2_name.text != SideDrawer.LOCKED_PET_TEXT:
+	if pet2_name == null or pet2_name.text != String(drawer.call("_get_locked_pet_text")):
 		failures.append("renaming a locked pet must not reveal its name")
 
 	drawer.set("_drawer_open", true)
@@ -80,18 +80,22 @@ static func _assert_locked_row(failures: Array[String], drawer: Node, pet_id: St
 	var icon := (drawer.get("_upgrade_icons") as Dictionary).get(pet_id) as TextureRect
 	if button == null or not button.disabled or bool(button.get_meta("pet_unlocked", true)):
 		failures.append("%s must have a disabled, explicitly locked menu row" % pet_id)
-	var protected_texts := [
+	var locked_text := String(drawer.call("_get_locked_pet_text"))
+	var locked_level_text := String(drawer.call("_get_locked_pet_level_text"))
+	var expected_texts := [
 		name_label.text if name_label != null else "",
-		level_label.text if level_label != null else "",
-		cost_label.text if cost_label != null else "",
-		bonus_label.text if bonus_label != null else "",
 		button.tooltip_text if button != null else "",
 	]
-	for protected_text_value in protected_texts:
-		var protected_text := String(protected_text_value).replace("\n", "")
-		if protected_text.is_empty() or not protected_text.contains("?") or not protected_text.replace("?", "").is_empty():
-			failures.append("%s locked name, level, rate, cost and tooltip must contain question marks only" % pet_id)
+	for protected_text_value in expected_texts:
+		if String(protected_text_value) != locked_text:
+			failures.append("%s locked UI must use a clear localized locked state without revealing pet data" % pet_id)
 			break
+	if level_label == null or level_label.text != locked_level_text:
+		failures.append("%s locked level field must use the localized locked state" % pet_id)
+	if cost_label == null or cost_label.text != "—":
+		failures.append("%s locked cost field must stay intentionally blank" % pet_id)
+	if bonus_label == null or bonus_label.text != String(drawer.call("_get_locked_pet_description")):
+		failures.append("%s locked description must explain how to reveal the pet" % pet_id)
 	if icon == null or icon.texture == null:
 		failures.append("%s locked portrait must preserve its alpha silhouette" % pet_id)
 	elif (
@@ -157,5 +161,5 @@ static func _assert_short_screen_layout(failures: Array[String], drawer: Node) -
 	var scroller_height := float(drawer.call("_get_upgrade_scroll_height"))
 	if stage == null or not is_equal_approx(stage.custom_minimum_size.y, 300.0):
 		failures.append("the live drawer must reserve the compact adder height on a 600px screen")
-	if not is_equal_approx(scroller_height, 128.0):
+	if not is_equal_approx(scroller_height, 134.0):
 		failures.append("a 600px drawer must retain a visible upgrade scroller and footer without clipping")

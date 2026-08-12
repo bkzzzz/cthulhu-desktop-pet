@@ -27,8 +27,8 @@ const DRAWER_CONTENT_MARGIN_X := 34
 const DRAWER_CONTENT_WIDTH := DRAWER_PANEL_WIDTH - (DRAWER_CONTENT_MARGIN_X * 2)
 const DRAWER_SLIDE_SPEED := 1800.0
 const DRAWER_CONTENT_TOP_MARGIN := 46
-const ERA_LABEL_HEIGHT := 34.0
-const ERA_LABEL_WIDTH := DRAWER_CONTENT_WIDTH - 56.0
+const ERA_LABEL_HEIGHT := 28.0
+const ERA_LABEL_WIDTH := DRAWER_CONTENT_WIDTH - 126.0
 const MENU_WINDOW_SIZE := Vector2i(228, 150)
 const PLAYTIME_LABEL_SIZE := Vector2(114.0, 22.0)
 const MENU_TO_DRAWER_GAP := 2
@@ -59,19 +59,19 @@ const ADDER_STAGE_HEIGHT := 484.0
 const ADDER_SIZE := Vector2(244.0, 296.0)
 const GLOW_SIZE := Vector2(230.0, 210.0)
 const GLOW_ROTATION_SPEED := 0.65
-const FAITH_COUNTER_VALUE_FONT_MAX := 68
-const FAITH_COUNTER_VALUE_FONT_MIN := 32
+const FAITH_COUNTER_VALUE_FONT_MAX := 54
+const FAITH_COUNTER_VALUE_FONT_MIN := 28
 const UPGRADE_ROW_SIZE := Vector2(468.0, 116.0)
 const UPGRADE_PROFILE_BOX_SIZE := Vector2(68.0, 68.0)
 const UPGRADE_ICON_SIZE := Vector2(62.0, 62.0)
 const UPGRADE_ROW_GAP := 6
 const UPGRADE_LOCKED_ROWS := 12
-const UPGRADE_SCROLL_TOP_PADDING := 44
-const UPGRADE_SCROLL_BOTTOM_PADDING := 24
+const UPGRADE_SCROLL_TOP_PADDING := 18
+const UPGRADE_SCROLL_BOTTOM_PADDING := 20
 const UPGRADE_SCROLL_MIN_HEIGHT := 64.0
 const UPGRADE_SCROLL_MAX_HEIGHT := 760.0
-const LOCKED_PET_TEXT := "??????"
-const LOCKED_PET_LEVEL_TEXT := "????\n????"
+const LOCKED_PET_TEXT := "LOCKED"
+const LOCKED_PET_LEVEL_TEXT := "—"
 const LOCKED_PET_SILHOUETTE_COLOR := Color(0.025, 0.025, 0.035, 1.0)
 const SYMBOL_EFFECT_TEXTURES := [
 	"res://assets/ui/newElements/符号特效1.png",
@@ -310,9 +310,9 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		if level_label != null:
 			_set_fitted_label_text(
 				level_label,
-				("LEVEL\n%s" if _language == "en" else "等级\n%s") % _get_upgrade_level_text(entry),
-				25,
-				18,
+				("LV\n%s" if _language == "en" else "等级\n%s") % _get_upgrade_level_compact_text(entry),
+				21,
+				16,
 				6
 			)
 			if _upgrade_last_levels.has(pet_id) and level > int(_upgrade_last_levels.get(pet_id, level)):
@@ -389,7 +389,12 @@ func set_pet_name(pet_id: String, display_name: String) -> void:
 
 func refresh_era(display_text: String) -> void:
 	if _era_label != null:
-		_era_label.text = display_text
+		var next_text := display_text.strip_edges()
+		_era_label.text = next_text
+		# A missing calendar value used to leave a large, empty rounded box between
+		# the balances and the pet cards. Hide the complete control until there is
+		# actual information to present so the drawer remains intentionally spaced.
+		_era_label.visible = not next_text.is_empty()
 
 
 func refresh_playtime(total_seconds: float) -> void:
@@ -653,15 +658,20 @@ func _create_era_label(parent: Node) -> void:
 	_era_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_era_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_era_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_era_label.visible = false
 	_era_label.add_theme_font_size_override("font_size", 17)
 	_era_label.add_theme_color_override("font_color", Color(0.94, 0.82, 0.48, 0.98))
 	_era_label.add_theme_color_override("font_outline_color", Color(0.02, 0.025, 0.02, 1.0))
 	_era_label.add_theme_constant_override("outline_size", 3)
 	var era_style := StyleBoxFlat.new()
-	era_style.bg_color = Color(0.035, 0.065, 0.045, 0.78)
-	era_style.border_color = Color(0.48, 0.43, 0.22, 0.72)
-	era_style.set_border_width_all(1)
-	era_style.set_corner_radius_all(7)
+	# This is a quiet editorial divider rather than another generic pill card.
+	era_style.bg_color = Color(0.025, 0.05, 0.035, 0.32)
+	era_style.border_color = Color(0.64, 0.58, 0.30, 0.52)
+	era_style.set_border_width_all(0)
+	era_style.border_width_top = 1
+	era_style.border_width_bottom = 1
+	era_style.content_margin_left = 12.0
+	era_style.content_margin_right = 12.0
 	_era_label.add_theme_stylebox_override("normal", era_style)
 	parent.add_child(_era_label)
 
@@ -907,15 +917,15 @@ func _make_faith_adder_stage() -> Control:
 	_faith_boost_glow_label.text = _format_number(_faith_count, false, true)
 	_faith_boost_glow_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_boost_glow_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_faith_boost_glow_label.position = Vector2((DRAWER_CONTENT_WIDTH - 300.0) * 0.5, 282.0)
-	_faith_boost_glow_label.size = Vector2(300.0, 72.0)
+	_faith_boost_glow_label.position = Vector2((DRAWER_CONTENT_WIDTH - 300.0) * 0.5, 288.0)
+	_faith_boost_glow_label.size = Vector2(300.0, 64.0)
 	_faith_boost_glow_label.pivot_offset = _faith_boost_glow_label.size * 0.5
 	_faith_boost_glow_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_faith_boost_glow_label.visible = false
 	_faith_boost_glow_label.add_theme_font_size_override("font_size", FAITH_COUNTER_VALUE_FONT_MAX)
-	_faith_boost_glow_label.add_theme_color_override("font_color", Color(0.72, 1.0, 0.28, 0.42))
-	_faith_boost_glow_label.add_theme_color_override("font_outline_color", Color(0.44, 1.0, 0.12, 0.42))
-	_faith_boost_glow_label.add_theme_constant_override("outline_size", 16)
+	_faith_boost_glow_label.add_theme_color_override("font_color", Color(0.78, 1.0, 0.44, 0.20))
+	_faith_boost_glow_label.add_theme_color_override("font_outline_color", Color(0.54, 1.0, 0.18, 0.22))
+	_faith_boost_glow_label.add_theme_constant_override("outline_size", 7)
 	stage.add_child(_faith_boost_glow_label)
 	_fit_font_to_text(_faith_boost_glow_label, _faith_boost_glow_label.text, FAITH_COUNTER_VALUE_FONT_MAX, FAITH_COUNTER_VALUE_FONT_MIN, 7)
 
@@ -924,8 +934,8 @@ func _make_faith_adder_stage() -> Control:
 	_faith_value_label.text = _format_number(_faith_count, false, true)
 	_faith_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_faith_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 300.0) * 0.5, 282.0)
-	_faith_value_label.size = Vector2(300.0, 72.0)
+	_faith_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 300.0) * 0.5, 288.0)
+	_faith_value_label.size = Vector2(300.0, 64.0)
 	_faith_value_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	_faith_value_label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_faith_value_label.add_theme_font_size_override("font_size", FAITH_COUNTER_VALUE_FONT_MAX)
@@ -957,7 +967,7 @@ func _make_faith_adder_stage() -> Control:
 	_faith_growth_value_label.text = "+%s%s" % [_format_number(_faith_growth_rate, true), RATE_SUFFIX]
 	_faith_growth_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_faith_growth_value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_faith_growth_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 240.0) * 0.5, 360.0)
+	_faith_growth_value_label.position = Vector2((DRAWER_CONTENT_WIDTH - 240.0) * 0.5, 354.0)
 	_faith_growth_value_label.size = Vector2(240.0, 28.0)
 	_faith_growth_value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_faith_growth_value_label.add_theme_font_size_override("font_size", 22)
@@ -968,7 +978,7 @@ func _make_faith_adder_stage() -> Control:
 
 	var coin_center := CenterContainer.new()
 	coin_center.name = "GoldBalanceCenter"
-	coin_center.position = Vector2(0.0, 430.0)
+	coin_center.position = Vector2(0.0, 426.0)
 	coin_center.size = Vector2(DRAWER_CONTENT_WIDTH, 52.0)
 	coin_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(coin_center)
@@ -1129,8 +1139,8 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 
 	var name_label := Label.new()
 	name_label.text = _get_pet_display_name(pet_id, pet_data)
-	name_label.position = Vector2(106, 15)
-	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 246.0, 28)
+	name_label.position = Vector2(106, 14)
+	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 252.0, 27)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	name_label.add_theme_font_size_override("font_size", 19)
 	name_label.add_theme_color_override("font_color", Color(0.94, 0.88, 0.64, 1.0))
@@ -1142,8 +1152,8 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 
 	var cost_label := Label.new()
 	cost_label.text = "消耗 0"
-	cost_label.position = Vector2(108, 50)
-	cost_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 24)
+	cost_label.position = Vector2(108, 47)
+	cost_label.size = Vector2(UPGRADE_ROW_SIZE.x - 252.0, 23)
 	cost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cost_label.add_theme_font_size_override("font_size", 19)
 	cost_label.add_theme_color_override("font_color", Color(0.84, 0.76, 0.66, 1.0))
@@ -1152,8 +1162,8 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 
 	var bonus_label := Label.new()
 	bonus_label.text = "增速 0.00/s"
-	bonus_label.position = Vector2(108, 74)
-	bonus_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 30)
+	bonus_label.position = Vector2(108, 70)
+	bonus_label.size = Vector2(UPGRADE_ROW_SIZE.x - 252.0, 26)
 	bonus_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bonus_label.add_theme_font_size_override("font_size", 17)
 	bonus_label.add_theme_color_override("font_color", Color(0.64, 0.82, 0.74, 1.0))
@@ -1162,16 +1172,24 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	button.add_child(bonus_label)
 	_upgrade_bonus_labels[pet_id] = bonus_label
 
+	var level_divider := ColorRect.new()
+	level_divider.name = "LevelColumnDivider"
+	level_divider.position = Vector2(UPGRADE_ROW_SIZE.x - 128.0, 28.0)
+	level_divider.size = Vector2(1.0, 58.0)
+	level_divider.color = Color(0.78, 0.70, 0.42, 0.24)
+	level_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(level_divider)
+
 	var level_label := Label.new()
-	level_label.text = "等级\nLv.1"
+	level_label.text = "等级\n1"
 	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
-	level_label.size = Vector2(118, 60)
+	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 118.0, 30)
+	level_label.size = Vector2(96.0, 56.0)
 	level_label.pivot_offset = level_label.size * 0.5
 	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	level_label.add_theme_font_size_override("font_size", 25)
-	level_label.add_theme_color_override("font_color", Color(0.88, 1.0, 0.78, 1.0))
+	level_label.add_theme_font_size_override("font_size", 21)
+	level_label.add_theme_color_override("font_color", Color(0.93, 0.95, 0.76, 1.0))
 	level_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	level_label.add_theme_constant_override("outline_size", 4)
 	button.add_child(level_label)
@@ -1186,7 +1204,7 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	button.name = "LockedUpgrade%d" % display_index
 	_configure_upgrade_row_button(button, "未解锁", true)
 	_set_upgrade_row_affordable(button, false)
-	button.tooltip_text = LOCKED_PET_TEXT
+	button.tooltip_text = _get_locked_pet_text()
 
 	var slot := PanelContainer.new()
 	slot.name = "LockedProfileBox"
@@ -1208,31 +1226,39 @@ func _make_locked_upgrade_row(display_index: int) -> TextureButton:
 	slot.add_child(question)
 
 	var name_label := Label.new()
-	name_label.text = LOCKED_PET_TEXT
-	name_label.position = Vector2(106, 22)
-	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 242.0, 30)
+	name_label.text = _get_locked_pet_text()
+	name_label.position = Vector2(106, 20)
+	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 252.0, 30)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	name_label.add_theme_font_size_override("font_size", 18)
 	name_label.add_theme_color_override("font_color", Color(0.78, 0.82, 0.79, 1.0))
 	button.add_child(name_label)
 
 	var desc_label := Label.new()
-	desc_label.text = LOCKED_PET_TEXT
-	desc_label.position = Vector2(108, 61)
-	desc_label.size = Vector2(UPGRADE_ROW_SIZE.x - 244.0, 24)
+	desc_label.text = _get_locked_pet_description()
+	desc_label.position = Vector2(108, 59)
+	desc_label.size = Vector2(UPGRADE_ROW_SIZE.x - 252.0, 24)
 	desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	desc_label.add_theme_font_size_override("font_size", 14)
 	desc_label.add_theme_color_override("font_color", Color(0.68, 0.72, 0.69, 1.0))
 	button.add_child(desc_label)
 
+	var level_divider := ColorRect.new()
+	level_divider.name = "LockedLevelColumnDivider"
+	level_divider.position = Vector2(UPGRADE_ROW_SIZE.x - 128.0, 28.0)
+	level_divider.size = Vector2(1.0, 58.0)
+	level_divider.color = Color(0.64, 0.66, 0.58, 0.16)
+	level_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(level_divider)
+
 	var level_label := Label.new()
-	level_label.text = LOCKED_PET_LEVEL_TEXT
+	level_label.text = _get_locked_pet_level_text()
 	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 140.0, 28)
-	level_label.size = Vector2(118, 60)
+	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 118.0, 30)
+	level_label.size = Vector2(96.0, 56.0)
 	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	level_label.add_theme_font_size_override("font_size", 22)
+	level_label.add_theme_font_size_override("font_size", 20)
 	level_label.add_theme_color_override("font_color", Color(0.74, 0.78, 0.75, 1.0))
 	button.add_child(level_label)
 
@@ -1520,13 +1546,25 @@ func _has_upgrade_entry(pet_id: String) -> bool:
 	return false
 
 
+func _get_locked_pet_text() -> String:
+	return LOCKED_PET_TEXT if _language == "en" else "未解锁"
+
+
+func _get_locked_pet_level_text() -> String:
+	return LOCKED_PET_LEVEL_TEXT
+
+
+func _get_locked_pet_description() -> String:
+	return "Keep playing to reveal this companion" if _language == "en" else "继续游玩以解锁此宠物"
+
+
 func _set_upgrade_row_locked_state(pet_id: String, locked: bool) -> void:
 	var button := _upgrade_buttons.get(pet_id) as TextureButton
 	if button != null:
 		button.set_meta("pet_unlocked", not locked)
 		if locked:
 			_set_upgrade_row_affordable(button, false)
-			button.tooltip_text = LOCKED_PET_TEXT
+			button.tooltip_text = _get_locked_pet_text()
 
 	var icon := _upgrade_icons.get(pet_id) as TextureRect
 	if icon != null:
@@ -1542,16 +1580,16 @@ func _set_upgrade_row_locked_state(pet_id: String, locked: bool) -> void:
 
 	var name_label := _upgrade_name_labels.get(pet_id) as Label
 	if name_label != null:
-		_set_fitted_label_text(name_label, LOCKED_PET_TEXT, 19, 12, 12)
+		_set_fitted_label_text(name_label, _get_locked_pet_text(), 19, 12, 12)
 	var level_label := _upgrade_level_labels.get(pet_id) as Label
 	if level_label != null:
-		_set_fitted_label_text(level_label, LOCKED_PET_LEVEL_TEXT, 25, 18, 6)
+		_set_fitted_label_text(level_label, _get_locked_pet_level_text(), 21, 16, 6)
 	var cost_label := _upgrade_cost_labels.get(pet_id) as Label
 	if cost_label != null:
-		_set_fitted_label_text(cost_label, LOCKED_PET_TEXT, 19, 14, 6)
+		_set_fitted_label_text(cost_label, "—", 19, 14, 6)
 	var bonus_label := _upgrade_bonus_labels.get(pet_id) as Label
 	if bonus_label != null:
-		_set_fitted_label_text(bonus_label, LOCKED_PET_TEXT, 17, 11, 18)
+		_set_fitted_label_text(bonus_label, _get_locked_pet_description(), 17, 11, 18)
 	var recovery_ring := _upgrade_recovery_rings.get(pet_id) as Control
 	if recovery_ring != null:
 		recovery_ring.visible = false
@@ -1586,8 +1624,10 @@ func _set_any_boost_visual(active: bool, strongest_multiplier: float) -> void:
 			"font_shadow_color",
 			Color(0.48, 1.0, 0.16, 0.72) if active else Color(0.0, 0.0, 0.0, 0.0)
 		)
-		_faith_value_label.add_theme_constant_override("outline_size", 10 if active else 4)
-		_faith_value_label.add_theme_constant_override("shadow_outline_size", 12 if active else 0)
+		# The boost keeps a warm highlight and moving runes, but no longer turns
+		# the counter into a thick neon sticker over the illustrated altar.
+		_faith_value_label.add_theme_constant_override("outline_size", 5 if active else 4)
+		_faith_value_label.add_theme_constant_override("shadow_outline_size", 0)
 	if _faith_growth_value_label != null:
 		_faith_growth_value_label.add_theme_color_override(
 			"font_color",
@@ -1729,6 +1769,10 @@ func _get_upgrade_level(entry: Dictionary) -> int:
 
 func _get_upgrade_level_text(entry: Dictionary) -> String:
 	return "Lv.%s" % _format_number(float(_get_upgrade_level(entry)), false)
+
+
+func _get_upgrade_level_compact_text(entry: Dictionary) -> String:
+	return _format_number(float(_get_upgrade_level(entry)), false)
 
 
 func _get_current_growth_rate(entry: Dictionary) -> float:

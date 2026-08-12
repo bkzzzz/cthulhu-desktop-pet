@@ -98,9 +98,9 @@ func _draw_faith_glow() -> void:
 
 	_draw_soft_glow(
 		center,
-		64.0,
-		Color(0.66, 1.0, 0.31, 0.20 + power * 0.055),
-		8
+		52.0,
+		Color(0.68, 1.0, 0.34, 0.12 + power * 0.04),
+		6
 	)
 	_draw_faith_symbol_spray(center, power)
 
@@ -110,9 +110,9 @@ func _draw_pet_rune_spray(power: float) -> void:
 		return
 	# A few small runes peel away from the row's four edges. They remain sparse
 	# so the glow reads as one boosted row instead of a pile of light orbs.
-	for rune_index in 8:
+	for rune_index in 5:
 		var progress := fposmod(
-			_phase * (0.82 + float(rune_index % 3) * 0.13) + float(rune_index) / 8.0,
+			_phase * (0.82 + float(rune_index % 3) * 0.13) + float(rune_index) / 5.0,
 			1.0
 		)
 		var edge := rune_index % 4
@@ -136,8 +136,8 @@ func _draw_pet_rune_spray(power: float) -> void:
 		_draw_rune(
 			rune_index % _rune_textures.size(),
 			position,
-			Vector2(10.0, 14.0).lerp(Vector2(15.0, 22.0), progress),
-			fade * (0.42 + power * 0.20)
+			Vector2(9.0, 12.0).lerp(Vector2(13.0, 18.0), progress),
+			fade * (0.20 + power * 0.12)
 		)
 
 
@@ -146,38 +146,49 @@ func _draw_faith_symbol_spray(center: Vector2, power: float) -> void:
 		return
 	# Symbols leave the counter on fixed outward trajectories. Their short
 	# lifetime creates a fast spray without making the number itself pulse.
-	for rune_index in 20:
+	for rune_index in 10:
 		var progress := fposmod(
-			_phase * (1.12 + float(rune_index % 4) * 0.10) + float(rune_index) / 20.0,
+			_phase * (1.12 + float(rune_index % 4) * 0.10) + float(rune_index) / 10.0,
 			1.0
 		)
 		var seed := float(rune_index)
-		var origin := center + Vector2(sin(seed * 2.41) * 106.0, sin(seed * 5.17) * 17.0)
+		var origin := center + Vector2(sin(seed * 2.41) * 82.0, sin(seed * 5.17) * 13.0)
 		var angle := atan2(origin.y - center.y, origin.x - center.x) + sin(seed * 1.91) * 0.16
 		var direction := Vector2(cos(angle), sin(angle) * 0.72).normalized()
-		var position := origin + direction * (10.0 + progress * (174.0 + _growth_flash * 30.0))
+		var position := origin + direction * (8.0 + progress * (118.0 + _growth_flash * 22.0))
 		var fade := smoothstep(0.0, 0.05, progress) * pow(1.0 - progress, 0.82)
 		_draw_rune(
 			rune_index % _rune_textures.size(),
 			position,
-			Vector2(16.0, 24.0).lerp(Vector2(25.0, 36.0), progress),
-			fade * (0.74 + power * 0.20 + _growth_flash * 0.12)
+			Vector2(13.0, 19.0).lerp(Vector2(19.0, 27.0), progress),
+			fade * (0.32 + power * 0.12 + _growth_flash * 0.08)
 		)
 
 
 func _draw_row_edge_glow(pulse: float, power: float) -> void:
-	var glow_strength := 0.94 + pulse * 0.12 + power * 0.24
-	var edge_rect := Rect2(Vector2(9.0, 9.0), size - Vector2(18.0, 18.0))
+	var glow_strength := 0.70 + pulse * 0.08 + power * 0.14
+	# A boosted pet is marked by an illuminated baseline and a little life around
+	# its portrait.  This avoids the old full rounded-rectangle outline, which
+	# fought against the hand-drawn row asset and made the card look like a stock
+	# UI component.
+	var baseline := size.y - 14.0
 	for layer in 3:
-		var expansion := float(3 - layer) * 2.5
-		var layer_rect := edge_rect.grow(expansion)
-		var layer_alpha := (0.055 + float(layer) * 0.055) * glow_strength
-		_draw_rounded_rect_glow(
-			layer_rect,
-			15.0 + expansion,
-			Color(0.58, 1.0, 0.29, layer_alpha),
-			8.0 - float(layer) * 2.25
+		var offset := float(layer) * 2.0
+		var alpha := (0.040 + float(layer) * 0.028) * glow_strength
+		draw_line(
+			Vector2(38.0, baseline + offset),
+			Vector2(size.x - 34.0, baseline + offset),
+			Color(0.62, 1.0, 0.34, alpha),
+			4.0 - float(layer),
+			true
 		)
+	var portrait_center := Vector2(51.0, size.y * 0.5)
+	_draw_soft_glow(
+		portrait_center,
+		31.0,
+		Color(0.62, 1.0, 0.34, 0.06 + power * 0.025),
+		4
+	)
 
 
 func _draw_rounded_rect_glow(rect: Rect2, corner_radius: float, color: Color, line_width: float) -> void:

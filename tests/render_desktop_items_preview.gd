@@ -36,6 +36,18 @@ func _render_previews() -> void:
 		OUTPUT_DIR.path_join("shop_item_actions_preview.png")
 	)
 	shop.get_texture().get_image().save_png(item_shop_path)
+
+	# Keep a Chinese hover/detail capture beside the actions preview.  This guards
+	# the two-line item copy area against future truncation without filling empty
+	# slots with placeholder text.
+	shop.set_language("zh")
+	var collector := shop.get_good("coin_collector")
+	shop.call("_show_info_panel", collector, ShopWindow.INFO_STRIP_POSITION)
+	await process_frame
+	var item_detail_path := ProjectSettings.globalize_path(
+		OUTPUT_DIR.path_join("shop_item_detail_zh_preview.png")
+	)
+	shop.get_texture().get_image().save_png(item_detail_path)
 	shop.visible = false
 
 	var stage_size := root.size
@@ -60,5 +72,6 @@ func _render_previews() -> void:
 	root.get_texture().get_image().save_png(hover_path)
 
 	print("PREVIEW_ITEM_SHOP=%s" % item_shop_path)
+	print("PREVIEW_ITEM_DETAIL_ZH=%s" % item_detail_path)
 	print("PREVIEW_ITEM_HOVER=%s" % hover_path)
 	quit(0)

@@ -14,6 +14,7 @@ static func run() -> Array[String]:
 	_test_shop_goods(failures)
 	_test_shop_balance_display(failures)
 	_test_unified_shop_card_layout(failures)
+	_test_shop_card_text_safety(failures)
 	_test_shop_purchase_to_cursor(failures)
 	_test_pet_specific_timed_buff(failures)
 	_test_removed_altar_api(failures)
@@ -191,8 +192,10 @@ static func _test_unified_shop_card_layout(failures: Array[String]) -> void:
 
 	var price_labels: Array = shop.get("_slot_price_labels")
 	var action_labels: Array = shop.get("_slot_action_labels")
+	var name_labels: Array = shop.get("_slot_name_labels")
+	var text_surfaces: Array = shop.get("_slot_text_surfaces")
 	var slots: Array = shop.get("_slot_controls")
-	if price_labels.is_empty() or action_labels.is_empty() or slots.is_empty():
+	if price_labels.is_empty() or action_labels.is_empty() or name_labels.is_empty() or slots.is_empty():
 		failures.append("shop cards must expose shared price and action rows")
 		shop.free()
 		return
@@ -206,6 +209,14 @@ static func _test_unified_shop_card_layout(failures: Array[String]) -> void:
 		failures.append("food cards must keep their click guidance to one short action")
 	if not (slots[0] as Control).tooltip_text.is_empty():
 		failures.append("shop cards must not repeat their visible action in a native tooltip")
+	if text_surfaces.size() != slots.size():
+		failures.append("each shop card must use one shared text surface instead of a second outer panel")
+	if food_price.position.y + food_price.size.y > ShopWindow.SLOT_TEXT_SURFACE_RECT.end.y:
+		failures.append("shop price text must stay above the parchment ornament")
+	if food_action.position.y + food_action.size.y > ShopWindow.SLOT_TEXT_SURFACE_RECT.end.y:
+		failures.append("shop action text must stay above the parchment ornament")
+	if (name_labels[0] as Label).text_overrun_behavior != TextServer.OVERRUN_TRIM_ELLIPSIS:
+		failures.append("shop card names must safely trim instead of colliding with card art")
 
 	shop.set("_active_category", ShopWindow.ITEM_KIND)
 	shop.call("_refresh_page")
@@ -230,6 +241,54 @@ static func _test_unified_shop_card_layout(failures: Array[String]) -> void:
 		var info_price := shop.get("_info_price_label") as Label
 		if info_price == null or info_price.text != "OWNED":
 			failures.append("the shared hover footer must avoid repeating the card action")
+	shop.free()
+
+
+static func _test_shop_card_text_safety(failures: Array[String]) -> void:
+	var shop := ShopWindow.new()
+	shop.setup()
+	shop.set_language("en")
+	var long_price_text := String(shop.call("_get_card_price_text", {"price": 9_000_000_000_000_000_000}, {}))
+	if long_price_text.length() > 20 or long_price_text.contains(","):
+		failures.append("large shop card prices must compact before they exceed the card width")
+
+	var name_labels: Array = shop.get("_slot_name_labels")
+	if name_labels.is_empty():
+		failures.append("shop must retain a name label for card text fitting")
+	else:
+		var name_label := name_labels[0] as Label
+		shop.call(
+			"_fit_card_label_text",
+			name_label,
+			"An intentionally long offering name that must stay inside one card",
+			20,
+			14
+		)
+		if name_label.text_overrun_behavior != TextServer.OVERRUN_TRIM_ELLIPSIS or not name_label.clip_text:
+			failures.append("long shop card names must stay clipped to their own card")
+
+	var red_fruit := shop.get_good("red_fruit")
+	shop.call("_show_info_panel", red_fruit, Vector2(900.0, 900.0))
+	var info_strip := shop.get("_info_panel") as Control
+	if info_strip == null:
+		failures.append("shop must expose a reserved product detail strip")
+	else:
+		if info_strip is PanelContainer:
+			failures.append("shop detail must avoid a generic floating system panel")
+		if info_strip.position != ShopWindow.INFO_STRIP_POSITION:
+			failures.append("shop detail must stay in its reserved header position")
+		var info_description := shop.get("_info_desc_label") as Label
+		if info_description == null or info_description.size.y < 40.0:
+			failures.append("shop detail must reserve enough height for two complete copy lines")
+		for slot_rect in ShopWindow.SHOP_SLOT_RECTS:
+			if Rect2(info_strip.position, info_strip.size).intersects(slot_rect):
+				failures.append("shop detail strip must never cover a product card")
+				break
+		var balance_label := shop.get("_coin_balance_label") as Label
+		if balance_label != null and Rect2(info_strip.position, info_strip.size).intersects(
+			Rect2(balance_label.position, balance_label.size)
+		):
+			failures.append("shop detail strip must not cover the gold balance")
 	shop.free()
 
 

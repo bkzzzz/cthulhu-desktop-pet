@@ -7,7 +7,13 @@ signal recall_requested(actor: Node2D)
 
 const INPUT_PROXY_PADDING := 8.0
 const INPUT_PROXY_REFRESH_SECONDS := 1.0 / 20.0
-const INTERACTION_HINT_SIZE := Vector2(238.0, 32.0)
+const INTERACTION_HINT_MIN_WIDTH := 154.0
+const INTERACTION_HINT_MAX_WIDTH := 292.0
+const INTERACTION_HINT_HORIZONTAL_PADDING := 12.0
+const INTERACTION_HINT_VERTICAL_PADDING := 5.0
+const INTERACTION_HINT_FONT_SIZE := 15
+const INTERACTION_HINT_MIN_FONT_SIZE := 11
+const INTERACTION_HINT_SAFE_MARGIN := 8.0
 const INTERACTION_HINT_GAP := 14.0
 
 var item_id := ""
@@ -186,41 +192,46 @@ func _create_interaction_hint() -> void:
 		return
 	_interaction_hint = PanelContainer.new()
 	_interaction_hint.name = "DesktopItemInteractionHint"
-	_interaction_hint.size = INTERACTION_HINT_SIZE
+	_interaction_hint.size = Vector2(INTERACTION_HINT_MIN_WIDTH, 30.0)
 	_interaction_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_interaction_hint.visible = false
 	_interaction_hint.z_index = 220
+	_interaction_hint.clip_contents = false
 	_interaction_hint.add_theme_stylebox_override("panel", _make_interaction_hint_style())
 	add_child(_interaction_hint)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 10)
-	margin.add_theme_constant_override("margin_top", 6)
-	margin.add_theme_constant_override("margin_right", 10)
-	margin.add_theme_constant_override("margin_bottom", 6)
+	margin.add_theme_constant_override("margin_left", int(INTERACTION_HINT_HORIZONTAL_PADDING))
+	margin.add_theme_constant_override("margin_top", int(INTERACTION_HINT_VERTICAL_PADDING))
+	margin.add_theme_constant_override("margin_right", int(INTERACTION_HINT_HORIZONTAL_PADDING))
+	margin.add_theme_constant_override("margin_bottom", int(INTERACTION_HINT_VERTICAL_PADDING))
 	_interaction_hint.add_child(margin)
 
 	_interaction_hint_action_label = Label.new()
 	_interaction_hint_action_label.name = "InteractionHintAction"
 	_interaction_hint_action_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_interaction_hint_action_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_interaction_hint_action_label.add_theme_font_size_override("font_size", 13)
-	_interaction_hint_action_label.add_theme_color_override("font_color", Color(0.70, 0.90, 1.0, 1.0))
-	_interaction_hint_action_label.add_theme_color_override("font_outline_color", Color(0.01, 0.015, 0.012, 1.0))
-	_interaction_hint_action_label.add_theme_constant_override("outline_size", 2)
+	_interaction_hint_action_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_interaction_hint_action_label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	_interaction_hint_action_label.add_theme_font_size_override("font_size", INTERACTION_HINT_FONT_SIZE)
+	_interaction_hint_action_label.add_theme_color_override("font_color", Color(0.95, 0.84, 0.62, 1.0))
+	_interaction_hint_action_label.add_theme_color_override("font_outline_color", Color(0.025, 0.018, 0.01, 1.0))
+	_interaction_hint_action_label.add_theme_constant_override("outline_size", 1)
 	margin.add_child(_interaction_hint_action_label)
 
 
 func _make_interaction_hint_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.015, 0.028, 0.034, 0.92)
-	style.border_color = Color(0.38, 0.78, 0.92, 0.95)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(7)
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.52)
-	style.shadow_size = 8
-	style.shadow_offset = Vector2(0.0, 3.0)
+	# A small engraved plaque: warm bone trim and near-square corners visually
+	# match the drawer/shop parchment without competing with the item artwork.
+	style.bg_color = Color(0.075, 0.052, 0.032, 0.96)
+	style.border_color = Color(0.72, 0.61, 0.38, 0.94)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(2)
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.58)
+	style.shadow_size = 5
+	style.shadow_offset = Vector2(0.0, 2.0)
 	return style
 
 
@@ -239,20 +250,88 @@ func _refresh_interaction_cursor() -> void:
 func _refresh_interaction_hint() -> void:
 	if _interaction_hint == null:
 		return
+	_interaction_hint_action_label.text = _get_interaction_hint_text()
+	_resize_interaction_hint_to_text()
 	var visual_size := _get_visual_size()
+	var hint_size := _interaction_hint.size
+	var desired_global_position := position + Vector2(
+		-hint_size.x * 0.5,
+		-visual_size.y * 0.5 - hint_size.y - INTERACTION_HINT_GAP
+	)
+	var max_hint_x := maxf(
+		INTERACTION_HINT_SAFE_MARGIN,
+		float(_window_size.x) - hint_size.x - INTERACTION_HINT_SAFE_MARGIN
+	)
+	var max_hint_y := maxf(
+		INTERACTION_HINT_SAFE_MARGIN,
+		_stage_ground_y - hint_size.y - INTERACTION_HINT_SAFE_MARGIN
+	)
+	desired_global_position.x = clampf(
+		desired_global_position.x,
+		INTERACTION_HINT_SAFE_MARGIN,
+		max_hint_x
+	)
+	desired_global_position.y = clampf(
+		desired_global_position.y,
+		INTERACTION_HINT_SAFE_MARGIN,
+		max_hint_y
+	)
 	_interaction_hint.position = Vector2(
-		-INTERACTION_HINT_SIZE.x * 0.5,
-		-visual_size.y * 0.5 - INTERACTION_HINT_SIZE.y - INTERACTION_HINT_GAP
+		desired_global_position.x - position.x,
+		desired_global_position.y - position.y
 	)
 	var should_show := _pointer_hovered or _dragging
 	_interaction_hint.visible = should_show
-	if not should_show:
+
+
+func _get_interaction_hint_text() -> String:
+	return "DRAG · RMB RETURN" if _language == "en" else "左右拖动 · 右键收回"
+
+
+func _resize_interaction_hint_to_text() -> void:
+	if _interaction_hint == null or _interaction_hint_action_label == null:
 		return
-	_interaction_hint_action_label.text = (
-		"DRAG HORIZONTALLY  ·  RIGHT-CLICK TO RETURN"
-		if _language == "en"
-		else "左键左右拖动  ·  右键收回"
+	var available_width := maxf(
+		1.0,
+		float(_window_size.x) - INTERACTION_HINT_SAFE_MARGIN * 2.0
 	)
+	var maximum_width := minf(INTERACTION_HINT_MAX_WIDTH, available_width)
+	var minimum_width := minf(INTERACTION_HINT_MIN_WIDTH, maximum_width)
+	var maximum_text_width := maxf(
+		1.0,
+		maximum_width - INTERACTION_HINT_HORIZONTAL_PADDING * 2.0
+	)
+	var font := _interaction_hint_action_label.get_theme_font("font")
+	if font == null:
+		font = ThemeDB.fallback_font
+	var font_size := INTERACTION_HINT_FONT_SIZE
+	var text_width := font.get_string_size(
+		_interaction_hint_action_label.text,
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1.0,
+		font_size
+	).x
+	while font_size > INTERACTION_HINT_MIN_FONT_SIZE and text_width > maximum_text_width:
+		font_size -= 1
+		text_width = font.get_string_size(
+			_interaction_hint_action_label.text,
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1.0,
+			font_size
+		).x
+	_interaction_hint_action_label.add_theme_font_size_override("font_size", font_size)
+	var height := maxf(
+		30.0,
+		font.get_height(font_size) + INTERACTION_HINT_VERTICAL_PADDING * 2.0
+	)
+	var width := clampf(
+		text_width + INTERACTION_HINT_HORIZONTAL_PADDING * 2.0,
+		minimum_width,
+		maximum_width
+	)
+	var hint_size := Vector2(width, height)
+	_interaction_hint.custom_minimum_size = hint_size
+	_interaction_hint.size = hint_size
 
 
 func _refresh_input_proxy(force := false) -> void:

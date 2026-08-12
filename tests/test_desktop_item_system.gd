@@ -131,14 +131,58 @@ static func _test_desktop_item_interaction_feedback(failures: Array[String]) -> 
 		failures.append("a deployed desktop item must create its interaction feedback")
 	elif not hint.visible:
 		failures.append("desktop item feedback must appear while it is hovered")
-	elif action_label.text != "DRAG HORIZONTALLY  ·  RIGHT-CLICK TO RETURN":
-		failures.append("desktop item feedback must give one concise drag-and-return hint")
+	elif action_label.text != "DRAG · RMB RETURN":
+		failures.append("desktop item feedback must use the compact one-line drag-and-return hint")
+	elif action_label.text_overrun_behavior != TextServer.OVERRUN_NO_TRIMMING:
+		failures.append("desktop item feedback must never trim its action text")
 	elif interaction_area.mouse_default_cursor_shape != Control.CURSOR_MOVE:
 		failures.append("desktop items must expose a move cursor for horizontal dragging")
+	else:
+		_assert_interaction_hint_fits(item, hint, action_label, Vector2i(900, 600), "English", failures)
+		item.set_language("zh")
+		_assert_interaction_hint_fits(item, hint, action_label, Vector2i(900, 600), "Chinese", failures)
+		if action_label.text != "左右拖动 · 右键收回":
+			failures.append("desktop item feedback must keep the Chinese action hint concise")
+		item.position = item.call("_clamp_to_window", Vector2(-10_000.0, 0.0))
+		item.call("_refresh_interaction_hint")
+		_assert_interaction_hint_fits(item, hint, action_label, Vector2i(900, 600), "left edge", failures)
+		item.position = item.call("_clamp_to_window", Vector2(10_000.0, 0.0))
+		item.call("_refresh_interaction_hint")
+		_assert_interaction_hint_fits(item, hint, action_label, Vector2i(900, 600), "right edge", failures)
 	item.call("_set_pointer_hovered", false)
 	if hint != null and hint.visible:
 		failures.append("desktop item feedback must hide after the pointer leaves")
 	item.free()
+
+
+static func _assert_interaction_hint_fits(
+	item: DesktopItemActor,
+	hint: PanelContainer,
+	action_label: Label,
+	window_size: Vector2i,
+	context: String,
+	failures: Array[String]
+) -> void:
+	if hint == null or action_label == null:
+		return
+	var font := action_label.get_theme_font("font")
+	if font == null:
+		font = ThemeDB.fallback_font
+	var text_width := font.get_string_size(
+		action_label.text,
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1.0,
+		action_label.get_theme_font_size("font_size")
+	).x
+	var content_width := hint.size.x - DesktopItemActor.INTERACTION_HINT_HORIZONTAL_PADDING * 2.0
+	if text_width > content_width + 0.1:
+		failures.append("desktop item %s hint text must fit inside its plaque" % context)
+	var hint_rect := Rect2(item.position + hint.position, hint.size)
+	var safe_margin := DesktopItemActor.INTERACTION_HINT_SAFE_MARGIN
+	if hint_rect.position.x < safe_margin - 0.1 or hint_rect.end.x > float(window_size.x) - safe_margin + 0.1:
+		failures.append("desktop item %s hint must stay inside the horizontal desktop bounds" % context)
+	if hint_rect.position.y < safe_margin - 0.1 or hint_rect.end.y > float(window_size.y) - safe_margin + 0.1:
+		failures.append("desktop item %s hint must stay inside the vertical desktop bounds" % context)
 
 
 static func _test_coin_collector_automation(failures: Array[String]) -> void:
