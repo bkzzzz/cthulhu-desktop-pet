@@ -234,11 +234,22 @@ static func _test_persistence_controller_serializes_to_the_active_slot(failures:
 		if not is_equal_approx(float(main.get("_faith_points")), 321.0):
 			failures.append("the persistence controller must load migrated data through the active slot")
 		main.set("_faith_points", 654.0)
+		main.set("_battle_victories", 10)
+		var claimed_achievement_ids: Array[String] = ["battle_1"]
+		main.set("_claimed_achievement_ids", claimed_achievement_ids)
 		if int(main.call("_save_game")) != OK:
 			failures.append("the persistence controller must save to the active managed slot")
 		var first_slot := repository.load_slot("slot_000001").get("config") as ConfigFile
 		if first_slot == null or not is_equal_approx(float(first_slot.get_value("economy", "faith_points", 0.0)), 654.0):
 			failures.append("saving the active slot must not fall back to the retired single-save path")
+		else:
+			var saved_claimed_ids: Array = first_slot.get_value("achievements", "claimed_ids", [])
+			if (
+				int(first_slot.get_value("achievements", "battle_victories", 0)) != 10
+				or saved_claimed_ids.size() != 1
+				or String(saved_claimed_ids[0]) != "battle_1"
+			):
+				failures.append("achievement progress and claimed rewards must persist in the active slot")
 		if not bool(repository.select_slot("slot_000002").get("ok", false)):
 			failures.append("an isolated persistence test must be able to select a second slot")
 		main.set("_faith_points", 987.0)

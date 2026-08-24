@@ -127,18 +127,14 @@ func _load_game() -> void:
 	# Removed combat-object save data is intentionally ignored. Desktop items use
 	# their own namespace and are never inferred from an older save.
 	_item_states = _sanitize_item_states(save.get_value("items", "states", {}))
-	if loaded_save_version >= PET_UNLOCK_SAVE_VERSION:
-		_gacha_draw_count = clampi(int(save.get_value("gacha", "draw_count", 0)), 0, 1000000)
-		_gacha_pity_count = clampi(
-			int(save.get_value("gacha", "pity_count", 0)),
-			0,
-			GachaProgression.NEW_PET_PITY_DRAWS - 1
-		)
-		_gacha_history = _sanitize_gacha_history(save.get_value("gacha", "history", []))
-	else:
-		_gacha_draw_count = 0
-		_gacha_pity_count = 0
-		_gacha_history.clear()
+	_battle_victories = clampi(
+		int(save.get_value("achievements", "battle_victories", 0)),
+		0,
+		1_000_000_000
+	)
+	_claimed_achievement_ids = AchievementProgression.sanitize_claimed_ids(
+		save.get_value("achievements", "claimed_ids", [])
+	)
 	_loaded_news_state = {
 		"copy_version": save.get_value("news", "copy_version", 0),
 		"history": save.get_value("news", "history", []),
@@ -248,9 +244,8 @@ func _save_game() -> Error:
 	save.set_value("pets", "deployed_ids", _deployed_pet_ids.duplicate())
 	save.set_value("shop", "owned_counts", _shop_owned_counts.duplicate(true))
 	save.set_value("items", "states", _item_states.duplicate(true))
-	save.set_value("gacha", "draw_count", _gacha_draw_count)
-	save.set_value("gacha", "pity_count", _gacha_pity_count)
-	save.set_value("gacha", "history", _gacha_history.duplicate(true))
+	save.set_value("achievements", "battle_victories", _battle_victories)
+	save.set_value("achievements", "claimed_ids", _claimed_achievement_ids.duplicate())
 	var news_state = _news_feed.get_state()
 	save.set_value("news", "copy_version", news_state.get("copy_version", NewsFeed.NEWS_COPY_VERSION))
 	save.set_value("news", "history", news_state.get("history", []))
@@ -391,8 +386,6 @@ func _can_manage_save_slots() -> Dictionary:
 		return _save_slot_failure("A save operation is already in progress.")
 	if _battle_active:
 		return _save_slot_failure("Finish the current battle before changing save slots.")
-	if _gacha_batch_active:
-		return _save_slot_failure("Wait for the current gacha batch to finish before changing save slots.")
 	if not _carried_offering.is_empty() or not _pending_offering_feeds.is_empty():
 		return _save_slot_failure("Finish or cancel the current offering before changing save slots.")
 	if not _coin_drops.is_empty():
@@ -471,7 +464,6 @@ func _sanitize_owned_counts(raw_value: Variant) -> Dictionary:
 			continue
 		sanitized[key] = clampi(int(raw_counts[key_value]), 0, 100000)
 	return sanitized
-
 
 func _sanitize_item_states(raw_value: Variant) -> Dictionary:
 	var sanitized := {}
@@ -574,35 +566,4 @@ func _sanitize_loaded_offering_buffs(raw_value: Variant) -> Dictionary:
 			"expires_at": expires_at,
 			"offering_name": String(buff.get("offering_name", "贡品")).strip_edges().left(40)
 		}
-	return sanitized
-
-func _sanitize_gacha_history(raw_value: Variant) -> Array[Dictionary]:
-	var sanitized: Array[Dictionary] = []
-	if not raw_value is Array:
-		return sanitized
-	for entry_value in raw_value:
-		if not entry_value is Dictionary:
-			continue
-		var entry: Dictionary = entry_value
-		var pet_id = String(entry.get("pet_id", ""))
-		var pool_entry = GachaProgression.get_pool_entry(pet_id)
-		if pool_entry.is_empty():
-			continue
-		var is_new = bool(entry.get("is_new", false))
-		pool_entry["is_new"] = is_new
-		pool_entry["duplicate_faith"] = (
-			0
-			if is_new
-			else clampi(
-				int(entry.get("duplicate_faith", 0)),
-				0,
-				GachaProgression.MAX_DUPLICATE_FAITH_REWARD
-			)
-		)
-		pool_entry["name"] = String(
-			entry.get("name", PetCatalog.get_definition(pet_id).get("name", pet_id))
-		).strip_edges().left(40)
-		sanitized.append(pool_entry)
-		if sanitized.size() >= 10:
-			break
 	return sanitized

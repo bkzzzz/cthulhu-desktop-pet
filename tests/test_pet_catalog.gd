@@ -18,9 +18,9 @@ static func run() -> Array[String]:
 	if PetCatalog.STARTER_UNLOCKED_PETS != ["pet1"]:
 		failures.append("only pet1 may be unlocked at the start of a fresh game")
 	if PetCatalog.INVENTORY_STARTER_PETS != ["pet1"]:
-		failures.append("the starter roster must not expose gacha pets")
-	if PetCatalog.GACHA_PETS != expected_pets:
-		failures.append("all ten pets must remain obtainable from the progressive gacha pool")
+		failures.append("the starter inventory must contain only pet1")
+	if PetCatalog.PROGRESSION_PETS != expected_pets:
+		failures.append("all ten pets must remain obtainable from growth progression")
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		var pet_id := String(pet_id_value)
 		var definition := PetCatalog.get_definition(pet_id)

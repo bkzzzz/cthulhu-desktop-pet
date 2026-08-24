@@ -345,6 +345,8 @@ func _update_pet_hover() -> void:
 
 	var mouse_position = _get_window_mouse_position(get_window())
 	var hit_pet = _get_pet_at_position(mouse_position)
+	if hit_pet != null and hit_pet.has_method("raise_input_proxy"):
+		hit_pet.call("raise_input_proxy")
 	_set_hovered_pet(hit_pet)
 
 func _set_hovered_pet(next_pet: Node2D) -> void:

@@ -17,7 +17,7 @@ The more followers you gather, the stronger your cult becomes.
 - 👾 Collect creepy desktop pets
 - ⚔️ Defend your desktop in real-time battles
 - 🙏 Gather Faith and attract devoted followers
-- 🥚 Unlock new pets through progression and gacha
+- 🐙 Unlock new pets by reaching permanent faith-growth milestones
 - 🖥️ Native Windows desktop pet experience
 <img width="1032" height="626" alt="inventoryPic" src="https://github.com/user-attachments/assets/97a72a21-9000-4ce7-9797-d1abde47e51f" />
 

@@ -80,7 +80,7 @@ func _ready() -> void:
 	_create_inventory_window()
 	_create_evolution_window()
 	_create_shop_window()
-	_create_gacha_window()
+	_create_achievement_window()
 	_create_news_window()
 	_create_settings_window()
 	_create_completion_window()
@@ -578,8 +578,8 @@ func _sync_inventory_window() -> void:
 func _create_shop_window() -> void:
 	_presentation_controller._create_shop_window()
 
-func _create_gacha_window() -> void:
-	_presentation_controller._create_gacha_window()
+func _create_achievement_window() -> void:
+	_presentation_controller._create_achievement_window()
 
 func _create_news_window() -> void:
 	_presentation_controller._create_news_window()
@@ -701,8 +701,8 @@ func _refresh_follower_display() -> void:
 func _sync_shop_state() -> void:
 	_presentation_controller._sync_shop_state()
 
-func _sync_gacha_state() -> void:
-	_presentation_controller._sync_gacha_state()
+func _sync_achievement_state() -> void:
+	_presentation_controller._sync_achievement_state()
 
 func _update_playtime_display(delta: float) -> void:
 	_presentation_controller._update_playtime_display(delta)
@@ -794,9 +794,6 @@ func _sanitize_item_states(raw_value: Variant) -> Dictionary:
 func _sanitize_loaded_offering_buffs(raw_value: Variant) -> Dictionary:
 	return _persistence_controller._sanitize_loaded_offering_buffs(raw_value)
 
-func _sanitize_gacha_history(raw_value: Variant) -> Array[Dictionary]:
-	return _persistence_controller._sanitize_gacha_history(raw_value)
-
 func _is_pet_unlocked(pet_id: String) -> bool:
 	return _progression_controller._is_pet_unlocked(pet_id)
 
@@ -841,6 +838,9 @@ func _get_baseline_faith_growth_rate() -> float:
 
 func _get_follower_growth_rate() -> float:
 	return _progression_controller._get_follower_growth_rate()
+
+func _get_achievement_metrics() -> Dictionary:
+	return _progression_controller._get_achievement_metrics()
 
 func _get_pet_faith_per_second(pet_id: String, level: int) -> float:
 	return _progression_controller._get_pet_faith_per_second(pet_id, level)
@@ -929,8 +929,8 @@ func _on_inventory_requested() -> void:
 func _on_shop_requested() -> void:
 	_presentation_controller._on_shop_requested()
 
-func _on_gacha_requested() -> void:
-	_presentation_controller._on_gacha_requested()
+func _on_achievements_requested() -> void:
+	_presentation_controller._on_achievements_requested()
 
 func _on_news_requested() -> void:
 	_presentation_controller._on_news_requested()
@@ -938,17 +938,11 @@ func _on_news_requested() -> void:
 func _on_settings_requested() -> void:
 	_presentation_controller._on_settings_requested()
 
-func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
-	_progression_controller._on_gacha_draw_requested(draw_amount)
+func _on_achievement_claim_requested(achievement_id: String) -> void:
+	_progression_controller._on_achievement_claim_requested(achievement_id)
 
-func _process_gacha_draw_batch(batch_token: int = -1) -> void:
-	_progression_controller._process_gacha_draw_batch(batch_token)
-
-func _finish_gacha_draw_batch(batch_token: int) -> void:
-	_progression_controller._finish_gacha_draw_batch(batch_token)
-
-func _set_gacha_request_pending(window_value: Variant, pending: bool) -> void:
-	_progression_controller._set_gacha_request_pending(window_value, pending)
+func _unlock_growth_eligible_pets() -> Array[String]:
+	return _progression_controller._unlock_growth_eligible_pets()
 
 func _on_shop_purchase_requested(good_id: String) -> void:
 	_progression_controller._on_shop_purchase_requested(good_id)

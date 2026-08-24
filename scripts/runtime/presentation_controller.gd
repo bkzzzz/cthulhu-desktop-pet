@@ -319,7 +319,7 @@ func _create_side_drawer() -> void:
 	add_child(_side_drawer)
 	_side_drawer.inventory_requested.connect(_on_inventory_requested)
 	_side_drawer.shop_requested.connect(_on_shop_requested)
-	_side_drawer.gacha_requested.connect(_on_gacha_requested)
+	_side_drawer.achievements_requested.connect(_on_achievements_requested)
 	_side_drawer.news_requested.connect(_on_news_requested)
 	_side_drawer.settings_requested.connect(_on_settings_requested)
 	_side_drawer.quit_requested.connect(_host._on_quit_requested)
@@ -382,13 +382,13 @@ func _create_shop_window() -> void:
 	_shop_window.call("setup")
 	_sync_shop_state()
 
-func _create_gacha_window() -> void:
-	_gacha_window = GachaWindowScript.new()
-	_gacha_window.visible = false
-	add_child(_gacha_window)
-	_gacha_window.draw_requested.connect(_host._on_gacha_draw_requested)
-	_gacha_window.setup()
-	_sync_gacha_state()
+func _create_achievement_window() -> void:
+	_achievement_window = AchievementWindowScript.new()
+	_achievement_window.visible = false
+	add_child(_achievement_window)
+	_achievement_window.claim_requested.connect(_host._on_achievement_claim_requested)
+	_achievement_window.setup()
+	_sync_achievement_state()
 
 func _create_news_window() -> void:
 	_news_window = NewsWindowScript.new()
@@ -475,16 +475,12 @@ func _on_drawer_opened() -> void:
 func _refresh_faith_display() -> void:
 	if _side_drawer != null and _side_drawer.has_method("refresh_faith"):
 		_side_drawer.refresh_faith(_faith_points, _host._get_faith_growth_rate())
-	if _gacha_window != null and _gacha_window.visible:
-		_sync_gacha_state()
 
 func _refresh_coin_display() -> void:
 	if _side_drawer != null and _side_drawer.has_method("refresh_coins"):
 		_side_drawer.call("refresh_coins", _gold_coins)
 	if _shop_window != null and _shop_window.has_method("set_coin_balance"):
 		_shop_window.call("set_coin_balance", _gold_coins)
-	if _gacha_window != null and _gacha_window.visible:
-		_sync_gacha_state()
 
 func _refresh_follower_display() -> void:
 	if _side_drawer != null and _side_drawer.has_method("refresh_followers"):
@@ -506,19 +502,10 @@ func _sync_shop_state() -> void:
 	if _shop_window.has_method("set_item_states"):
 		_shop_window.call("set_item_states", _item_states)
 
-func _sync_gacha_state() -> void:
-	if _gacha_window == null:
+func _sync_achievement_state() -> void:
+	if _achievement_window == null:
 		return
-	var next_cost = GachaProgression.draw_cost(_gacha_draw_count)
-	_gacha_window.refresh_state(
-		float(_gold_coins),
-		_gacha_draw_count,
-		next_cost,
-		_unlocked_pet_ids,
-		_gacha_pity_count,
-		_gacha_history,
-		_host._get_baseline_faith_growth_rate()
-	)
+	_achievement_window.refresh_state(_host._get_achievement_metrics(), _claimed_achievement_ids)
 
 func _update_playtime_display(delta: float) -> void:
 	if _side_drawer == null or not _side_drawer.has_method("refresh_playtime"):
@@ -528,6 +515,8 @@ func _update_playtime_display(delta: float) -> void:
 		return
 	_playtime_refresh_timer = 0.0
 	_side_drawer.call("refresh_playtime", _total_runtime_seconds)
+	if _achievement_window != null and _achievement_window.visible:
+		_sync_achievement_state()
 
 func _initialize_news_feed() -> void:
 	_news_feed.restore(_loaded_news_state, _host._get_faith_growth_rate(), _follower_count)
@@ -597,10 +586,9 @@ func _try_queue_news_event(
 	var now = _host._get_news_runtime_seconds()
 	if not _news_feed.is_event_ready(event_key, now, cooldown_seconds):
 		return
-	if event_type != "gacha":
-		if not _news_feed.is_event_ready("event:global", now, NEWS_EVENT_GLOBAL_COOLDOWN):
-			return
-		_news_feed.mark_event("event:global", now)
+	if not _news_feed.is_event_ready("event:global", now, NEWS_EVENT_GLOBAL_COOLDOWN):
+		return
+	_news_feed.mark_event("event:global", now)
 	_news_feed.mark_event(event_key, now)
 	var article = _news_feed.make_event(event_type, _make_news_context(extra_context), _rng.randf())
 	_queue_news_candidate(article)
@@ -687,11 +675,11 @@ func _on_shop_requested() -> void:
 	if _shop_window.has_method("open_window"):
 		_shop_window.call("open_window")
 
-func _on_gacha_requested() -> void:
-	if _gacha_window == null:
+func _on_achievements_requested() -> void:
+	if _achievement_window == null:
 		return
-	_sync_gacha_state()
-	_gacha_window.open_window()
+	_sync_achievement_state()
+	_achievement_window.open_window()
 
 func _on_news_requested() -> void:
 	if _news_window == null:

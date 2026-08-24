@@ -5,7 +5,7 @@ const ACTIVE_DESKTOP_PETS := [
 	"pet8", "pet9", "pet10"
 ]
 const STARTER_UNLOCKED_PETS := ["pet1"]
-const GACHA_PETS := [
+const PROGRESSION_PETS := [
 	"pet1", "pet2", "pet3", "pet4", "pet5", "pet6", "pet7",
 	"pet8", "pet9", "pet10"
 ]
@@ -1059,7 +1059,7 @@ static func build_frames(pet_id: String, evolved := false) -> SpriteFrames:
 
 static func make_icon_texture(texture_path: String, padding := 8) -> Texture2D:
 	# Padding only adds transparent breathing room. Reusing one crop per source avoids
-	# a second full pixel scan when drawer/inventory/gacha request different padding.
+	# a second full pixel scan when drawer/inventory views request different padding.
 	var cache_key := texture_path
 	if _icon_texture_cache.has(cache_key):
 		return _icon_texture_cache[cache_key] as Texture2D

@@ -353,6 +353,7 @@ func _grant_faith(amount: float) -> void:
 
 func _update_faith(delta: float) -> void:
 	_grant_faith(_get_faith_growth_rate() * delta)
+	_unlock_growth_eligible_pets()
 	_host._refresh_faith_display()
 	_stats_refresh_timer += delta
 	if _stats_refresh_timer >= UI_REFRESH_INTERVAL:
@@ -369,254 +370,80 @@ func _update_followers(delta: float) -> void:
 	if follower_count != _last_reported_follower_count:
 		_last_reported_follower_count = follower_count
 		_host._refresh_follower_display()
+		if _achievement_window != null and _achievement_window.visible:
+			_host._sync_achievement_state()
 
-func _on_gacha_draw_requested(draw_amount: int = 1) -> void:
-	if _gacha_window == null:
-		return
-	if _gacha_batch_active:
-		return
-	var safe_draw_amount = clampi(draw_amount, 1, GachaProgression.MAX_BATCH_DRAWS)
-	var reserved_cost = int(round(GachaProgression.draw_cost_total(
-		_gacha_draw_count,
-		safe_draw_amount
-	)))
-	if _gold_coins < reserved_cost:
-		_set_gacha_request_pending(_gacha_window, false)
-		_host._sync_gacha_state()
-		return
 
-	var owned_lookup = GachaProgression.make_unlocked_lookup(_unlocked_pet_ids)
-	var faith_growth_rate := maxf(0.0, _get_baseline_faith_growth_rate())
-	var locked_pool = GachaProgression.make_locked_pool(
-		owned_lookup,
-		faith_growth_rate
-	)
-	var valid_pet_ids = {}
-	var pet_names = {}
-	for pool_entry_value in GachaProgression.PET_POOL:
-		var pool_entry: Dictionary = pool_entry_value
-		var pool_pet_id = String(pool_entry.get("pet_id", ""))
-		valid_pet_ids[pool_pet_id] = true
-		pet_names[pool_pet_id] = _get_pet_display_name(pool_pet_id)
-
-	_gacha_batch_token += 1
-	_gacha_batch_active = true
-	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, -reserved_cost)
-	_gacha_batch_state = {
-		"token": _gacha_batch_token,
-		"remaining": safe_draw_amount,
-		"reserved_cost": reserved_cost,
-		"spent_cost": 0,
-		"results": [],
-		"owned_lookup": owned_lookup,
-		"locked_pool": locked_pool,
-		"faith_growth_rate": faith_growth_rate,
-		"valid_pet_ids": valid_pet_ids,
-		"pet_names": pet_names,
-		"new_names": [],
-		"new_pet_ids": [],
-		"seen_new_ids": {},
-		"first_new_pet_id": "",
-		"duplicate_faith_total": 0,
-		"inventory_changed": false,
-		"news_item_name": "",
-		"news_item_name_en": "",
-		"news_item_name_zh": "",
-		"window_ref": weakref(_gacha_window)
+func _get_achievement_metrics() -> Dictionary:
+	return {
+		"battle_victories": _battle_victories,
+		"faith_rate": _get_baseline_faith_growth_rate(),
+		"followers": floor(_follower_count),
+		"pets_unlocked": _unlocked_pet_ids.size(),
 	}
-	_set_gacha_request_pending(_gacha_window, true)
-	_host._sync_gacha_state()
-	if is_inside_tree():
-		call_deferred("_process_gacha_draw_batch", _gacha_batch_token)
 
-func _process_gacha_draw_batch(batch_token: int = -1) -> void:
-	if not _gacha_batch_active:
-		return
-	var active_token = int(_gacha_batch_state.get("token", -1))
-	if batch_token < 0:
-		batch_token = active_token
-	if batch_token != active_token:
-		return
 
-	var frame_started_usec = Time.get_ticks_usec()
-	var processed_this_frame = 0
-	var remaining = maxi(0, int(_gacha_batch_state.get("remaining", 0)))
-	var spent_cost = maxi(0, int(_gacha_batch_state.get("spent_cost", 0)))
-	var results: Array = _gacha_batch_state.get("results", [])
-	var owned_lookup: Dictionary = _gacha_batch_state.get("owned_lookup", {})
-	var locked_pool: Array = _gacha_batch_state.get("locked_pool", [])
-	var faith_growth_rate = maxf(
-		0.0,
-		float(_gacha_batch_state.get("faith_growth_rate", 0.0))
-	)
-	var valid_pet_ids: Dictionary = _gacha_batch_state.get("valid_pet_ids", {})
-	var pet_names: Dictionary = _gacha_batch_state.get("pet_names", {})
-	var new_names: Array = _gacha_batch_state.get("new_names", [])
-	var new_pet_ids: Array = _gacha_batch_state.get("new_pet_ids", [])
-	var seen_new_ids: Dictionary = _gacha_batch_state.get("seen_new_ids", {})
-	var duplicate_faith_total = maxi(
-		0,
-		int(_gacha_batch_state.get("duplicate_faith_total", 0))
-	)
-
-	while remaining > 0 and processed_this_frame < GACHA_BATCH_MAX_DRAWS_PER_FRAME:
-		var cost = GachaProgression.draw_cost(_gacha_draw_count)
-		var result = GachaProgression.roll_pet_with_context(
-			_rng.randf(),
-			owned_lookup,
-			locked_pool,
-			_gacha_pity_count,
-			faith_growth_rate
+func _unlock_growth_eligible_pets() -> Array[String]:
+	var newly_unlocked: Array[String] = []
+	# Adding an eligible pet raises the permanent rate, so repeat until the new
+	# roster no longer crosses another authored threshold.
+	while true:
+		var eligible := PetUnlockProgression.get_newly_eligible_pet_ids(
+			_get_baseline_faith_growth_rate(),
+			_unlocked_pet_ids
 		)
-		if result.is_empty():
-			remaining = 0
-			_gacha_batch_state["failed"] = true
+		if eligible.is_empty():
 			break
-
-		var pet_id = String(result.get("pet_id", ""))
-		if pet_id.is_empty() or not valid_pet_ids.has(pet_id):
-			remaining = 0
-			_gacha_batch_state["failed"] = true
-			break
-
-		spent_cost += cost
-		var result_pet_state := _get_pet_state(pet_id)
-		var result_custom_name := String(result_pet_state.get("name", "")).strip_edges()
-		result["use_localized_name"] = result_custom_name.is_empty()
-		if not result_custom_name.is_empty():
-			result["custom_name"] = result_custom_name
-		result["name"] = String(pet_names.get(pet_id, pet_id))
-		if bool(result.get("is_new", false)):
+		for pet_id in eligible:
 			_ensure_pet_state(pet_id)
-			if not owned_lookup.has(pet_id):
-				owned_lookup[pet_id] = true
-				_unlocked_pet_ids.append(pet_id)
-				for locked_index in locked_pool.size():
-					var locked_entry: Dictionary = locked_pool[locked_index]
-					if String(locked_entry.get("pet_id", "")) == pet_id:
-						locked_pool.remove_at(locked_index)
-						break
-			if not seen_new_ids.has(pet_id):
-				seen_new_ids[pet_id] = true
-				new_names.append(String(result.get("name", pet_id)))
-				new_pet_ids.append(pet_id)
-				if String(_gacha_batch_state.get("first_new_pet_id", "")).is_empty():
-					_gacha_batch_state["first_new_pet_id"] = pet_id
-			_gacha_batch_state["inventory_changed"] = true
-		else:
-			var duplicate_faith = GachaProgression.duplicate_faith_reward(cost, result)
-			_faith_points += float(duplicate_faith)
-			result["duplicate_faith"] = duplicate_faith
-			duplicate_faith_total += duplicate_faith
-
-		_gacha_pity_count = GachaProgression.next_pity_count(_gacha_pity_count, result)
-		_gacha_draw_count += 1
-		_gacha_history.push_front(result.duplicate(true))
-		if _gacha_history.size() > 10:
-			_gacha_history.resize(10)
-		results.append(result)
-		if (
-			String(_gacha_batch_state.get("news_item_name", "")).is_empty()
-			or bool(result.get("is_new", false))
-		):
-			_gacha_batch_state["news_item_name"] = String(result.get("name", "未知宠物"))
-			_gacha_batch_state["news_item_name_en"] = (
-				result_custom_name
-				if not result_custom_name.is_empty()
-				else PetCatalog.get_localized_name(pet_id, "en")
-			)
-			_gacha_batch_state["news_item_name_zh"] = (
-				result_custom_name
-				if not result_custom_name.is_empty()
-				else PetCatalog.get_localized_name(pet_id, "zh")
-			)
-
-		remaining -= 1
-		processed_this_frame += 1
-		if (
-			processed_this_frame % GACHA_BATCH_BUDGET_CHECK_INTERVAL == 0
-			and Time.get_ticks_usec() - frame_started_usec >= GACHA_BATCH_FRAME_BUDGET_USEC
-		):
-			break
-
-	_gacha_batch_state["remaining"] = remaining
-	_gacha_batch_state["spent_cost"] = spent_cost
-	_gacha_batch_state["duplicate_faith_total"] = duplicate_faith_total
-	if remaining <= 0:
-		_finish_gacha_draw_batch(active_token)
-		return
-	if is_inside_tree():
-		call_deferred("_process_gacha_draw_batch", active_token)
-
-func _finish_gacha_draw_batch(batch_token: int) -> void:
-	if not _gacha_batch_active or batch_token != int(_gacha_batch_state.get("token", -1)):
-		return
-	var completed_state = _gacha_batch_state
-	_gacha_batch_active = false
-	_gacha_batch_state = {}
-
-	var reserved_cost = maxi(0, int(completed_state.get("reserved_cost", 0)))
-	var spent_cost = clampi(int(completed_state.get("spent_cost", 0)), 0, reserved_cost)
-	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, reserved_cost - spent_cost)
-	var results: Array = completed_state.get("results", [])
-	var request_window_ref = completed_state.get("window_ref") as WeakRef
-	var request_window: Variant = request_window_ref.get_ref() if request_window_ref != null else null
-
-	if results.is_empty():
-		_set_gacha_request_pending(request_window, false)
-		_host._sync_gacha_state()
-		return
-
-	_unlocked_pet_ids = _sanitize_pet_id_list(
-		_unlocked_pet_ids,
-		PetCatalog.ACTIVE_DESKTOP_PETS
-	)
-	for new_pet_id_value in completed_state.get("new_pet_ids", []):
-		var new_pet_id := String(new_pet_id_value)
-		if new_pet_id.is_empty() or not _is_pet_unlocked(new_pet_id) or _deployed_pet_ids.has(new_pet_id):
-			continue
-		_deployed_pet_ids.append(new_pet_id)
-		var new_actor = _host._spawn_desktop_pet(new_pet_id)
-		if new_actor == null:
-			_deployed_pet_ids.erase(new_pet_id)
-		else:
-			_selected_pet_id = new_pet_id
-	var batch_summary = {
-		"new_names": (completed_state.get("new_names", []) as Array).duplicate(),
-		"first_new_pet_id": String(completed_state.get("first_new_pet_id", "")),
-		"duplicate_faith_total": maxi(0, int(completed_state.get("duplicate_faith_total", 0)))
-	}
-	_host._show_coin_change_popup(_host._get_window_mouse_position(get_window()), -spent_cost)
-	if is_instance_valid(request_window) and request_window.has_method("show_results"):
-		request_window.call("show_results", results, batch_summary)
-	_set_gacha_request_pending(request_window, false)
-	if bool(completed_state.get("inventory_changed", false)):
-		_host._sync_inventory_window()
+			_unlocked_pet_ids.append(pet_id)
+			newly_unlocked.append(pet_id)
+			if not _deployed_pet_ids.has(pet_id):
+				_deployed_pet_ids.append(pet_id)
+				var actor = _host._spawn_desktop_pet(pet_id)
+				if actor == null:
+					_deployed_pet_ids.erase(pet_id)
+				else:
+					_selected_pet_id = pet_id
+	if newly_unlocked.is_empty():
+		return newly_unlocked
+	_unlocked_pet_ids = _sanitize_pet_id_list(_unlocked_pet_ids, PetCatalog.ACTIVE_DESKTOP_PETS)
+	_host._sync_inventory_window()
 	_apply_automatic_evolution_thresholds()
-	# The roster itself is now a chapter milestone. Refresh immediately when a
-	# new pet lands so the menu era and future encounter schedule do not wait for
-	# the next background polling tick.
 	_host._refresh_era_display()
-	var news_item_name = String(completed_state.get("news_item_name", ""))
-	if not news_item_name.is_empty():
-		_host._try_queue_news_event(
-			"gacha",
-			{
-				"item_name": news_item_name,
-				"item_name_en": String(completed_state.get("news_item_name_en", news_item_name)),
-				"item_name_zh": String(completed_state.get("news_item_name_zh", news_item_name))
-			},
-			"gacha",
-			5.0
-		)
 	_pet_upgrade_stats_dirty = true
 	_host._refresh_pet_stats(true)
+	_host._sync_achievement_state()
+	_host._request_save()
+	var names_en: Array[String] = []
+	var names_zh: Array[String] = []
+	for pet_id in newly_unlocked:
+		names_en.append(PetCatalog.get_localized_name(pet_id, "en"))
+		names_zh.append(PetCatalog.get_localized_name(pet_id, "zh"))
+	_host._publish_news({
+		"category": "ROSTER" if _language == "en" else "眷族",
+		"headline": "增长速度达到新阶段，%s 已加入桌面眷族。" % "、".join(names_zh),
+		"headline_en": "Faith growth reached a new tier; %s joined the desktop roster." % ", ".join(names_en),
+	}, true, true)
+	return newly_unlocked
+
+
+func _on_achievement_claim_requested(achievement_id: String) -> void:
+	if _claimed_achievement_ids.has(achievement_id):
+		return
+	var definition := AchievementProgression.get_definition(achievement_id)
+	if definition.is_empty() or not AchievementProgression.is_complete(definition, _get_achievement_metrics()):
+		return
+	_claimed_achievement_ids.append(achievement_id)
+	var faith_reward := maxf(0.0, float(definition.get("faith", 0.0)))
+	var gold_reward := maxi(0, int(definition.get("gold", 0)))
+	_grant_faith(faith_reward)
+	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, gold_reward)
+	_host._refresh_faith_display()
 	_host._refresh_coin_display()
+	_host._sync_achievement_state()
 	_host._request_save()
 
-func _set_gacha_request_pending(window_value: Variant, pending: bool) -> void:
-	if is_instance_valid(window_value) and window_value.has_method("set_draw_request_pending"):
-		window_value.call("set_draw_request_pending", pending)
 
 func _on_shop_purchase_requested(good_id: String) -> void:
 	if _shop_window == null or good_id.is_empty():
@@ -1090,8 +917,8 @@ func _apply_language() -> void:
 		_settings_window.call("set_language", _language)
 	if _shop_window != null and _shop_window.has_method("set_language"):
 		_shop_window.call("set_language", _language)
-	if _gacha_window != null and _gacha_window.has_method("set_language"):
-		_gacha_window.call("set_language", _language)
+	if _achievement_window != null and _achievement_window.has_method("set_language"):
+		_achievement_window.call("set_language", _language)
 	if _inventory_window != null and _inventory_window.has_method("set_language"):
 		_inventory_window.call("set_language", _language)
 		_host._sync_inventory_window()

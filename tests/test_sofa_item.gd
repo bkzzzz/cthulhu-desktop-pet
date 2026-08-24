@@ -124,13 +124,11 @@ static func _test_manual_sofa_drop(failures: Array[String]) -> void:
 	main.call("_on_pet_drag_released", pet)
 	var state: Dictionary = (main.get("_item_states") as Dictionary).get("sofa", {})
 	var session: Dictionary = state.get("sofa_session", {})
-	if String(session.get("pet_id", "")) != "pet1" or String(session.get("phase", "")) != "approaching":
-		failures.append("dropping a pet on a deployed sofa must start that pet's rest visit")
+	if String(session.get("pet_id", "")) != "pet1" or String(session.get("phase", "")) != "seated":
+		failures.append("dropping a pet on a deployed sofa must seat it immediately")
 	else:
-		for _step in 8:
-			pet.call("_update_pet", 0.1)
 		if not pet.is_sofa_seated() or float(main.call("_get_pet_sofa_multiplier", "pet1")) != SofaController.SOFA_FAITH_MULTIPLIER:
-			failures.append("a manually dropped sofa guest must receive the normal seated comfort boost")
+			failures.append("a manually dropped sofa guest must receive the seated comfort boost without a walk or climb")
 	main.call("_release_sofa_interaction", "pet1", false)
 	pet.position = Vector2(80.0, sofa.position.y - 110.0)
 	main.call("_on_pet_drag_released", pet)

@@ -11,8 +11,7 @@ static func run() -> Array[String]:
 	_test_persistence_rejects_non_finite_numbers(failures)
 	_test_starter_unlock_state(failures)
 	_test_language_defaults_and_pet_names(failures)
-	_test_pet_gacha_integration(failures)
-	_test_gacha_batch_tier_ceiling(failures)
+	_test_growth_unlock_and_achievement_integration(failures)
 	_test_hidden_inventory_updates_are_lazy(failures)
 	_test_single_level_upgrade(failures)
 	_test_upgrade_entry_simplicity(failures)
@@ -96,7 +95,7 @@ static func _test_starter_unlock_state(failures: Array[String]) -> void:
 		failures.append("a fresh main state must deploy only pet1")
 	var entries: Array[Dictionary] = main.call("_get_pet_upgrade_entries")
 	if entries.size() != 1 or String(entries[0].get("id", "")) != "pet1":
-		failures.append("locked gacha pets must stay out of the upgrade list")
+		failures.append("growth-locked pets must stay out of the upgrade list")
 	if not main.call("_get_inventory_pet_entries").is_empty():
 		failures.append("the deployed starter pet must not also appear in storage")
 	var expected_rate := Main.PetProgression.faith_per_second(
@@ -149,189 +148,43 @@ static func _test_language_defaults_and_pet_names(failures: Array[String]) -> vo
 			failures.append("%s must not leak its Chinese unknown-age copy in English mode" % pet_id)
 	main.free()
 
-	var gacha := Main.GachaWindowScript.new()
-	gacha.setup()
-	if String(gacha.get("_language")) != "en" or not gacha.theme.default_font is SystemFont:
-		failures.append("the standalone gacha window must start in English with readable body typography")
-	gacha.set_language("zh")
-	if not gacha.theme.default_font is SystemFont:
-		failures.append("the Chinese gacha UI must switch to a CJK-capable system font")
-	gacha.set_language("en")
-	if not gacha.theme.default_font is SystemFont:
-		failures.append("switching gacha back to English must restore its readable body font")
-	gacha.free()
+	var achievements := Main.AchievementWindowScript.new()
+	achievements.setup()
+	if String(achievements.get("_language")) != "en" or not achievements.theme.default_font is SystemFont:
+		failures.append("the achievement window must start in English with readable body typography")
+	achievements.set_language("zh")
+	if not achievements.theme.default_font is SystemFont:
+		failures.append("the Chinese achievement UI must use a CJK-capable system font")
+	achievements.free()
 
 
-static func _test_pet_gacha_integration(failures: Array[String]) -> void:
+static func _test_growth_unlock_and_achievement_integration(failures: Array[String]) -> void:
 	var main := _make_main()
-	var window := Main.GachaWindowScript.new()
-	window.setup()
-	main.set("_gacha_window", window)
-	main.set("_gold_coins", 1000000)
-	main.set("_gacha_pity_count", Main.GachaProgression.NEW_PET_PITY_DRAWS - 1)
-	var first_cost := Main.GachaProgression.draw_cost(0)
-	main.call("_on_gacha_draw_requested")
-	_drain_gacha_batch(main, failures, "first draw")
-	var unlocked_after_first: Array = main.get("_unlocked_pet_ids")
-	if unlocked_after_first.size() != 2 or not unlocked_after_first.has("pet1"):
-		failures.append("the first successful pet draw must unlock exactly one new non-starter pet")
-	var newly_unlocked_id := ""
-	for unlocked_id_value in unlocked_after_first:
-		var unlocked_id := String(unlocked_id_value)
-		if unlocked_id != "pet1":
-			newly_unlocked_id = unlocked_id
-			break
-	var deployed_after_first: Array = main.get("_deployed_pet_ids")
-	var spawned_after_first: Array = main.get("_pets")
-	if newly_unlocked_id.is_empty() or not deployed_after_first.has(newly_unlocked_id):
-		failures.append("a newly unlocked pet must default to the deployed desktop roster")
-	elif spawned_after_first.is_empty() or String(main.call("_get_actor_pet_id", spawned_after_first.back())) != newly_unlocked_id:
-		failures.append("a newly unlocked pet must appear on the desktop immediately instead of entering storage")
-	for inventory_entry in main.call("_get_inventory_pet_entries"):
-		if String((inventory_entry as Dictionary).get("id", "")) == newly_unlocked_id:
-			failures.append("an automatically deployed new pet must not also appear in storage")
-	if int(main.get("_gacha_draw_count")) != 1:
-		failures.append("a successful pet draw must advance the saved draw count")
-	if int(main.get("_gold_coins")) != 1000000 - first_cost:
-		failures.append("a successful pet draw must spend its displayed gold cost")
-	var history: Array = main.get("_gacha_history")
-	if history.is_empty() or not bool((history[0] as Dictionary).get("is_new", false)):
-		failures.append("new pet draws must be recorded as unlocks in gacha history")
+	var pet1_state: Dictionary = main.call("_get_pet_state", "pet1")
+	pet1_state["upgrade_level"] = 10
+	var unlocked: Array = main.call("_unlock_growth_eligible_pets")
+	if unlocked != ["pet2"]:
+		failures.append("crossing the first permanent growth threshold must unlock pet2 without randomness or payment")
+	if not (main.get("_unlocked_pet_ids") as Array).has("pet2"):
+		failures.append("a growth-unlocked pet must join the permanent roster")
+	if not (main.get("_deployed_pet_ids") as Array).has("pet2"):
+		failures.append("a growth-unlocked pet must deploy to the desktop immediately")
+	var next_unlock: Dictionary = Main.PetUnlockProgression.get_next_unlock(main.get("_unlocked_pet_ids"))
+	if String(next_unlock.get("pet_id", "")) != "pet3" or float(next_unlock.get("threshold", 0.0)) != 20.0:
+		failures.append("the roster must expose pet3 as the next authored growth milestone")
 
-	var unlocked_all: Array = main.get("_unlocked_pet_ids")
-	unlocked_all.clear()
-	for pet_id_value in Main.PetCatalog.ACTIVE_DESKTOP_PETS:
-		unlocked_all.append(String(pet_id_value))
-	var gold_before_duplicate := int(main.get("_gold_coins"))
-	var faith_before_duplicate := float(main.get("_faith_points"))
-	var duplicate_draw_cost := Main.GachaProgression.draw_cost(1)
-	main.call("_on_gacha_draw_requested")
-	_drain_gacha_batch(main, failures, "duplicate draw")
-	history = main.get("_gacha_history")
-	if history.is_empty() or bool((history[0] as Dictionary).get("is_new", true)):
-		failures.append("draws from a complete collection must be recorded as duplicate exchanges")
-	else:
-		var duplicate_faith := int((history[0] as Dictionary).get("duplicate_faith", 0))
-		if duplicate_faith <= 0:
-			failures.append("a duplicate pet must exchange directly into faith")
-		if int(main.get("_gold_coins")) != gold_before_duplicate - duplicate_draw_cost:
-			failures.append("duplicate draws must still spend only gold")
-		if not is_equal_approx(float(main.get("_faith_points")), faith_before_duplicate + float(duplicate_faith)):
-			failures.append("duplicate faith must be credited without refunding the gold draw cost")
-
-	var draw_count_before_batch := int(main.get("_gacha_draw_count"))
-	main.set("_gold_coins", 9_000_000_000_000_000_000)
-	main.call("_on_gacha_draw_requested", 10)
-	_drain_gacha_batch(main, failures, "ten draw")
-	if int(main.get("_gacha_draw_count")) != draw_count_before_batch + 10:
-		failures.append("checking draw ten must resolve exactly ten sequential pet draws")
-	var pending_results: Array = window.get("_pending_results")
-	if pending_results.size() != 10:
-		failures.append("a ten-draw batch must queue all ten popup results in draw order")
-	var expected_duplicate_summary := 0
-	for pending_result_value in pending_results:
-		expected_duplicate_summary += int((pending_result_value as Dictionary).get("duplicate_faith", 0))
-	var prepared_summary: Dictionary = window.get("_prepared_batch_summary")
-	if int(prepared_summary.get("duplicate_faith_total", -1)) != expected_duplicate_summary:
-		failures.append("batch processing must precompute the exact skip-all duplicate faith total")
-	var draw_count_before_hundred := int(main.get("_gacha_draw_count"))
-	main.call("_on_gacha_draw_requested", 100)
-	_drain_gacha_batch(main, failures, "hundred draw")
-	if int(main.get("_gacha_draw_count")) != draw_count_before_hundred + 100:
-		failures.append("the 100-draw option must resolve one hundred sequential draws")
-	pending_results = window.get("_pending_results")
-	if pending_results.size() != 100:
-		failures.append("large batches must remain available to skip-all result aggregation")
-
-	var chunked_amount := Main.GACHA_BATCH_MAX_DRAWS_PER_FRAME + 17
-	var draw_count_before_chunked := int(main.get("_gacha_draw_count"))
-	main.call("_on_gacha_draw_requested", chunked_amount)
-	var chunked_token := int(main.get("_gacha_batch_token"))
-	var gold_after_reservation := int(main.get("_gold_coins"))
-	if not bool(main.get("_gacha_batch_active")) or not window.is_draw_request_pending():
-		failures.append("a large gacha request must enter a visible busy state before batch work starts")
-	main.call("_on_gacha_draw_requested", 10)
-	if int(main.get("_gacha_batch_token")) != chunked_token or int(main.get("_gold_coins")) != gold_after_reservation:
-		failures.append("a repeated draw signal must not replace the active batch or reserve gold twice")
-	var replacement_window := Main.GachaWindowScript.new()
-	replacement_window.setup()
-	main.set("_gacha_window", replacement_window)
-	main.call("_on_gacha_draw_requested", 10)
-	if replacement_window.is_draw_request_pending():
-		failures.append("a stale batch must not transfer its busy state or result ownership to a replacement window")
-	main.set("_gacha_window", window)
-	replacement_window.free()
-	main.call("_process_gacha_draw_batch", chunked_token)
-	var first_chunk_draws := int(main.get("_gacha_draw_count")) - draw_count_before_chunked
-	if first_chunk_draws <= 0 or first_chunk_draws > Main.GACHA_BATCH_MAX_DRAWS_PER_FRAME:
-		failures.append("one gacha frame must obey the explicit maximum draw chunk")
-	if not bool(main.get("_gacha_batch_active")) or not window.is_draw_request_pending():
-		failures.append("a multi-frame gacha batch must remain busy between chunks")
-	_drain_gacha_batch(main, failures, "multi-frame draw")
-	if int(main.get("_gacha_draw_count")) != draw_count_before_chunked + chunked_amount:
-		failures.append("chunking must preserve the exact requested number and result order")
-	if window.is_draw_request_pending():
-		failures.append("a completed gacha batch must always release its busy state")
-	var count_after_chunked := int(main.get("_gacha_draw_count"))
-	main.call("_process_gacha_draw_batch", chunked_token)
-	if int(main.get("_gacha_draw_count")) != count_after_chunked:
-		failures.append("a stale deferred chunk must not mutate a completed batch")
-
-	var gold_before_empty := int(main.get("_gold_coins"))
-	main.call("_on_gacha_draw_requested", 10)
-	var empty_token := int(main.get("_gacha_batch_token"))
-	var empty_state: Dictionary = main.get("_gacha_batch_state")
-	empty_state["remaining"] = 0
-	empty_state["results"] = []
-	empty_state["spent_cost"] = 0
-	main.set("_gacha_batch_state", empty_state)
-	main.call("_process_gacha_draw_batch", empty_token)
-	if bool(main.get("_gacha_batch_active")) or window.is_draw_request_pending():
-		failures.append("an empty gacha result must release both model and UI busy state")
-	if int(main.get("_gold_coins")) != gold_before_empty:
-		failures.append("an empty gacha result must refund all reserved gold")
-
-	main.set("_gold_coins", 0)
-	window.set_draw_request_pending(true)
-	main.call("_on_gacha_draw_requested", 100)
-	if bool(main.get("_gacha_batch_active")) or window.is_draw_request_pending():
-		failures.append("an unaffordable gacha request must not leave the window waiting")
-	main.set("_gacha_window", null)
-	window.free()
-	main.free()
-
-
-static func _drain_gacha_batch(main: Node, failures: Array[String], label: String) -> void:
-	var chunk_count := 0
-	while bool(main.get("_gacha_batch_active")) and chunk_count < 20_000:
-		main.call("_process_gacha_draw_batch", int(main.get("_gacha_batch_token")))
-		chunk_count += 1
-	if bool(main.get("_gacha_batch_active")):
-		failures.append("%s gacha batch must finish within a bounded number of chunks" % label)
-
-
-static func _test_gacha_batch_tier_ceiling(failures: Array[String]) -> void:
-	var main := _make_main()
-	var window := Main.GachaWindowScript.new()
-	window.setup()
-	main.set("_gacha_window", window)
-	var starter_state: Dictionary = main.call("_get_pet_state", "pet1")
-	starter_state["upgrade_level"] = 100
-	starter_state["evolved"] = true
-	main.set("_gold_coins", 1_000_000_000)
-	main.set("_gacha_pity_count", Main.GachaProgression.NEW_PET_PITY_DRAWS - 1)
-	main.call("_on_gacha_draw_requested", 10)
-	_drain_gacha_batch(main, failures, "faith-gated ten draw")
-	var unlocked_after_batch: Array = main.get("_unlocked_pet_ids")
-	if unlocked_after_batch != ["pet1", "pet2"]:
-		failures.append("one high-faith batch must unlock only its starting next tier")
-	main.call("_on_gacha_draw_requested", 1)
-	_drain_gacha_batch(main, failures, "next gated request")
-	var unlocked_after_next_request: Array = main.get("_unlocked_pet_ids")
-	if not unlocked_after_next_request.has("pet3"):
-		failures.append("a later request may unlock the following tier after the prior batch ends")
-	main.set("_gacha_window", null)
-	window.free()
+	main.set("_battle_victories", 1)
+	var gold_before := int(main.get("_gold_coins"))
+	var faith_before := float(main.get("_faith_points"))
+	main.call("_on_achievement_claim_requested", "battle_1")
+	if not (main.get("_claimed_achievement_ids") as Array).has("battle_1"):
+		failures.append("a completed achievement must persist its claimed state")
+	if int(main.get("_gold_coins")) <= gold_before or float(main.get("_faith_points")) <= faith_before:
+		failures.append("claiming an achievement must grant both gold and faith")
+	var rewarded_gold := int(main.get("_gold_coins"))
+	main.call("_on_achievement_claim_requested", "battle_1")
+	if int(main.get("_gold_coins")) != rewarded_gold:
+		failures.append("an achievement reward must never be claimable twice")
 	main.free()
 
 

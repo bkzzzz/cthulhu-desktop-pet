@@ -154,8 +154,8 @@ static func run() -> Array[String]:
 		for child in bookmark_container.get_children():
 			if child is TextureButton:
 				bookmark_names.append(String(child.name))
-	if bookmark_names != ["仓库Bookmark", "商店Bookmark", "抽卡Bookmark", "新闻Bookmark", "设置Bookmark", "收起Bookmark"]:
-		failures.append("drawer bookmarks must keep warehouse/shop/gacha/news/settings/close order")
+	if bookmark_names != ["仓库Bookmark", "商店Bookmark", "成就Bookmark", "新闻Bookmark", "设置Bookmark", "收起Bookmark"]:
+		failures.append("drawer bookmarks must keep warehouse/shop/achievements/news/settings/close order")
 
 	var detail_name_edit := formatter.get("_upgrade_detail_name_edit") as LineEdit
 	if detail_name_edit == null or detail_name_edit.max_length != 40:

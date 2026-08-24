@@ -2,7 +2,7 @@ extends Node
 
 signal inventory_requested
 signal shop_requested
-signal gacha_requested
+signal achievements_requested
 signal news_requested
 signal settings_requested
 signal quit_requested
@@ -449,7 +449,7 @@ func set_language(language_code: String) -> void:
 	var labels := {
 		"inventory": "INVENTORY" if _language == "en" else "仓库",
 		"shop": "SHOP" if _language == "en" else "商店",
-		"gacha": "GACHA" if _language == "en" else "抽卡",
+		"achievements": "ACHIEVEMENTS" if _language == "en" else "成就",
 		"news": "NEWS" if _language == "en" else "新闻",
 		"settings": "SETTINGS" if _language == "en" else "设置",
 		"close": "CLOSE" if _language == "en" else "收起"
@@ -593,7 +593,7 @@ func _create_drawer_window() -> void:
 
 	_bookmark_container.add_child(_make_bookmark_button("仓库", _on_inventory_bookmark_pressed, "inventory"))
 	_bookmark_container.add_child(_make_bookmark_button("商店", _on_shop_bookmark_pressed, "shop"))
-	_bookmark_container.add_child(_make_bookmark_button("抽卡", _on_gacha_bookmark_pressed, "gacha"))
+	_bookmark_container.add_child(_make_bookmark_button("成就", _on_achievements_bookmark_pressed, "achievements"))
 	_bookmark_container.add_child(_make_bookmark_button("新闻", _on_news_bookmark_pressed, "news"))
 	_bookmark_container.add_child(_make_bookmark_button("设置", _on_settings_bookmark_pressed, "settings"))
 	_bookmark_container.add_child(_make_bookmark_button("收起", _on_drawer_close_bookmark_pressed, "close"))
@@ -2597,9 +2597,9 @@ func _on_shop_bookmark_pressed() -> void:
 	shop_requested.emit()
 
 
-func _on_gacha_bookmark_pressed() -> void:
+func _on_achievements_bookmark_pressed() -> void:
 	_hide_upgrade_detail_panel()
-	gacha_requested.emit()
+	achievements_requested.emit()
 
 
 func _on_news_bookmark_pressed() -> void:

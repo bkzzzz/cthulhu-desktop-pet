@@ -26,6 +26,8 @@ const EXPECTED_ITEM_X_FRACTIONS := {
 
 static func run() -> Array[String]:
 	var failures: Array[String] = []
+	if CoinCollectorShovel.SWEEP_STROKE_SECONDS < 0.45:
+		failures.append("the collector shovel must use a deliberate, readable sweep cadence")
 	_test_item_catalog_assets(failures)
 	_test_taskbar_grounding_and_horizontal_clamp(failures)
 	_test_desktop_item_interaction_feedback(failures)

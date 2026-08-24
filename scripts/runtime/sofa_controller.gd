@@ -102,16 +102,17 @@ func _try_begin_manual_sofa_visit(actor: Node2D) -> bool:
 	if pet_id.is_empty() or _host._is_pet_recovering(pet_id):
 		return false
 	var seat := _get_sofa_seat_position(sofa)
-	if not actor.has_method("begin_manual_sofa_visit") or not bool(actor.call("begin_manual_sofa_visit", seat.x, seat.y)):
+	if not actor.has_method("seat_on_sofa_immediately") or not bool(actor.call("seat_on_sofa_immediately", seat.x, seat.y)):
 		return false
 	var now: float = float(_host._get_now_seconds())
 	state[SOFA_SESSION_KEY] = {
 		"pet_id": pet_id,
-		"phase": "approaching",
-		"approach_expires_at": now + SOFA_APPROACH_TIMEOUT_SECONDS
+		"phase": "seated",
+		"ends_at": now + SOFA_VISIT_DURATION_SECONDS
 	}
 	state.erase(SOFA_NEXT_VISIT_KEY)
 	_write_sofa_item_state(state)
+	_on_pet_sofa_reached(actor)
 	_host._request_save()
 	return true
 

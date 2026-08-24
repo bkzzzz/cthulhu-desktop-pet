@@ -1049,6 +1049,7 @@ func _finish_battle(victory: bool, suppress_presentation := false) -> void:
 		_gold_coins = CurrencyDisplay.add_gold(_gold_coins, settlement_gold)
 		_faith_points += float(settlement_faith)
 		_lifetime_faith += float(settlement_faith)
+		_battle_victories += 1
 	_battle_active = false
 	_battle_started_at = 0.0
 	_battle_ends_at = 0.0
@@ -1085,6 +1086,7 @@ func _finish_battle(victory: bool, suppress_presentation := false) -> void:
 	_host._schedule_next_battle(now)
 	_last_believer_spawn_at = now
 	_host._schedule_next_believer_spawn(now)
+	_host._sync_achievement_state()
 	if suppress_presentation:
 		# A pet may already have been defeated before a debug replacement. Preserve
 		# that real state without rebuilding every visible panel during the swap.

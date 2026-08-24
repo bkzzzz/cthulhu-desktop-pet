@@ -68,7 +68,7 @@ var _inventory_window: Window
 var _evolution_window: Window
 var _pending_evolution_notifications: Array[String] = []
 var _shop_window: Window
-var _gacha_window: Window
+var _achievement_window: Window
 var _news_window: Window
 var _settings_window: Window
 var _completion_window: Window
@@ -79,12 +79,8 @@ var _item_states := {}
 var _side_drawer: Node
 var _lifetime_faith := 0.0
 var _gold_coins := 0
-var _gacha_draw_count := 0
-var _gacha_pity_count := 0
-var _gacha_history: Array[Dictionary] = []
-var _gacha_batch_active := false
-var _gacha_batch_token := 0
-var _gacha_batch_state: Dictionary = {}
+var _battle_victories := 0
+var _claimed_achievement_ids: Array[String] = []
 var _autosave_timer := 0.0
 var _save_dirty := false
 var _save_debounce_remaining := 0.0

@@ -12,7 +12,7 @@
 - `runtime/presentation_controller.gd`: windows, HUD synchronization, and news presentation
 - `runtime/persistence_controller.gd`: game-state serialization, sanitization, autosave, offline progress, and safe slot-switch coordination
 - `runtime/save_slot_repository.gd`: controlled slot IDs, registry/backup I/O, legacy-save migration, and exact-path reset/delete operations
-- `runtime/progression_controller.gd`: faith, upgrades, gacha, evolution, settings, and player commands
+- `runtime/progression_controller.gd`: faith, growth-based pet unlocks, achievements, evolution, settings, and player commands
 - `runtime/offering_controller.gd`: offering purchase, cursor placement, feeding, and buffs
 - `runtime/campaign_controller.gd`: final-boss gating, campaign completion, level caps, and Endless Mode
 
@@ -26,13 +26,14 @@
 - `side_drawer_controller.gd`: compact menu, progression rows, pet details, and drawer effects
 - `inventory_window.gd`: storage, deployment, renaming, and pet details
 - `shop_window.gd`: paged goods, offerings, and purchases
-- `gacha_window.gd`: draw controls, animation, results, and summaries
+- `achievement_window.gd`: achievement progress, rewards, and claim controls
 - `news_window.gd`: persistent cult-news history
 
 ## Domain rules
 
 - `domain/pet_progression.gd`: pet output and upgrade costs
-- `domain/gacha_progression.gd`: draw costs, growth gates, weights, duplicates, and pity
+- `domain/pet_unlock_progression.gd`: permanent growth-rate gates for roster unlocks
+- `domain/achievement_progression.gd`: achievement definitions, progress checks, and reward data
 - `domain/economy_balance.gd`: campaign targets, potential income, pricing, and completion checks
 - `domain/battle_balance.gd`: wave density, adaptive enemy strength, and reward budgets
 - `domain/currency_display.gd`: exact gold-to-crystal display denominations and overflow-safe balance helpers

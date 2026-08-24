@@ -142,10 +142,6 @@ const EVENT_TEMPLATES := {
 	"upgrade": [
 		{"id": "event_upgrade_index", "text": "教众登记更新：教团当前共有{followers}名信众，其中8名成员开始负责附近街区的招募。"},
 		{"id": "event_upgrade_radius", "text": "教众登记更新：教团当前共有{followers}名信众，新设2个活动区并安排17名志愿者值守。"}
-	],
-	"gacha": [
-		{"id": "event_gacha_relic", "text": "教团为“{item}”举行见面会，7名志愿者负责接待访客并介绍入团方式。"},
-		{"id": "event_gacha_signal", "text": "教团围绕“{item}”制作了16张新海报，并在2个街区开始试发。"}
 	]
 }
 
@@ -337,7 +333,6 @@ static func _make_event_headline_en(event_type: String, context: Dictionary) -> 
 		"hide": return "A rapid recruitment operation established new storage and meeting points."
 		"offering": return "A gathering centered on a new offering attracted members and volunteers."
 		"upgrade": return "Follower registry update: the cult now has %s registered followers, with new volunteers assigned to recruitment posts." % followers
-		"gacha": return "The cult welcomed a newly summoned companion at a public gathering and began a recruitment campaign."
 		_: return "Cult activity increased as new volunteers joined local chapters."
 
 

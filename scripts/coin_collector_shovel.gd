@@ -6,7 +6,7 @@ extends Node2D
 const SHOVEL_TEXTURE := "res://assets/furniture/shopItems/铲子.png"
 const SHOVEL_SCALE := 0.74
 const SWEEP_STROKE_COUNT := 3
-const SWEEP_STROKE_SECONDS := 0.22
+const SWEEP_STROKE_SECONDS := 0.52
 const SWEEP_ARC_PIXELS := 17.0
 const SWEEP_LIFT_PIXELS := 6.0
 

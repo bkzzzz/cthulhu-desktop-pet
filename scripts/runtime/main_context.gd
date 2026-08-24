@@ -4,7 +4,8 @@ const GameState = preload("res://scripts/runtime/game_state.gd")
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const PetProgression = preload("res://scripts/domain/pet_progression.gd")
 const FollowerProgression = preload("res://scripts/domain/follower_progression.gd")
-const GachaProgression = preload("res://scripts/domain/gacha_progression.gd")
+const PetUnlockProgression = preload("res://scripts/domain/pet_unlock_progression.gd")
+const AchievementProgression = preload("res://scripts/domain/achievement_progression.gd")
 const NewsFeed = preload("res://scripts/domain/news_feed.gd")
 const OfferingCatalog = preload("res://scripts/domain/offering_catalog.gd")
 const DesktopItemCatalog = preload("res://scripts/domain/desktop_item_catalog.gd")
@@ -23,7 +24,7 @@ const EventInvitation = preload("res://scripts/event_invitation.gd")
 const InventoryWindowScript = preload("res://scripts/inventory_window.gd")
 const EvolutionWindowScript = preload("res://scripts/evolution_window.gd")
 const ShopWindowScript = preload("res://scripts/shop_window.gd")
-const GachaWindowScript = preload("res://scripts/gacha_window.gd")
+const AchievementWindowScript = preload("res://scripts/achievement_window.gd")
 const NewsWindowScript = preload("res://scripts/news_window.gd")
 const SettingsWindowScript = preload("res://scripts/settings_window.gd")
 const CompletionWindowScript = preload("res://scripts/completion_window.gd")
@@ -100,18 +101,13 @@ const UI_REFRESH_INTERVAL := 0.25
 # Two deliberate clicks per second add about 8% to passive production. This
 # keeps petting useful without letting autoclick-style input erase the campaign.
 const MANUAL_CLICK_RATE_SECONDS := 0.04
-# Large gacha requests are resolved incrementally. The hard chunk ceiling keeps
-# work deterministic, while the time budget protects slower machines/assets.
-const GACHA_BATCH_MAX_DRAWS_PER_FRAME := 128
-const GACHA_BATCH_FRAME_BUDGET_USEC := 1800
-const GACHA_BATCH_BUDGET_CHECK_INTERVAL := 16
 # Legacy single-save locations are read only by the one-time migration. Active
 # slot paths are generated and validated by SaveSlotRepository.
 const SAVE_PATH := "user://cthulu_save.cfg"
 const SAVE_BACKUP_PATH := "user://cthulu_save.cfg.bak"
 const SAVE_TEMP_PATH := "user://cthulu_save.cfg.tmp"
 const SAVE_BACKUP_TEMP_PATH := "user://cthulu_save.cfg.bak.tmp"
-const SAVE_VERSION := 19
+const SAVE_VERSION := 20
 const MAX_SAVE_FILE_BYTES := 1_500_000
 const MAX_PERSISTED_FLOAT := 1.0e15
 const PET_UNLOCK_SAVE_VERSION := 8
@@ -366,9 +362,9 @@ var _pending_evolution_notifications: Array[String]:
 var _shop_window: Window:
 	get: return _state._shop_window
 	set(value): _state._shop_window = value
-var _gacha_window: Window:
-	get: return _state._gacha_window
-	set(value): _state._gacha_window = value
+var _achievement_window: Window:
+	get: return _state._achievement_window
+	set(value): _state._achievement_window = value
 var _news_window: Window:
 	get: return _state._news_window
 	set(value): _state._news_window = value
@@ -399,24 +395,12 @@ var _lifetime_faith: float:
 var _gold_coins: int:
 	get: return _state._gold_coins
 	set(value): _state._gold_coins = CurrencyDisplay.sanitize_gold(value)
-var _gacha_draw_count: int:
-	get: return _state._gacha_draw_count
-	set(value): _state._gacha_draw_count = value
-var _gacha_pity_count: int:
-	get: return _state._gacha_pity_count
-	set(value): _state._gacha_pity_count = value
-var _gacha_history: Array[Dictionary]:
-	get: return _state._gacha_history
-	set(value): _state._gacha_history = value
-var _gacha_batch_active: bool:
-	get: return _state._gacha_batch_active
-	set(value): _state._gacha_batch_active = value
-var _gacha_batch_token: int:
-	get: return _state._gacha_batch_token
-	set(value): _state._gacha_batch_token = value
-var _gacha_batch_state: Dictionary:
-	get: return _state._gacha_batch_state
-	set(value): _state._gacha_batch_state = value
+var _battle_victories: int:
+	get: return _state._battle_victories
+	set(value): _state._battle_victories = maxi(0, value)
+var _claimed_achievement_ids: Array[String]:
+	get: return _state._claimed_achievement_ids
+	set(value): _state._claimed_achievement_ids = value
 var _autosave_timer: float:
 	get: return _state._autosave_timer
 	set(value): _state._autosave_timer = value

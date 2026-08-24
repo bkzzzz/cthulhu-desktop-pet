@@ -349,7 +349,7 @@ static func _test_pet_specific_timed_buff(failures: Array[String]) -> void:
 	if not is_equal_approx(boosted_rate, base_rate + pet1_rate):
 		failures.append("an offering must multiply only the fed pet's faith production")
 	if not is_equal_approx(float(main.call("_get_baseline_faith_growth_rate")), baseline_gate_rate):
-		failures.append("temporary offerings must not open permanent gacha faith gates")
+		failures.append("temporary offerings must not open permanent pet growth gates")
 	if not is_equal_approx(float(main.call("_get_pet_offering_multiplier", "pet1")), 2.0):
 		failures.append("feeding must activate the catalog multiplier on the target pet")
 	if not is_equal_approx(float(main.call("_get_pet_offering_multiplier", "pet2")), 1.0):

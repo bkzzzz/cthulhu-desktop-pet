@@ -979,7 +979,7 @@ static func _test_recovery_pauses_production(failures: Array[String]) -> void:
 		+ Main.PetProgression.faith_per_second(Main.PetCatalog.get_definition("pet1"), 1)
 	)
 	if not is_equal_approx(float(main.call("_get_baseline_faith_growth_rate")), permanent_roster_rate):
-		failures.append("temporary recovery must not close a permanent gacha faith gate")
+		failures.append("temporary recovery must not close a permanent pet growth gate")
 	var entries: Array[Dictionary] = main.call("_get_inventory_pet_entries")
 	var recovery_entry: Dictionary = {}
 	for entry in entries:

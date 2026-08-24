@@ -856,6 +856,33 @@ func begin_manual_sofa_visit(target_x: float, seat_contact_y: float) -> bool:
 	return _begin_sofa_visit(target_x, seat_contact_y, true)
 
 
+func seat_on_sofa_immediately(target_x: float, seat_contact_y: float) -> bool:
+	var can_claim_drop := (
+		_behavior == Behavior.FALLING
+		and not _battle_mode
+		and not _autonomy_paused
+		and not _pointer_held
+		and not _recall_pointer_held
+		and not _forced_target_pending
+	)
+	if not can_claim_drop:
+		return false
+	_cancel_special_behavior()
+	_enable_sofa_bounds_override()
+	_update_sofa_visit_target(target_x, seat_contact_y)
+	_sofa_pending = false
+	_sofa_seated = true
+	_sofa_transition_progress = 1.0
+	position = _sofa_seat_position
+	_behavior = Behavior.SOFA_REST
+	z_index = 199
+	_sprite.speed_scale = 1.0
+	_sprite.play("idle")
+	_set_interaction_enabled(true)
+	_update_interaction_area()
+	return true
+
+
 func _begin_sofa_visit(target_x: float, seat_contact_y: float, allow_drop_fall: bool) -> bool:
 	var can_claim_from_manual_drop := (
 		allow_drop_fall
@@ -2535,3 +2562,8 @@ func _handle_recall_button(pressed: bool, pointer_over_pet: bool) -> bool:
 	_recall_pointer_held = false
 	recall_requested.emit(self)
 	return true
+
+
+func raise_input_proxy() -> void:
+	if _input_window != null and _input_window.visible:
+		_input_window.move_to_foreground()
