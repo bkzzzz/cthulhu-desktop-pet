@@ -18,6 +18,7 @@ const BoostAura = preload("res://scripts/boost_aura.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
+const InteractionHintTheme = preload("res://scripts/domain/interaction_hint_theme.gd")
 
 const DESKTOP_MARGIN_X := 24
 const DRAWER_BOOKMARK_WIDTH := 226
@@ -520,16 +521,12 @@ func _create_toggle_button() -> void:
 
 	_menu_hint = Label.new()
 	_menu_hint.text = "菜单栏"
-	_menu_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_menu_hint.position = _menu_button.position + Vector2(8.0, -5.0)
-	_menu_hint.size = Vector2(76.0, 24.0)
+	_menu_hint.size = Vector2(96.0, 30.0)
 	_menu_hint.visible = false
 	_menu_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_menu_hint.z_index = 3
-	_menu_hint.add_theme_font_size_override("font_size", 16)
-	_menu_hint.add_theme_color_override("font_color", Color(0.96, 0.86, 0.62, 1.0))
-	_menu_hint.add_theme_color_override("font_outline_color", Color(0.04, 0.02, 0.03, 1.0))
-	_menu_hint.add_theme_constant_override("outline_size", 4)
+	InteractionHintTheme.apply_to_label(_menu_hint, 15)
 	menu_root.add_child(_menu_hint)
 
 	_playtime_label = Label.new()

@@ -649,7 +649,7 @@ func _create_info_panel() -> void:
 
 	var rule := ColorRect.new()
 	rule.name = "InfoRule"
-	rule.position = Vector2(0.0, 1.0)
+	rule.position = Vector2((INFO_STRIP_SIZE.x - 74.0) * 0.5, 1.0)
 	rule.size = Vector2(74.0, 1.0)
 	rule.color = Color(0.85, 0.73, 0.48, 0.72)
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -658,6 +658,8 @@ func _create_info_panel() -> void:
 	_info_name_label = Label.new()
 	_info_name_label.position = Vector2(0.0, 4.0)
 	_info_name_label.size = Vector2(INFO_STRIP_SIZE.x, 20.0)
+	_info_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_info_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_info_name_label.clip_text = true
 	_info_name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_info_name_label.add_theme_font_size_override("font_size", 16)
@@ -669,6 +671,8 @@ func _create_info_panel() -> void:
 	_info_desc_label = Label.new()
 	_info_desc_label.position = Vector2(0.0, 25.0)
 	_info_desc_label.size = Vector2(INFO_STRIP_SIZE.x, 43.0)
+	_info_desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_info_desc_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_info_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info_desc_label.clip_text = true
 	_info_desc_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_WORD_ELLIPSIS

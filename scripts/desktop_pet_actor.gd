@@ -16,6 +16,7 @@ signal sofa_departed(actor: Node2D)
 
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
+const InteractionHintTheme = preload("res://scripts/domain/interaction_hint_theme.gd")
 
 const DEFAULT_PET_SCALE := 1.65
 const PET_WALK_SPEED := 34.0
@@ -1185,17 +1186,12 @@ func _create_hover_hint() -> void:
 	_hover_hint.name = "PetHoverHint"
 	_refresh_hover_hint_text()
 	_hover_hint.visible = false
-	_hover_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hover_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_hover_hint.size = Vector2(240.0, 52.0)
-	_hover_hint.position = Vector2(-120.0, -204.0)
+	_hover_hint.size = Vector2(292.0, 58.0)
+	_hover_hint.position = Vector2(-146.0, -210.0)
 	_hover_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hover_hint.z_index = 40
-	_hover_hint.add_theme_font_size_override("font_size", 14)
+	InteractionHintTheme.apply_to_label(_hover_hint, 14)
 	_hover_hint.add_theme_font_override("font", LanguageSettings.get_ui_font(_language))
-	_hover_hint.add_theme_color_override("font_color", Color(0.94, 0.88, 0.64, 1.0))
-	_hover_hint.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.02, 1.0))
-	_hover_hint.add_theme_constant_override("outline_size", 3)
 	add_child(_hover_hint)
 
 

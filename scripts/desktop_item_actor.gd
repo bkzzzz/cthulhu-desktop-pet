@@ -1,6 +1,7 @@
 extends Node2D
 
 const DesktopItemCatalog = preload("res://scripts/domain/desktop_item_catalog.gd")
+const InteractionHintTheme = preload("res://scripts/domain/interaction_hint_theme.gd")
 
 signal grabbed_changed(actor: Node2D, grabbed: bool)
 signal recall_requested(actor: Node2D)
@@ -222,17 +223,7 @@ func _create_interaction_hint() -> void:
 
 
 func _make_interaction_hint_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	# A small engraved plaque: warm bone trim and near-square corners visually
-	# match the drawer/shop parchment without competing with the item artwork.
-	style.bg_color = Color(0.075, 0.052, 0.032, 0.96)
-	style.border_color = Color(0.72, 0.61, 0.38, 0.94)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(2)
-	style.shadow_color = Color(0.0, 0.0, 0.0, 0.58)
-	style.shadow_size = 5
-	style.shadow_offset = Vector2(0.0, 2.0)
-	return style
+	return InteractionHintTheme.make_plaque_style()
 
 
 func _set_pointer_hovered(hovered: bool) -> void:
