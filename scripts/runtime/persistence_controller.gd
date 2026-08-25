@@ -404,18 +404,24 @@ func _save_slot_failure(reason: String, error_code := ERR_INVALID_PARAMETER) -> 
 func _update_autosave(delta: float) -> void:
 	if not _persistence_enabled or _reset_in_progress or _save_slot_switch_in_progress:
 		return
-	var saved_this_tick = false
+	var safe_delta := maxf(0.0, delta)
+	_autosave_timer += safe_delta
+	var save_attempted_this_tick := false
 	if _save_dirty:
-		_save_debounce_remaining = maxf(0.0, _save_debounce_remaining - maxf(0.0, delta))
+		_save_debounce_remaining = maxf(0.0, _save_debounce_remaining - safe_delta)
 		if _save_debounce_remaining <= 0.0:
+			save_attempted_this_tick = true
+			# A dirty checkpoint replaces this cycle's periodic checkpoint. Reset
+			# before writing so both success and failure avoid a second full disk
+			# transaction on this tick or the immediately following tick.
+			_autosave_timer = 0.0
 			_save_game()
-			saved_this_tick = not _save_dirty
-	_autosave_timer += maxf(0.0, delta)
+	if save_attempted_this_tick:
+		return
 	if _autosave_timer < AUTOSAVE_INTERVAL_SECONDS:
 		return
 	_autosave_timer = 0.0
-	if not saved_this_tick:
-		_save_game()
+	_save_game()
 
 func _sanitize_loaded_pet_states(raw_value: Variant) -> Dictionary:
 	var sanitized = {}

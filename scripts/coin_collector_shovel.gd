@@ -30,6 +30,7 @@ func _exit_tree() -> void:
 func setup() -> void:
 	_create_sprite()
 	_hide_shovel()
+	set_process(false)
 
 
 func is_collecting() -> bool:
@@ -49,6 +50,7 @@ func begin_collection(coin: Node2D, batch_coins: Array[Node2D] = []) -> bool:
 	_transfer_started = false
 	_sweep_elapsed = 0.0
 	_connect_active_coin(coin)
+	set_process(true)
 
 	_show_shovel_at_coin()
 	return true
@@ -64,6 +66,7 @@ func cancel_collection() -> void:
 	_transfer_started = false
 	_sweep_elapsed = 0.0
 	_hide_shovel()
+	set_process(false)
 
 
 func get_deposit_position() -> Vector2:
@@ -75,6 +78,7 @@ func get_deposit_position() -> Vector2:
 func _process(delta: float) -> void:
 	if not is_collecting():
 		_hide_shovel()
+		set_process(false)
 		return
 	if _transfer_started:
 		_retarget_active_coin()
@@ -266,3 +270,4 @@ func _finish_collection() -> void:
 	_transfer_started = false
 	_sweep_elapsed = 0.0
 	_hide_shovel()
+	set_process(false)

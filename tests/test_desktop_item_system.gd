@@ -300,6 +300,7 @@ static func _test_coin_collector_automation(failures: Array[String]) -> void:
 	visual_parent.add_child(visual_shovel)
 	if tree == null or tree.root == null:
 		failures.append("collector animation coverage requires the active SceneTree")
+		visual_parent.free()
 	else:
 		tree.root.add_child(visual_parent)
 		visual_shovel.setup()
@@ -331,7 +332,10 @@ static func _test_coin_collector_automation(failures: Array[String]) -> void:
 			visual_shovel.call("_process", 0.01)
 			if visual_shovel.is_collecting() or visual_shovel.is_visible_at_coin():
 				failures.append("a player magnet pickup must cancel an in-progress shovel sweep")
-		visual_parent.queue_free()
+		visual_shovel.cancel_collection()
+		visual_coin.free()
+		manual_during_sweep.free()
+		visual_parent.free()
 
 	var moving_coin := CoinDrop.new()
 	moving_coin.setup("R", Vector2(360.0, 560.0), Vector2i(960, 600), 584.0)

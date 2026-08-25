@@ -104,7 +104,6 @@ var _next_news_at := 0.0
 var _news_milestone_check_timer := 0.0
 var _next_pet_coin_drop_at := {}
 var _pet_coin_drop_intervals := {}
-var _background_logic_time := 0.0
 var _pointer_hover_time := 0.0
 var _session_runtime_seconds := 0.0
 var _total_runtime_seconds := 0.0

@@ -219,6 +219,9 @@ func _recall_item(item_id: String) -> bool:
 func _on_item_grabbed_changed(actor: Node2D, grabbed: bool) -> void:
 	if actor == null or not is_instance_valid(actor):
 		return
+	# Moving a native item proxy can change the OS z-order. End the current
+	# hover session so the next sample raises an overlapping pet exactly once.
+	_set_hovered_pet(null)
 	if grabbed and actor.has_method("get_item_id") and String(actor.call("get_item_id")) == "sofa":
 		# A pet cannot remain seated at a moving target. It walks down as soon as
 		# the sofa starts moving and may revisit after the drag is complete.
@@ -337,16 +340,14 @@ func _update_actor_window_bounds() -> void:
 			float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
 		)
 
-func _update_pet_hover() -> void:
-	if _has_captured_pet_pointer():
+func _update_pet_hover(pointer_captured := false) -> void:
+	if pointer_captured:
 		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_cancel_all_pet_pointer_captures()
 		return
 
 	var mouse_position = _get_window_mouse_position(get_window())
 	var hit_pet = _get_pet_at_position(mouse_position)
-	if hit_pet != null and hit_pet.has_method("raise_input_proxy"):
-		hit_pet.call("raise_input_proxy")
 	_set_hovered_pet(hit_pet)
 
 func _set_hovered_pet(next_pet: Node2D) -> void:
@@ -354,8 +355,12 @@ func _set_hovered_pet(next_pet: Node2D) -> void:
 		return
 	var previous_pet = _hovered_pet
 	_hovered_pet = next_pet
+	if previous_pet != null and is_instance_valid(previous_pet) and previous_pet.has_method("release_input_proxy_foreground_priority"):
+		previous_pet.call("release_input_proxy_foreground_priority")
 	if previous_pet != null and is_instance_valid(previous_pet) and previous_pet.has_method("set_pointer_hovered"):
 		previous_pet.call("set_pointer_hovered", false)
+	if _hovered_pet != null and is_instance_valid(_hovered_pet) and _hovered_pet.has_method("raise_input_proxy"):
+		_hovered_pet.call("raise_input_proxy")
 	if _hovered_pet != null and is_instance_valid(_hovered_pet) and _hovered_pet.has_method("set_pointer_hovered"):
 		_hovered_pet.call("set_pointer_hovered", true)
 
@@ -456,13 +461,13 @@ func _spawn_emotion(actor: Node2D, emotion_name: String, offset: Vector2, effect
 		pet_id = str(actor.get_instance_id())
 
 	if primary:
-		var active_emotion = _active_emotions.get(pet_id) as Sprite2D
+		var active_emotion := _as_valid_sprite_2d(_active_emotions.get(pet_id))
 		var next_emotion_allowed_at = float(_next_emotion_allowed_at.get(pet_id, 0.0))
 		if active_emotion != null and is_instance_valid(active_emotion) and now < next_emotion_allowed_at:
 			_pulse_active_emotion(actor, pet_id)
 			return false
 
-		var active_emotion_tween = _active_emotion_tweens.get(pet_id) as Tween
+		var active_emotion_tween := _as_valid_tween(_active_emotion_tweens.get(pet_id))
 		if active_emotion_tween != null and is_instance_valid(active_emotion_tween):
 			active_emotion_tween.kill()
 
@@ -533,7 +538,7 @@ func _get_safe_sprite_position(raw_position: Vector2, texture: Texture2D, sprite
 	return raw_position
 
 func _pulse_active_emotion(actor: Node2D, pet_id: String) -> void:
-	var active_emotion = _active_emotions.get(pet_id) as Sprite2D
+	var active_emotion := _as_valid_sprite_2d(_active_emotions.get(pet_id))
 	if active_emotion == null or not is_instance_valid(active_emotion):
 		return
 
@@ -556,11 +561,11 @@ func _clear_active_emotion(pet_id: String, sprite: Sprite2D) -> void:
 		_active_emotion_tweens.erase(pet_id)
 
 func _clear_pet_runtime_effects(pet_id: String) -> void:
-	var active_emotion_tween = _active_emotion_tweens.get(pet_id) as Tween
+	var active_emotion_tween := _as_valid_tween(_active_emotion_tweens.get(pet_id))
 	if active_emotion_tween != null and is_instance_valid(active_emotion_tween):
 		active_emotion_tween.kill()
 
-	var active_emotion = _active_emotions.get(pet_id) as Sprite2D
+	var active_emotion := _as_valid_sprite_2d(_active_emotions.get(pet_id))
 	if active_emotion != null and is_instance_valid(active_emotion):
 		active_emotion.queue_free()
 
@@ -718,8 +723,10 @@ func _finish_pending_offering_for_actor(actor: Node2D) -> void:
 		return
 
 	_pending_offering_feeds.erase(target_key)
-	var pet_id = _get_actor_pet_id(actor)
-	var sprite = feed_data.get("sprite") as Sprite2D
+	var pet_id := String(feed_data.get("pet_id", ""))
+	if pet_id.is_empty():
+		pet_id = _get_actor_pet_id(actor)
+	var sprite := _as_valid_sprite_2d(feed_data.get("sprite"))
 	var drop_position: Vector2 = feed_data.get("drop_position", actor.position)
 	var offering: Dictionary = feed_data.get("offering", {})
 	_host._finish_offering_consumed(sprite, offering, drop_position, pet_id)

@@ -62,7 +62,7 @@ func _update_ambient_coin_drops() -> void:
 
 
 func _update_coin_collector(now: float) -> void:
-	var collector := _host._get_desktop_item(COIN_COLLECTOR_ITEM_ID) as Node2D
+	var collector := _as_valid_node_2d(_host._get_desktop_item(COIN_COLLECTOR_ITEM_ID))
 	if collector == null or not is_instance_valid(collector):
 		_next_coin_collector_sweep_at = 0.0
 		_cancel_coin_collector_pickups()
@@ -112,7 +112,7 @@ func _get_nearest_collectible_coin(anchor: Vector2) -> Node2D:
 	var candidate: Node2D
 	var candidate_distance_squared := INF
 	for coin_value in _coin_drops:
-		var coin := coin_value as Node2D
+		var coin := _as_valid_node_2d(coin_value)
 		if coin == null or not is_instance_valid(coin) or coin.is_queued_for_deletion():
 			continue
 		if not coin.has_method("can_be_collected_by_collector"):
@@ -136,7 +136,7 @@ func _get_collectible_coin_batch(seed: Node2D) -> Array[Node2D]:
 		return [seed]
 	var batch: Array[Node2D] = []
 	for coin_value in _coin_drops:
-		var coin := coin_value as Node2D
+		var coin := _as_valid_node_2d(coin_value)
 		if coin == null or not is_instance_valid(coin) or coin.is_queued_for_deletion():
 			continue
 		if String(coin.get_meta("coin_collector_batch_id", "")) != batch_id:
@@ -150,7 +150,7 @@ func _get_collectible_coin_batch(seed: Node2D) -> Array[Node2D]:
 
 func _cancel_coin_collector_pickups() -> void:
 	for coin_value in _coin_drops:
-		var coin := coin_value as Node2D
+		var coin := _as_valid_node_2d(coin_value)
 		if coin != null and is_instance_valid(coin) and coin.has_method("cancel_collector_collection"):
 			coin.call("cancel_collector_collection")
 
@@ -195,10 +195,18 @@ func _spawn_value_as_coins(
 	_request_coin_collector_check()
 	return spawned
 
-func _update_coin_drops() -> void:
+func _update_coin_drops(delta := 0.0) -> void:
+	var safe_delta := maxf(0.0, delta)
 	for index in range(_coin_drops.size() - 1, -1, -1):
-		if not is_instance_valid(_coin_drops[index]) or _coin_drops[index].is_queued_for_deletion():
+		# A typed Array can retain a dead Object slot after free(). Casting that
+		# slot throws before is_instance_valid() gets a chance to inspect it.
+		# Validate the Variant first, then narrow it to Node2D.
+		var coin := _as_valid_node_2d(_coin_drops[index])
+		if coin == null or not is_instance_valid(coin) or coin.is_queued_for_deletion():
 			_coin_drops.remove_at(index)
+			continue
+		if safe_delta > 0.0 and coin.has_method("advance_resting"):
+			coin.call("advance_resting", safe_delta)
 
 func _spawn_pet_coin(actor: Node2D) -> Node2D:
 	if actor == null or not is_instance_valid(actor):
@@ -236,6 +244,7 @@ func _spawn_coin(coin_type: String, spawn_position: Vector2) -> Node2D:
 		float(_pet_window_size.y - PET_TASKBAR_OVERLAP_PIXELS)
 	)
 	coin.collected.connect(_on_coin_collected)
+	coin.tree_exiting.connect(_on_coin_tree_exiting.bind(coin.get_instance_id()))
 	add_child(coin)
 	_coin_drops.append(coin)
 	return coin
@@ -244,7 +253,7 @@ func _make_desktop_coin_capacity(incoming_count: int) -> void:
 	_update_coin_drops()
 	var required_slots = maxi(0, incoming_count)
 	while _coin_drops.size() + required_slots > DESKTOP_COIN_LIMIT:
-		var oldest_coin = _coin_drops.pop_front() as Node2D
+		var oldest_coin := _as_valid_node_2d(_coin_drops.pop_front())
 		if oldest_coin == null or not is_instance_valid(oldest_coin):
 			continue
 		if oldest_coin.has_method("expire"):
@@ -266,6 +275,17 @@ func _on_coin_collected(actor: Node2D, coin_type: String, value: int) -> void:
 	_gold_coins = CurrencyDisplay.add_gold(_gold_coins, safe_value)
 	_host._refresh_coin_display()
 	_host._show_coin_change_popup(popup_position, safe_value, coin_type)
+
+
+func _on_coin_tree_exiting(instance_id: int) -> void:
+	# Not every removal awards currency: shovel batching folds siblings into one
+	# coin, expiry/capacity paths discard coins, and external teardown may free a
+	# child directly. Remove all of those paths before their Object becomes stale.
+	for index in range(_coin_drops.size() - 1, -1, -1):
+		var coin := _as_valid_node_2d(_coin_drops[index])
+		if coin == null or coin.get_instance_id() == instance_id:
+			_coin_drops.remove_at(index)
+
 
 func _on_believer_scared_away(
 	_actor: Node2D,

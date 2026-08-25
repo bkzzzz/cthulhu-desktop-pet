@@ -10,6 +10,7 @@ const ProgressionController = preload("res://scripts/runtime/progression_control
 const OfferingController = preload("res://scripts/runtime/offering_controller.gd")
 const CampaignController = preload("res://scripts/runtime/campaign_controller.gd")
 const SofaController = preload("res://scripts/runtime/sofa_controller.gd")
+const RuntimeCadence = preload("res://scripts/runtime/runtime_cadence.gd")
 const DISPLAY_LAYOUT_POLL_SECONDS := 1.0
 
 var _desktop_controller
@@ -23,6 +24,7 @@ var _offering_controller
 var _campaign_controller
 var _sofa_controller
 var _display_layout_poll_elapsed := 0.0
+var _background_cadence := RuntimeCadence.new(BACKGROUND_LOGIC_INTERVAL)
 
 func _init() -> void:
 	_host = self
@@ -77,13 +79,14 @@ func _ready() -> void:
 	_create_pilgrimage_broadcast()
 	_create_offering_input_window()
 	_create_side_drawer()
-	_create_inventory_window()
-	_create_evolution_window()
-	_create_shop_window()
-	_create_achievement_window()
-	_create_news_window()
-	_create_settings_window()
-	_create_completion_window()
+	# Roster gates depend only on permanent pet progression. Reconcile once after
+	# loading (and after the existing actors are present) instead of scanning the
+	# complete roster on every background simulation tick.
+	_unlock_growth_eligible_pets()
+	# Secondary windows are substantial control trees and are hidden for most of
+	# a desktop session. Create them on first use instead of paying their node,
+	# texture, and layout cost during every startup.
+	_show_next_evolution_notification()
 	if _news_feed.get_history().is_empty():
 		_publish_news({
 			"category": "公告",
@@ -126,9 +129,10 @@ func _process(delta: float) -> void:
 		_place_pet_window()
 
 	_pointer_hover_time += safe_delta
-	if _has_captured_pet_pointer() or _pointer_hover_time >= POINTER_HOVER_INTERVAL:
+	var has_pointer_capture := _has_captured_pet_pointer()
+	if has_pointer_capture or _pointer_hover_time >= POINTER_HOVER_INTERVAL:
 		_pointer_hover_time = 0.0
-		_update_pet_hover()
+		_update_pet_hover(has_pointer_capture)
 	if not _carried_offering.is_empty():
 		if (
 			_offering_input_window == null
@@ -139,11 +143,20 @@ func _process(delta: float) -> void:
 		if not _offering_cursor_active:
 			_update_offering_cursor_state()
 
-	_background_logic_time += safe_delta
-	if _background_logic_time < BACKGROUND_LOGIC_INTERVAL:
+	var background_group := _background_cadence.advance(safe_delta)
+	if background_group < 0:
 		return
-	var logic_delta := _background_logic_time
-	_background_logic_time = 0.0
+	var logic_delta := _background_cadence.get_last_delta()
+	match background_group:
+		RuntimeCadence.GROUP_PROGRESSION:
+			_update_progression_runtime(logic_delta)
+		RuntimeCadence.GROUP_WORLD:
+			_update_world_runtime(logic_delta)
+		RuntimeCadence.GROUP_MAINTENANCE:
+			_update_maintenance_runtime(logic_delta)
+
+
+func _update_progression_runtime(logic_delta: float) -> void:
 	_update_sofa_interaction(logic_delta)
 	_update_pet_offering_buffs()
 	_update_recovery_states(logic_delta)
@@ -153,13 +166,19 @@ func _process(delta: float) -> void:
 	_update_followers(logic_delta)
 	_update_news(logic_delta)
 	_background_faith_growth_cache_active = false
+
+
+func _update_world_runtime(logic_delta: float) -> void:
 	_update_pet_emotions()
 	_update_event_invitations()
 	_update_pilgrimage()
 	_update_battle(logic_delta)
 	_update_believers()
 	_update_pending_offerings()
-	_update_coin_drops()
+
+
+func _update_maintenance_runtime(logic_delta: float) -> void:
+	_update_coin_drops(logic_delta)
 	_update_ambient_coin_drops()
 	_update_playtime_display(logic_delta)
 	_update_autosave(logic_delta)
@@ -496,8 +515,8 @@ func _update_ambient_coin_drops() -> void:
 func _spawn_pet_coin_pile(actor: Node2D, interval_seconds: float) -> void:
 	_coin_controller._spawn_pet_coin_pile(actor, interval_seconds)
 
-func _update_coin_drops() -> void:
-	_coin_controller._update_coin_drops()
+func _update_coin_drops(delta := 0.0) -> void:
+	_coin_controller._update_coin_drops(delta)
 
 func _spawn_pet_coin(actor: Node2D) -> Node2D:
 	return _coin_controller._spawn_pet_coin(actor)
@@ -599,8 +618,8 @@ func _get_target_pet_window_size(usable_rect: Rect2i) -> Vector2i:
 func _update_actor_window_bounds() -> void:
 	_desktop_controller._update_actor_window_bounds()
 
-func _update_pet_hover() -> void:
-	_desktop_controller._update_pet_hover()
+func _update_pet_hover(pointer_captured := false) -> void:
+	_desktop_controller._update_pet_hover(pointer_captured)
 
 func _set_hovered_pet(next_pet: Node2D) -> void:
 	_desktop_controller._set_hovered_pet(next_pet)

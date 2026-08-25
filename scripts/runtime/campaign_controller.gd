@@ -51,6 +51,8 @@ func _check_campaign_completion() -> bool:
 		return true
 	if is_instance_valid(_evolution_window) and _evolution_window.visible:
 		return true
+	if _completion_window == null or not is_instance_valid(_completion_window):
+		_host._create_completion_window()
 	if is_instance_valid(_completion_window) and not _completion_window.visible:
 		_completion_window.call("open_window", _total_runtime_seconds)
 	return true

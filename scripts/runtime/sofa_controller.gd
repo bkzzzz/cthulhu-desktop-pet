@@ -262,7 +262,7 @@ func _get_sofa_actor() -> Node2D:
 	if _host == null or not _host.has_method("_get_desktop_item"):
 		return null
 	var actor = _host.call("_get_desktop_item", SOFA_ITEM_ID)
-	return actor as Node2D if actor is Node2D and is_instance_valid(actor) else null
+	return actor as Node2D if is_instance_valid(actor) and actor is Node2D else null
 
 
 func _get_desktop_pet_by_id(pet_id: String) -> Node2D:

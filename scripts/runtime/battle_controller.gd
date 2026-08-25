@@ -18,10 +18,18 @@ const BATTLE_REWARD_VISUAL_DROP_LIMIT := 8
 const MAX_BATTLE_REWARD_VALUE := 9_000_000_000_000_000_000
 const FINAL_BOSS_GOLD_REWARD_MULTIPLIER := 5.0
 const FINAL_BOSS_FAITH_REWARD_MULTIPLIER := 3.0
+const BATTLE_PET_RETARGET_INTERVAL := 0.12
 
 var _battle_visual_reward_drops := 0
 var _battle_warm_generation := 0
 var _battle_enemy_damage_multiplier := 1.0
+var _battle_enemy_roster_revision := 0
+var _battle_enemy_roster_size := 0
+var _battle_enemy_targetable_count := 0
+var _battle_pet_enemy_target_revisions: Dictionary = {}
+var _battle_pet_enemy_retarget_at: Dictionary = {}
+var _battle_pet_pending_enemy_targets: Dictionary = {}
+var _battle_pet_target_full_scan_count := 0
 
 
 func _schedule_battle_asset_warmup(schedule: Array) -> void:
@@ -341,7 +349,7 @@ func _start_battle() -> void:
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
-	_battle_pet_enemy_targets.clear()
+	_reset_battle_pet_target_cache()
 	_battle_pet5_rolls.clear()
 	_battle_save_pending = false
 	_battle_defeated_enemies = 0
@@ -412,6 +420,7 @@ func _update_battle(delta: float) -> void:
 			break
 		_spawn_battle_wave(wave, _battle_next_wave_index)
 		_battle_next_wave_index += 1
+	_refresh_battle_enemy_targetability_revision()
 
 	var alive_pets = _get_alive_battle_pets()
 	if alive_pets.is_empty():
@@ -510,6 +519,7 @@ func _update_battle(delta: float) -> void:
 func _update_battle_pet_formation(delta: float) -> void:
 	if not _battle_active:
 		return
+	_refresh_battle_enemy_targetability_revision()
 	for pet in _pets:
 		if not is_instance_valid(pet):
 			continue
@@ -572,6 +582,7 @@ func _update_battle_pet_formation(delta: float) -> void:
 
 func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 	var enemy_types: Array = wave.get("types", [])
+	var spawned_enemy := false
 	for enemy_index in enemy_types.size():
 		var enemy_id = String(enemy_types[enemy_index])
 		var spawn_from_right := (enemy_index + wave_index) % 2 == 1
@@ -626,6 +637,9 @@ func _spawn_battle_wave(wave: Dictionary, wave_index: int) -> void:
 		enemy.connect("swallowed", Callable(self, "_on_enemy_swallowed"))
 		add_child(enemy)
 		_battle_enemies.append(enemy)
+		spawned_enemy = true
+	if spawned_enemy:
+		_mark_battle_enemy_roster_changed()
 
 func _on_enemy_projectile_requested(
 	enemy: Node2D,
@@ -764,9 +778,14 @@ func _on_battle_effect_tree_exited(effect: Node2D) -> void:
 	_battle_effects.erase(effect)
 
 func _cleanup_battle_enemies() -> void:
+	var roster_changed := false
 	for index in range(_battle_enemies.size() - 1, -1, -1):
 		if not is_instance_valid(_battle_enemies[index]) or _battle_enemies[index].is_queued_for_deletion():
 			_battle_enemies.remove_at(index)
+			roster_changed = true
+	if roster_changed:
+		_mark_battle_enemy_roster_changed()
+		_invalidate_battle_pet_target_caches()
 
 func _get_alive_battle_pets() -> Array[Node2D]:
 	var alive: Array[Node2D] = []
@@ -831,19 +850,36 @@ func _get_battle_target_for_enemy(enemy: Node2D, candidates: Array[Node2D]) -> N
 	return _get_nearest_battle_pet(enemy, candidates)
 
 
-func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
+func _scan_nearest_battle_enemy(pet: Node2D, actor_key := "") -> Node2D:
+	_battle_pet_target_full_scan_count += 1
 	var nearest: Node2D
 	var nearest_distance = INF
+	var nearest_pending: Node2D
+	var nearest_pending_distance = INF
 	for enemy in _battle_enemies:
-		if not is_instance_valid(enemy):
+		if not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 			continue
-		if not _is_battle_enemy_targetable(enemy):
+		if enemy.has_method("is_defeated") and bool(enemy.call("is_defeated")):
 			continue
 		var distance = pet.position.distance_squared_to(enemy.position)
-		if distance < nearest_distance:
+		if _is_battle_enemy_targetable(enemy) and distance < nearest_distance:
 			nearest_distance = distance
 			nearest = enemy
+		elif distance < nearest_pending_distance:
+			nearest_pending_distance = distance
+			nearest_pending = enemy
+	if not actor_key.is_empty():
+		if nearest_pending == null:
+			_battle_pet_pending_enemy_targets.erase(actor_key)
+		else:
+			_battle_pet_pending_enemy_targets[actor_key] = nearest_pending
 	return nearest
+
+
+func _get_nearest_battle_enemy(pet: Node2D) -> Node2D:
+	if pet == null or not is_instance_valid(pet):
+		return null
+	return _scan_nearest_battle_enemy(pet)
 
 
 func _is_battle_enemy_targetable(enemy: Node2D) -> bool:
@@ -863,13 +899,123 @@ func _is_battle_enemy_targetable(enemy: Node2D) -> bool:
 func _get_battle_target_for_pet(pet: Node2D) -> Node2D:
 	if pet == null or not is_instance_valid(pet):
 		return null
-	var actor_key = str(pet.get_instance_id())
-	var next_target = _get_nearest_battle_enemy(pet)
+	_sync_battle_enemy_roster_revision()
+	var actor_key := str(pet.get_instance_id())
+	var cached_revision := int(_battle_pet_enemy_target_revisions.get(actor_key, -1))
+	var revision_matches := cached_revision == _battle_enemy_roster_revision
+	var cached_target: Node2D
+	var cached_target_was_invalid := false
+	if _battle_pet_enemy_targets.has(actor_key):
+		var cached_value: Variant = _battle_pet_enemy_targets.get(actor_key, null)
+		if is_instance_valid(cached_value):
+			cached_target = cached_value as Node2D
+		cached_target_was_invalid = (
+			cached_target == null
+			or not _is_battle_enemy_targetable(cached_target)
+		)
+
+	var pending_target: Node2D
+	var pending_target_was_invalid := false
+	if _battle_pet_pending_enemy_targets.has(actor_key):
+		var pending_value: Variant = _battle_pet_pending_enemy_targets.get(actor_key, null)
+		if is_instance_valid(pending_value):
+			pending_target = pending_value as Node2D
+		pending_target_was_invalid = (
+			pending_target == null
+			or pending_target.is_queued_for_deletion()
+			or (
+				pending_target.has_method("is_defeated")
+				and bool(pending_target.call("is_defeated"))
+			)
+		)
+	var pending_target_became_targetable := (
+		pending_target != null
+		and not pending_target_was_invalid
+		and _is_battle_enemy_targetable(pending_target)
+	)
+	# Target throttling follows simulation time so paused/headless tests do not
+	# depend on wall-clock scheduling and battle speed changes stay deterministic.
+	var now: float = maxf(0.0, float(_simulation_now_seconds))
+	var retarget_due: bool = now >= float(
+		_battle_pet_enemy_retarget_at.get(actor_key, -INF)
+	)
+	if (
+		revision_matches
+		and not cached_target_was_invalid
+		and not pending_target_was_invalid
+		and not pending_target_became_targetable
+		and not retarget_due
+	):
+		return cached_target
+
+	var next_target := _scan_nearest_battle_enemy(pet, actor_key)
+	_battle_pet_enemy_target_revisions[actor_key] = _battle_enemy_roster_revision
+	_battle_pet_enemy_retarget_at[actor_key] = now + BATTLE_PET_RETARGET_INTERVAL
 	if next_target == null:
 		_battle_pet_enemy_targets.erase(actor_key)
 	else:
 		_battle_pet_enemy_targets[actor_key] = next_target
 	return next_target
+
+
+func _mark_battle_enemy_roster_changed() -> void:
+	_battle_enemy_roster_revision += 1
+	_battle_enemy_roster_size = _battle_enemies.size()
+	_battle_enemy_targetable_count = _count_targetable_battle_enemies()
+
+
+func _count_targetable_battle_enemies() -> int:
+	var targetable_count := 0
+	for enemy in _battle_enemies:
+		if is_instance_valid(enemy) and _is_battle_enemy_targetable(enemy):
+			targetable_count += 1
+	return targetable_count
+
+
+func _refresh_battle_enemy_targetability_revision() -> void:
+	# Entry protection can change without mutating the enemy array. Poll that
+	# transition once per controller update, then let every pet share the same
+	# revision instead of each pet rescanning every enemy independently.
+	var targetable_count := _count_targetable_battle_enemies()
+	if targetable_count == _battle_enemy_targetable_count:
+		return
+	_battle_enemy_targetable_count = targetable_count
+	_battle_enemy_roster_revision += 1
+
+
+func _sync_battle_enemy_roster_revision() -> void:
+	# Production mutations explicitly bump the revision. Keeping a size guard also
+	# preserves direct test/debug array injection without paying an O(enemy count)
+	# fingerprint cost on every target lookup.
+	if _battle_enemy_roster_size != _battle_enemies.size():
+		_mark_battle_enemy_roster_changed()
+
+
+func _clear_battle_pet_target_cache(actor_key: String) -> void:
+	_battle_pet_enemy_targets.erase(actor_key)
+	_battle_pet_enemy_target_revisions.erase(actor_key)
+	_battle_pet_enemy_retarget_at.erase(actor_key)
+	_battle_pet_pending_enemy_targets.erase(actor_key)
+
+
+func _invalidate_battle_pet_target_caches() -> void:
+	_battle_pet_enemy_targets.clear()
+	_battle_pet_enemy_target_revisions.clear()
+	_battle_pet_enemy_retarget_at.clear()
+	_battle_pet_pending_enemy_targets.clear()
+
+
+func _reset_battle_pet_target_cache() -> void:
+	_invalidate_battle_pet_target_caches()
+	_mark_battle_enemy_roster_changed()
+
+
+func _reset_battle_pet_target_full_scan_count() -> void:
+	_battle_pet_target_full_scan_count = 0
+
+
+func _get_battle_pet_target_full_scan_count() -> int:
+	return _battle_pet_target_full_scan_count
 
 func _on_pet5_battle_roll_swept(actor: Node2D, from_x: float, to_x: float) -> void:
 	if not _battle_active or actor == null or not is_instance_valid(actor):
@@ -944,7 +1090,10 @@ func _on_enemy_defeated(enemy: Node2D, reward_count: int) -> void:
 	if enemy == null or not is_instance_valid(enemy):
 		return
 	var defeat_position = enemy.position + Vector2(0.0, -62.0)
+	var roster_changed := _battle_enemies.has(enemy)
 	_battle_enemies.erase(enemy)
+	if roster_changed:
+		_mark_battle_enemy_roster_changed()
 	_clear_battle_target_locks_for_enemy(enemy)
 	_spawn_battle_reward(defeat_position, reward_count)
 	_spawn_smoke_effect(defeat_position)
@@ -954,17 +1103,35 @@ func _on_enemy_swallowed(enemy: Node2D, reward_count: int) -> void:
 	if enemy == null or not is_instance_valid(enemy):
 		return
 	var reward_position = enemy.position + Vector2(0.0, -18.0)
+	var roster_changed := _battle_enemies.has(enemy)
 	_battle_enemies.erase(enemy)
+	if roster_changed:
+		_mark_battle_enemy_roster_changed()
 	_clear_battle_target_locks_for_enemy(enemy)
 	_spawn_battle_reward(reward_position, reward_count)
 	enemy.queue_free()
 
 func _clear_battle_target_locks_for_enemy(enemy: Node2D) -> void:
+	var actor_keys: Dictionary = {}
 	for actor_key_value in _battle_pet_enemy_targets.keys():
+		actor_keys[String(actor_key_value)] = true
+	for actor_key_value in _battle_pet_pending_enemy_targets.keys():
+		actor_keys[String(actor_key_value)] = true
+	for actor_key_value in actor_keys.keys():
 		var actor_key = String(actor_key_value)
 		var target_value: Variant = _battle_pet_enemy_targets.get(actor_key, null)
-		if not is_instance_valid(target_value) or target_value == enemy:
-			_battle_pet_enemy_targets.erase(actor_key)
+		var pending_value: Variant = _battle_pet_pending_enemy_targets.get(actor_key, null)
+		if (
+			(_battle_pet_enemy_targets.has(actor_key) and (
+				not is_instance_valid(target_value)
+				or target_value == enemy
+			))
+			or (_battle_pet_pending_enemy_targets.has(actor_key) and (
+				not is_instance_valid(pending_value)
+				or pending_value == enemy
+			))
+		):
+			_clear_battle_pet_target_cache(actor_key)
 
 func _spawn_battle_reward(drop_position: Vector2, reward_count: int) -> void:
 	_battle_defeated_enemies += 1
@@ -996,8 +1163,12 @@ func _defeat_battle_pet(actor: Node2D) -> void:
 	_battle_pet_attack_at.erase(actor_key)
 	_battle_pet_target_x.erase(actor_key)
 	_battle_pet_formed.erase(actor_key)
-	_battle_pet_enemy_targets.erase(actor_key)
+	_clear_battle_pet_target_cache(actor_key)
 	_battle_pet5_rolls.erase(actor_key)
+	# Settle a paid offering before this actor leaves every runtime roster. The
+	# feed also keeps a pet_id fallback, but closing the lifecycle here prevents
+	# a stale target from surviving until the next world-maintenance tick.
+	_host._finish_pending_offering_for_actor(actor)
 	_spawn_smoke_effect(actor.position + Vector2(0.0, -58.0))
 	if actor.has_method("hide_for_battle_defeat"):
 		actor.call("hide_for_battle_defeat")
@@ -1076,7 +1247,7 @@ func _finish_battle(victory: bool, suppress_presentation := false) -> void:
 	_battle_pet_attack_at.clear()
 	_battle_pet_target_x.clear()
 	_battle_pet_formed.clear()
-	_battle_pet_enemy_targets.clear()
+	_reset_battle_pet_target_cache()
 	_battle_pet5_rolls.clear()
 	_battle_wave_schedule.clear()
 	_battle_enemy_damage_multiplier = 1.0

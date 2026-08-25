@@ -13,7 +13,7 @@ $process = Start-Process -FilePath $godotExe `
     -WindowStyle Hidden -Wait -PassThru
 $logText = Get-Content -LiteralPath $testLog -Raw
 Write-Output $logText
-if ($process.ExitCode -ne 0 -or $logText -match 'SCRIPT ERROR|FAIL:') {
+if ($process.ExitCode -ne 0 -or $logText -match '(?m)^(SCRIPT ERROR|ERROR:)|FAIL:') {
     exit 1
 }
 exit 0

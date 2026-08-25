@@ -9,6 +9,8 @@ const WALK_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerWa
 const RUN_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerRun1.png"
 const PRAY_TEXTURE := "res://assets/TestCharacters/believersAnimation/believerPray.png"
 const NOTICE_TEXTURE := "res://assets/TestCharacters/believers/感叹号.png"
+const PREBUILT_FRAME_CACHE_VERSION := 1
+const PREBUILT_FRAME_PATH := "res://assets/generated/believer_frames/v%d/believer.res" % PREBUILT_FRAME_CACHE_VERSION
 
 const SHEET_COLUMNS := 4
 const SHEET_ROWS := 3
@@ -69,6 +71,7 @@ var _sprite: AnimatedSprite2D
 var _notice: Sprite2D
 var _notice_tween: Tween
 static var _cached_frames: SpriteFrames
+static var _prebuilt_frames_enabled := true
 
 
 func setup(window_size: Vector2i, spawn_from_left: bool, ground_contact_y := -1.0) -> void:
@@ -438,6 +441,11 @@ func _get_rest_y() -> float:
 static func _build_frames() -> SpriteFrames:
 	if _cached_frames != null:
 		return _cached_frames
+	if _prebuilt_frames_enabled and ResourceLoader.exists(PREBUILT_FRAME_PATH):
+		var prebuilt := load(PREBUILT_FRAME_PATH) as SpriteFrames
+		if prebuilt != null:
+			_cached_frames = prebuilt
+			return _cached_frames
 
 	var frames := SpriteFrames.new()
 	if frames.has_animation("default"):

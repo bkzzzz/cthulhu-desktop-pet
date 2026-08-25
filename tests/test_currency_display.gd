@@ -63,6 +63,7 @@ static func _test_account_icon_is_cached(failures: Array[String]) -> void:
 static func _test_drawer_keeps_one_account_icon(failures: Array[String]) -> void:
 	var drawer := SideDrawer.new()
 	drawer.call("_create_drawer_window")
+	drawer.call("_build_pending_drawer_work", 64)
 	drawer.refresh_coins(1_250_000_000)
 	var label := drawer.get("_coin_value_label") as Label
 	var icon := drawer.get("_coin_icon") as TextureRect

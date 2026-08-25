@@ -84,6 +84,8 @@ Run automated tests:
 .\run_tests.cmd
 ```
 
+The automated suite treats engine errors and leaked Godot resources as failures. Performance-sensitive runtime assets are checked in under `assets/generated/`; contributor commands for regenerating and profiling them are documented in `scripts/README.md`.
+
 ---
 
 ## Project Structure

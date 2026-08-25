@@ -201,6 +201,7 @@ func _drop_carried_offering(window_position: Vector2) -> void:
 		"offering": offering,
 		"drop_position": drop_position,
 		"target": target,
+		"pet_id": _host._get_actor_pet_id(target),
 		"expires_at": _host._get_now_seconds() + OFFERING_FEED_TIMEOUT_SECONDS,
 		"landed": false,
 		"arrived": false
@@ -248,10 +249,12 @@ func _send_pet_to_offering(target: Node2D, target_key: String, target_x: float) 
 		return
 
 	_pending_offering_feeds.erase(target_key)
-	var sprite = feed_data.get("sprite") as Sprite2D
+	var sprite := _as_valid_sprite_2d(feed_data.get("sprite"))
 	var drop_position: Vector2 = feed_data.get("drop_position", Vector2(_pet_window_size.x * 0.5, _pet_window_size.y * 0.5))
-	var actor = feed_data.get("target") as Node2D
-	var pet_id = _host._get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
+	var actor := _as_valid_node_2d(feed_data.get("target"))
+	var pet_id := String(feed_data.get("pet_id", ""))
+	if pet_id.is_empty() and actor != null:
+		pet_id = _host._get_actor_pet_id(actor)
 	var offering: Dictionary = feed_data.get("offering", {})
 	_finish_offering_consumed(sprite, offering, drop_position, pet_id)
 
@@ -264,15 +267,17 @@ func _update_pending_offerings() -> void:
 		var feed_data: Dictionary = _pending_offering_feeds.get(target_key, {})
 		if feed_data.is_empty():
 			continue
-		var actor = feed_data.get("target") as Node2D
+		var actor := _as_valid_node_2d(feed_data.get("target"))
 		var expired = now >= float(feed_data.get("expires_at", now + OFFERING_FEED_TIMEOUT_SECONDS))
-		if actor != null and is_instance_valid(actor) and not expired:
+		if actor != null and not expired:
 			continue
 
 		_pending_offering_feeds.erase(target_key)
-		var sprite = feed_data.get("sprite") as Sprite2D
+		var sprite := _as_valid_sprite_2d(feed_data.get("sprite"))
 		var drop_position: Vector2 = feed_data.get("drop_position", Vector2(_pet_window_size) * 0.5)
-		var pet_id = _host._get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
+		var pet_id := String(feed_data.get("pet_id", ""))
+		if pet_id.is_empty() and actor != null:
+			pet_id = _host._get_actor_pet_id(actor)
 		var offering: Dictionary = feed_data.get("offering", {})
 		_finish_offering_consumed(sprite, offering, drop_position, pet_id)
 
@@ -308,17 +313,21 @@ func _consume_pending_offering(target_key: String) -> void:
 		return
 
 	_pending_offering_feeds.erase(target_key)
-	var sprite = feed_data.get("sprite") as Sprite2D
+	var sprite := _as_valid_sprite_2d(feed_data.get("sprite"))
 	var drop_position: Vector2 = feed_data.get("drop_position", Vector2(_pet_window_size.x * 0.5, _pet_window_size.y * 0.5))
-	var actor = feed_data.get("target") as Node2D
+	var actor := _as_valid_node_2d(feed_data.get("target"))
 	var offering: Dictionary = feed_data.get("offering", {})
-	if sprite == null or not is_instance_valid(sprite):
-		var fallback_pet_id = _host._get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
+	if sprite == null:
+		var fallback_pet_id := String(feed_data.get("pet_id", ""))
+		if fallback_pet_id.is_empty() and actor != null:
+			fallback_pet_id = _host._get_actor_pet_id(actor)
 		_finish_offering_consumed(null, offering, drop_position, fallback_pet_id)
 		return
 
-	var actor_position = actor.position if actor != null and is_instance_valid(actor) else drop_position
-	var pet_id = _host._get_actor_pet_id(actor) if actor != null and is_instance_valid(actor) else ""
+	var actor_position = actor.position if actor != null else drop_position
+	var pet_id := String(feed_data.get("pet_id", ""))
+	if pet_id.is_empty() and actor != null:
+		pet_id = _host._get_actor_pet_id(actor)
 	var eat_position = _host._get_safe_sprite_position(actor_position + Vector2(0.0, -30.0), sprite.texture, OFFERING_DROP_SCALE, SAFE_CANVAS_MARGIN)
 	var tween = create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
@@ -474,6 +483,8 @@ func _get_status_popup_lane_key(anchor: Vector2) -> String:
 func _register_status_popup(lane_key: String, label: Label) -> int:
 	var active_labels: Array[Label] = []
 	for label_value in _status_popup_lanes.get(lane_key, []):
+		if not is_instance_valid(label_value) or not label_value is Label:
+			continue
 		var existing_label := label_value as Label
 		if existing_label != null and is_instance_valid(existing_label) and not existing_label.is_queued_for_deletion():
 			active_labels.append(existing_label)
@@ -488,6 +499,8 @@ func _release_status_popup_lane(lane_key: String, label: Label) -> void:
 		return
 	var remaining_labels: Array[Label] = []
 	for label_value in _status_popup_lanes.get(lane_key, []):
+		if not is_instance_valid(label_value) or not label_value is Label:
+			continue
 		var existing_label := label_value as Label
 		if (
 			existing_label != null

@@ -9,6 +9,7 @@ static func run() -> Array[String]:
 	var drawer := SideDrawer.new()
 	drawer.set("_upgrade_entries", [_make_entry("pet1", "Unlocked One")])
 	drawer.call("_create_drawer_window")
+	drawer.call("_build_pending_drawer_work", 64)
 	_assert_single_quit_footer(failures, drawer)
 
 	_assert_locked_row(failures, drawer, "pet2")

@@ -30,6 +30,7 @@ var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _difficulty_text := ""
 var _difficulty_text_en := ""
 var _difficulty_text_zh := ""
+var _input_geometry_revision := 0
 
 
 func setup(
@@ -268,9 +269,11 @@ func _update_input_window() -> void:
 		prompt_size.y = mini(prompt_size.y, maxi(150, _window_size.y - 16))
 		var local_x := clampi(int(round(position.x - prompt_size.x * 0.5)), 8, maxi(8, _window_size.x - prompt_size.x - 8))
 		var local_y := clampi(int(round(position.y - prompt_size.y - 58.0)), 8, maxi(8, _window_size.y - prompt_size.y - 8))
-		_input_window.position = _visual_window.position + Vector2i(local_x, local_y)
-		_input_window.size = prompt_size
-		_input_window.mouse_passthrough_polygon = PackedVector2Array()
+		_apply_input_window_geometry(
+			_visual_window.position + Vector2i(local_x, local_y),
+			prompt_size,
+			PackedVector2Array()
+		)
 		return
 	var visual_size: Vector2 = ICON_SIZE.get(event_type, Vector2(92.0, 92.0))
 	var proxy_size := Vector2i(int(ceil(visual_size.x + 16.0)), int(ceil(visual_size.y + 16.0)))
@@ -278,14 +281,37 @@ func _update_input_window() -> void:
 		int(round(position.x - proxy_size.x * 0.5)),
 		int(round(position.y - proxy_size.y * 0.5))
 	)
-	_input_window.position = _visual_window.position + local_position
-	_input_window.size = proxy_size
-	_input_window.mouse_passthrough_polygon = PackedVector2Array([
+	_apply_input_window_geometry(
+		_visual_window.position + local_position,
+		proxy_size,
+		PackedVector2Array([
 		Vector2.ZERO,
 		Vector2(proxy_size.x, 0.0),
 		Vector2(proxy_size),
 		Vector2(0.0, proxy_size.y)
-	])
+		])
+	)
+
+
+func _apply_input_window_geometry(
+	target_position: Vector2i,
+	target_size: Vector2i,
+	target_passthrough: PackedVector2Array
+) -> void:
+	if _input_window == null:
+		return
+	var changed := false
+	if _input_window.position != target_position:
+		_input_window.position = target_position
+		changed = true
+	if _input_window.size != target_size:
+		_input_window.size = target_size
+		changed = true
+	if _input_window.mouse_passthrough_polygon != target_passthrough:
+		_input_window.mouse_passthrough_polygon = target_passthrough
+		changed = true
+	if changed:
+		_input_geometry_revision += 1
 
 
 func _get_floor_y() -> float:

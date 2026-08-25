@@ -1,5 +1,6 @@
 extends RefCounted
 
+const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const SideDrawer = preload("res://scripts/side_drawer_controller.gd")
 
 
@@ -94,6 +95,8 @@ static func run() -> Array[String]:
 		failures.append("the independent close bookmark must close the drawer")
 
 	formatter.call("_create_drawer_window")
+	formatter.call("_build_pending_drawer_work", 64)
+	formatter.call("_create_upgrade_detail_panel")
 	var drawer_root := formatter.get("_drawer_root") as Control
 	var drawer_panel := formatter.get("_drawer_panel") as PanelContainer
 	var era_label := formatter.get("_era_label") as Label

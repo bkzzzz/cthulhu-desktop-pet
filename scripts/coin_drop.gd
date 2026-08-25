@@ -164,12 +164,16 @@ func collect_celebration_to_pointer() -> void:
 	_settled = false
 	_velocity = Vector2.ZERO
 	_max_lifetime_seconds = INF
+	_resume_motion_processing()
 
 
 func _process(delta: float) -> void:
 	if _expiring:
 		return
 	var safe_delta := maxf(0.0, delta)
+	if _settled:
+		advance_resting(safe_delta)
+		return
 	_age += safe_delta
 	if not _celebration_collecting and _age >= _celebration_collect_at:
 		collect_celebration_to_pointer()
@@ -183,22 +187,35 @@ func _process(delta: float) -> void:
 		expire()
 		return
 
-	if _settled and _pickup_enabled:
-		_settled_age += safe_delta
-
 	if _magnetized:
 		_update_magnet(_get_pointer_position(), safe_delta)
 		return
-	if _settled:
-		_magnet_check_time -= safe_delta
-		if _magnet_check_time <= 0.0:
-			_magnet_check_time = MAGNET_CHECK_INTERVAL_SECONDS
-			if _can_start_magnet(_get_pointer_position()):
-				_magnetized = true
-				_settled = false
-				return
-
 	_update_fall(safe_delta)
+
+
+func advance_resting(delta: float) -> void:
+	if _expiring or not _settled:
+		return
+	var safe_delta := maxf(0.0, delta)
+	_age += safe_delta
+	if not _celebration_collecting and _age >= _celebration_collect_at:
+		collect_celebration_to_pointer()
+		if _celebration_collecting:
+			return
+	if _age >= _max_lifetime_seconds:
+		expire()
+		return
+	if not _pickup_enabled:
+		return
+	_settled_age += safe_delta
+	_magnet_check_time -= safe_delta
+	if _magnet_check_time > 0.0:
+		return
+	_magnet_check_time = MAGNET_CHECK_INTERVAL_SECONDS
+	if _can_start_magnet(_get_pointer_position()):
+		_magnetized = true
+		_settled = false
+		_resume_motion_processing()
 
 
 func _update_celebration_collection(pointer: Vector2, delta: float) -> void:
@@ -294,6 +311,9 @@ func _update_fall(delta: float) -> void:
 	_velocity = Vector2.ZERO
 	_settled = true
 	_settled_age = 0.0
+	if _sprite != null:
+		_sprite.pause()
+	set_process(false)
 
 
 func _can_start_magnet(pointer: Vector2) -> bool:
@@ -364,6 +384,7 @@ func begin_collector_collection(target_position: Vector2) -> bool:
 	_magnetized = false
 	_settled = false
 	_velocity = Vector2.ZERO
+	_resume_motion_processing()
 	return true
 
 
@@ -378,6 +399,7 @@ func cancel_collector_collection() -> void:
 	_velocity = Vector2.ZERO
 	if _sprite != null:
 		_sprite.scale = Vector2.ONE * COIN_SCALE
+	_resume_motion_processing()
 
 
 func retarget_collector_collection(target_position: Vector2) -> bool:
@@ -432,6 +454,12 @@ func _clamp_collector_target(candidate: Vector2) -> Vector2:
 
 func _get_rest_y() -> float:
 	return _ground_y - (8.0 * COIN_SCALE) - 2.0
+
+
+func _resume_motion_processing() -> void:
+	if _sprite != null and not _sprite.is_playing():
+		_sprite.play("spin")
+	set_process(true)
 
 
 func _get_pointer_position() -> Vector2:

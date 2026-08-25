@@ -980,6 +980,13 @@ static func _test_recovery_pauses_production(failures: Array[String]) -> void:
 	)
 	if not is_equal_approx(float(main.call("_get_baseline_faith_growth_rate")), permanent_roster_rate):
 		failures.append("temporary recovery must not close a permanent pet growth gate")
+	main.set("_pilgrimage_active", true)
+	main.set("_pilgrimage_total_member_count", 4)
+	main.set("_pilgrimage_resolved_count", 4)
+	if float(main.call("_get_faith_growth_rate")) <= pet2_only_rate:
+		failures.append("an active pilgrimage must still boost live faith production")
+	if not is_equal_approx(float(main.call("_get_baseline_faith_growth_rate")), permanent_roster_rate):
+		failures.append("a temporary pilgrimage must not open a permanent pet growth gate")
 	var entries: Array[Dictionary] = main.call("_get_inventory_pet_entries")
 	var recovery_entry: Dictionary = {}
 	for entry in entries:

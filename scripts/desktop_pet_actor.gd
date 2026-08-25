@@ -256,6 +256,8 @@ var _stable_hit_image: Image
 var _stable_hit_bounds := Rect2i()
 var _stable_hit_polygon := PackedVector2Array()
 var _input_window_update_time := 0.0
+var _input_proxy_foreground_active := false
+var _input_proxy_foreground_revision := 0
 var _language := "en"
 
 
@@ -2565,5 +2567,14 @@ func _handle_recall_button(pressed: bool, pointer_over_pet: bool) -> bool:
 
 
 func raise_input_proxy() -> void:
-	if _input_window != null and _input_window.visible:
-		_input_window.move_to_foreground()
+	if _input_proxy_foreground_active:
+		return
+	if _input_window == null or not _input_window.visible:
+		return
+	_input_window.move_to_foreground()
+	_input_proxy_foreground_active = true
+	_input_proxy_foreground_revision += 1
+
+
+func release_input_proxy_foreground_priority() -> void:
+	_input_proxy_foreground_active = false

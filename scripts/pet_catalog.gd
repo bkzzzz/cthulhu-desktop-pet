@@ -857,6 +857,12 @@ const EVOLUTION_ANIMATION_KEYS := [
 
 static var _frame_cache := {}
 static var _icon_texture_cache := {}
+const PREBUILT_FRAME_CACHE_VERSION := 1
+const PREBUILT_FRAME_ROOT := "res://assets/generated/pet_frames/v%d" % PREBUILT_FRAME_CACHE_VERSION
+const PREBUILT_ICON_CACHE_VERSION := 1
+const PREBUILT_ICON_ROOT := "res://assets/generated/pet_icons/v%d" % PREBUILT_ICON_CACHE_VERSION
+static var _prebuilt_frames_enabled := true
+static var _prebuilt_icons_enabled := true
 static var _runtime_definition_cache := {}
 
 
@@ -964,6 +970,13 @@ static func build_frames(pet_id: String, evolved := false) -> SpriteFrames:
 	var cached_frames := _frame_cache.get(cache_key) as SpriteFrames
 	if cached_frames != null:
 		return cached_frames
+	if _prebuilt_frames_enabled:
+		var prebuilt_path := get_prebuilt_frame_path(pet_id, evolved)
+		if ResourceLoader.exists(prebuilt_path):
+			var prebuilt_frames := load(prebuilt_path) as SpriteFrames
+			if prebuilt_frames != null:
+				_frame_cache[cache_key] = prebuilt_frames
+				return prebuilt_frames
 
 	var frames := SpriteFrames.new()
 	if frames.has_animation("default"):
@@ -1057,12 +1070,28 @@ static func build_frames(pet_id: String, evolved := false) -> SpriteFrames:
 	return frames
 
 
+static func get_prebuilt_frame_path(pet_id: String, evolved := false) -> String:
+	var form_name := "evolved" if evolved else "base"
+	return "%s/%s_%s.res" % [PREBUILT_FRAME_ROOT, pet_id, form_name]
+
+
+static func get_prebuilt_icon_path(texture_path: String) -> String:
+	return "%s/%s.res" % [PREBUILT_ICON_ROOT, texture_path.sha256_text()]
+
+
 static func make_icon_texture(texture_path: String, padding := 8) -> Texture2D:
 	# Padding only adds transparent breathing room. Reusing one crop per source avoids
 	# a second full pixel scan when drawer/inventory views request different padding.
 	var cache_key := texture_path
 	if _icon_texture_cache.has(cache_key):
 		return _icon_texture_cache[cache_key] as Texture2D
+	if _prebuilt_icons_enabled and not texture_path.is_empty():
+		var prebuilt_path := get_prebuilt_icon_path(texture_path)
+		if ResourceLoader.exists(prebuilt_path):
+			var prebuilt_icon := load(prebuilt_path) as Texture2D
+			if prebuilt_icon != null:
+				_icon_texture_cache[cache_key] = prebuilt_icon
+				return prebuilt_icon
 	var texture := load(texture_path) as Texture2D
 	if texture == null:
 		return null

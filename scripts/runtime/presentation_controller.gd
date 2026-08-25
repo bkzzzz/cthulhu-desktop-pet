@@ -337,6 +337,8 @@ func _create_side_drawer() -> void:
 		_host._update_offering_input_window()
 
 func _create_inventory_window() -> void:
+	if _inventory_window != null and is_instance_valid(_inventory_window):
+		return
 	_inventory_window = InventoryWindowScript.new()
 	_inventory_window.visible = false
 	add_child(_inventory_window)
@@ -344,6 +346,7 @@ func _create_inventory_window() -> void:
 	_inventory_window.connect("pet_rename_requested", Callable(_host, "_on_inventory_pet_rename_requested"))
 	_inventory_window.connect("pet_evolution_requested", Callable(_host, "_on_inventory_pet_evolution_requested"))
 	_inventory_window.setup(_host._get_inventory_pet_entries())
+	_inventory_window.set_language(_language)
 	call_deferred("_warm_inventory_pet_assets")
 
 
@@ -359,12 +362,13 @@ func _warm_inventory_pet_assets() -> void:
 			await get_tree().process_frame
 
 func _create_evolution_window() -> void:
+	if _evolution_window != null and is_instance_valid(_evolution_window):
+		return
 	_evolution_window = EvolutionWindowScript.new()
 	_evolution_window.visible = false
 	add_child(_evolution_window)
 	_evolution_window.dismissed.connect(_host._on_evolution_notification_dismissed)
 	_evolution_window.setup(_language)
-	_host._show_next_evolution_notification()
 
 func _sync_inventory_window() -> void:
 	if _inventory_window != null and _inventory_window.has_method("set_pets"):
@@ -375,28 +379,39 @@ func _sync_inventory_window() -> void:
 		)
 
 func _create_shop_window() -> void:
+	if _shop_window != null and is_instance_valid(_shop_window):
+		return
 	_shop_window = ShopWindowScript.new()
 	_shop_window.visible = false
 	add_child(_shop_window)
 	_shop_window.connect("purchase_requested", Callable(_host, "_on_shop_purchase_requested"))
 	_shop_window.call("setup")
+	_shop_window.call("set_language", _language)
 	_sync_shop_state()
 
 func _create_achievement_window() -> void:
+	if _achievement_window != null and is_instance_valid(_achievement_window):
+		return
 	_achievement_window = AchievementWindowScript.new()
 	_achievement_window.visible = false
 	add_child(_achievement_window)
 	_achievement_window.claim_requested.connect(_host._on_achievement_claim_requested)
 	_achievement_window.setup()
+	_achievement_window.set_language(_language)
 	_sync_achievement_state()
 
 func _create_news_window() -> void:
+	if _news_window != null and is_instance_valid(_news_window):
+		return
 	_news_window = NewsWindowScript.new()
 	_news_window.visible = false
 	add_child(_news_window)
 	_news_window.setup(_news_feed.get_history())
+	_news_window.set_language(_language)
 
 func _create_settings_window() -> void:
+	if _settings_window != null and is_instance_valid(_settings_window):
+		return
 	_settings_window = SettingsWindowScript.new()
 	_settings_window.visible = false
 	add_child(_settings_window)
@@ -420,6 +435,8 @@ func _create_settings_window() -> void:
 
 
 func _create_completion_window() -> void:
+	if _completion_window != null and is_instance_valid(_completion_window):
+		return
 	_completion_window = CompletionWindowScript.new()
 	_completion_window.visible = false
 	add_child(_completion_window)
@@ -663,35 +680,37 @@ func _finish_news_broadcast() -> void:
 	call_deferred("_show_next_news_broadcast")
 
 func _on_inventory_requested() -> void:
+	if _inventory_window == null or not is_instance_valid(_inventory_window):
+		_create_inventory_window()
 	if _inventory_window != null and _inventory_window.has_method("open_window"):
 		_sync_inventory_window()
 		_inventory_window.open_window()
 
 func _on_shop_requested() -> void:
-	if _shop_window == null:
-		return
+	if _shop_window == null or not is_instance_valid(_shop_window):
+		_create_shop_window()
 
 	_sync_shop_state()
 	if _shop_window.has_method("open_window"):
 		_shop_window.call("open_window")
 
 func _on_achievements_requested() -> void:
-	if _achievement_window == null:
-		return
+	if _achievement_window == null or not is_instance_valid(_achievement_window):
+		_create_achievement_window()
 	_sync_achievement_state()
 	_achievement_window.open_window()
 
 func _on_news_requested() -> void:
-	if _news_window == null:
-		return
+	if _news_window == null or not is_instance_valid(_news_window):
+		_create_news_window()
 	if _news_window.has_method("set_entries"):
 		_news_window.call("set_entries", _news_feed.get_history())
 	if _news_window.has_method("open_window"):
 		_news_window.call("open_window")
 
 func _on_settings_requested() -> void:
-	if _settings_window == null:
-		return
+	if _settings_window == null or not is_instance_valid(_settings_window):
+		_create_settings_window()
 	if _settings_window.has_method("refresh_debug_values"):
 		_settings_window.call(
 			"refresh_debug_values",

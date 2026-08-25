@@ -2,6 +2,10 @@ extends Node2D
 
 const CombatHealthBar = preload("res://scripts/combat_health_bar.gd")
 
+const PREBUILT_CACHE_VERSION := 1
+const PREBUILT_FRAME_ROOT := "res://assets/generated/enemy_frames/v%d" % PREBUILT_CACHE_VERSION
+const PREBUILT_METRICS_PATH := "res://assets/generated/enemy_metrics/v%d/metrics.cfg" % PREBUILT_CACHE_VERSION
+
 signal attack_landed(actor: Node2D, target: Node2D, damage: float)
 signal projectile_requested(actor: Node2D, target: Node2D, damage: float, projectile_kind: String, power_scale: float)
 signal defeated(actor: Node2D, reward_count: int)
@@ -163,6 +167,8 @@ static var _visible_bounds_cache := {}
 static var _move_sheet_key_color_cache := {}
 static var _warmed_enemy_ids := {}
 static var _chroma_shader: Shader
+static var _prebuilt_cache_enabled := true
+static var _prebuilt_metrics_loaded := false
 
 
 static func warm_up(enemy_ids: Array) -> void:
@@ -174,6 +180,7 @@ static func warm_up(enemy_ids: Array) -> void:
 
 
 static func warm_up_stage(warm_enemy_id: String, stage: String) -> void:
+	_ensure_prebuilt_metrics_loaded()
 	if _warmed_enemy_ids.has(warm_enemy_id) or not DEFINITIONS.has(warm_enemy_id):
 		return
 	var probe = _create_warmup_probe(warm_enemy_id)
@@ -478,6 +485,7 @@ func _get_entry_destination_x() -> float:
 
 
 func _get_run_visual_half_width() -> float:
+	_ensure_prebuilt_metrics_loaded()
 	if _run_half_width_cache.has(enemy_id):
 		return float(_run_half_width_cache[enemy_id])
 	if _sprite == null or _sprite.sprite_frames == null:
@@ -507,6 +515,7 @@ func _get_run_visual_half_width() -> float:
 
 
 func _get_battle_visual_half_width() -> float:
+	_ensure_prebuilt_metrics_loaded()
 	if _battle_half_width_cache.has(enemy_id):
 		return float(_battle_half_width_cache[enemy_id])
 	if _sprite == null or _sprite.sprite_frames == null:
@@ -647,6 +656,13 @@ static func _get_move_sheet_key_color(texture_path: String) -> Variant:
 static func _get_or_build_frames(cache_key: String, data: Dictionary) -> SpriteFrames:
 	if _frames_cache.has(cache_key):
 		return _frames_cache[cache_key]
+	if _prebuilt_cache_enabled:
+		var prebuilt_path := get_prebuilt_frame_path(cache_key)
+		if ResourceLoader.exists(prebuilt_path):
+			var prebuilt := load(prebuilt_path) as SpriteFrames
+			if prebuilt != null:
+				_frames_cache[cache_key] = prebuilt
+				return prebuilt
 	var frames := SpriteFrames.new()
 	frames.remove_animation("default")
 	_add_atlas_animation(
@@ -661,6 +677,41 @@ static func _get_or_build_frames(cache_key: String, data: Dictionary) -> SpriteF
 	)
 	_frames_cache[cache_key] = frames
 	return frames
+
+
+static func get_prebuilt_frame_path(enemy_type_id: String) -> String:
+	return "%s/%s.res" % [PREBUILT_FRAME_ROOT, enemy_type_id]
+
+
+static func _ensure_prebuilt_metrics_loaded() -> void:
+	if _prebuilt_metrics_loaded:
+		return
+	_prebuilt_metrics_loaded = true
+	if not _prebuilt_cache_enabled or not FileAccess.file_exists(PREBUILT_METRICS_PATH):
+		return
+	var metrics := ConfigFile.new()
+	if metrics.load(PREBUILT_METRICS_PATH) != OK:
+		return
+	if int(metrics.get_value("meta", "version", 0)) != PREBUILT_CACHE_VERSION:
+		return
+	for enemy_id_value in DEFINITIONS.keys():
+		var enemy_type_id := String(enemy_id_value)
+		var raw_value: Variant = metrics.get_value("enemies", enemy_type_id, {})
+		if not raw_value is Dictionary:
+			continue
+		var enemy_metrics: Dictionary = raw_value
+		var run_alignment: Variant = enemy_metrics.get("run_alignment", null)
+		var attack_alignment: Variant = enemy_metrics.get("attack_alignment", null)
+		if run_alignment is Vector2:
+			_alignment_cache["%s:run" % enemy_type_id] = run_alignment
+		if attack_alignment is Vector2:
+			_alignment_cache["%s:attack" % enemy_type_id] = attack_alignment
+		var run_half_width := float(enemy_metrics.get("run_half_width", 0.0))
+		var battle_half_width := float(enemy_metrics.get("battle_half_width", 0.0))
+		if run_half_width > 0.0:
+			_run_half_width_cache[enemy_type_id] = run_half_width
+		if battle_half_width > 0.0:
+			_battle_half_width_cache[enemy_type_id] = battle_half_width
 
 
 static func _add_atlas_animation(
@@ -756,6 +807,7 @@ func _update_sprite_pose(delta: float) -> void:
 
 
 func _get_animation_alignment(animation_name: String, animation_scale := 1.0) -> Vector2:
+	_ensure_prebuilt_metrics_loaded()
 	var cache_key := "%s:%s" % [enemy_id, animation_name]
 	if not _alignment_cache.has(cache_key):
 		var alignment := Vector2(0.0, 60.0)

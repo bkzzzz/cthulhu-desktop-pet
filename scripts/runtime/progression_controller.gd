@@ -253,7 +253,10 @@ func _get_baseline_faith_growth_rate() -> float:
 			pet_id,
 			PetProgression.progression_level(state)
 		)
-	return total_fps * _get_total_faith_multiplier()
+	# Unlocks, achievements, and battle budgets use permanent production only.
+	# Pilgrimages, offerings, sofas, and recovery are session effects and must not
+	# open (or close) a permanent progression gate.
+	return total_fps * GLOBAL_FAITH_MULTIPLIER * BUFF_FAITH_MULTIPLIER
 
 func _get_follower_growth_rate() -> float:
 	return FollowerProgression.followers_per_second(_get_faith_growth_rate())
@@ -353,7 +356,6 @@ func _grant_faith(amount: float) -> void:
 
 func _update_faith(delta: float) -> void:
 	_grant_faith(_get_faith_growth_rate() * delta)
-	_unlock_growth_eligible_pets()
 	_host._refresh_faith_display()
 	_stats_refresh_timer += delta
 	if _stats_refresh_timer >= UI_REFRESH_INTERVAL:
@@ -370,8 +372,6 @@ func _update_followers(delta: float) -> void:
 	if follower_count != _last_reported_follower_count:
 		_last_reported_follower_count = follower_count
 		_host._refresh_follower_display()
-		if _achievement_window != null and _achievement_window.visible:
-			_host._sync_achievement_state()
 
 
 func _get_achievement_metrics() -> Dictionary:
@@ -652,7 +652,12 @@ func _apply_automatic_evolution_thresholds() -> bool:
 	return changed
 
 func _show_next_evolution_notification() -> void:
-	if _evolution_window == null or _evolution_window.visible:
+	if _pending_evolution_notifications.is_empty():
+		_host._check_campaign_completion()
+		return
+	if _evolution_window == null or not is_instance_valid(_evolution_window):
+		_host._create_evolution_window()
+	if _evolution_window == null or not is_instance_valid(_evolution_window) or _evolution_window.visible:
 		return
 	while not _pending_evolution_notifications.is_empty():
 		var pet_id = String(_pending_evolution_notifications.pop_front())
@@ -676,8 +681,10 @@ func _replace_deployed_pet_form(pet_id: String) -> void:
 		if not is_instance_valid(pet) or _host._get_actor_pet_id(pet) != pet_id:
 			continue
 		# Replacing a form invalidates the current desktop actor. End a possible
-		# sofa visit first so a stale actor cannot retain its comfort multiplier.
+		# sofa visit and offering walk first so no long-lived runtime dictionary
+		# retains the actor after its old form is released.
 		_host._release_sofa_interaction(pet_id, false)
+		_host._finish_pending_offering_for_actor(pet)
 		var spawn_x: float = float(pet.position.x)
 		var old_actor_key = str(pet.get_instance_id())
 		var battle_health: Variant = _battle_pet_health.get(old_actor_key, null)
@@ -755,6 +762,7 @@ func _on_pet_upgrade_requested(pet_id: String) -> void:
 	_selected_pet_id = pet_id
 	_apply_automatic_evolution_thresholds()
 	_sync_deployed_pet_level(pet_id)
+	_unlock_growth_eligible_pets()
 	_pet_upgrade_stats_dirty = true
 	_host._refresh_pet_stats(true)
 	_host._sync_shop_state()
@@ -882,6 +890,7 @@ func _on_debug_pet_levels_requested(levels: Dictionary) -> void:
 		return
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
 		_sync_deployed_pet_level(String(pet_id_value))
+	_unlock_growth_eligible_pets()
 	_pet_upgrade_stats_dirty = true
 	_host._refresh_pet_stats(true)
 	if _inventory_window != null and _inventory_window.visible:
@@ -931,16 +940,18 @@ func _apply_language() -> void:
 	if _event_invitation != null and is_instance_valid(_event_invitation) and _event_invitation.has_method("set_language"):
 		_event_invitation.call("set_language", _language)
 	var presentation_font := LanguageSettings.get_ui_font(_language)
-	for presentation_label in [
+	for presentation_value in [
 		_news_broadcast_label,
 		_pilgrimage_status_label,
 		_pilgrimage_broadcast_title,
 		_pilgrimage_broadcast_subtitle
 	]:
-		if presentation_label != null:
-			(presentation_label as Control).add_theme_font_override("font", presentation_font)
+		if not is_instance_valid(presentation_value) or not presentation_value is Control:
+			continue
+		var presentation_label := presentation_value as Control
+		presentation_label.add_theme_font_override("font", presentation_font)
 	_host._refresh_pilgrimage_broadcast_language()
-	if _news_broadcast_label != null and _news_broadcast_label.has_meta("news_entry"):
+	if is_instance_valid(_news_broadcast_label) and _news_broadcast_label.has_meta("news_entry"):
 		var active_news_entry: Variant = _news_broadcast_label.get_meta("news_entry")
 		if active_news_entry is Dictionary:
 			var active_category := String((active_news_entry as Dictionary).get("category", "异闻"))

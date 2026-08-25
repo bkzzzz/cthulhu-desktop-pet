@@ -164,6 +164,27 @@ func share_context(state_value: GameState, host_value: Variant) -> void:
 	_state = state_value
 	_host = host_value
 
+
+# Runtime dictionaries and typed arrays can temporarily retain an Object after
+# free(). Never use `as NodeType` on those values before validity is checked:
+# Godot raises "Trying to cast a freed object" at the cast itself.
+func _as_valid_node_2d(value: Variant) -> Node2D:
+	if not is_instance_valid(value) or not value is Node2D:
+		return null
+	return value as Node2D
+
+
+func _as_valid_sprite_2d(value: Variant) -> Sprite2D:
+	if not is_instance_valid(value) or not value is Sprite2D:
+		return null
+	return value as Sprite2D
+
+
+func _as_valid_tween(value: Variant) -> Tween:
+	if not is_instance_valid(value) or not value is Tween:
+		return null
+	return value as Tween
+
 var _pets: Array[Node2D]:
 	get: return _state._pets
 	set(value): _state._pets = value
@@ -470,9 +491,6 @@ var _next_pet_coin_drop_at: Dictionary:
 var _pet_coin_drop_intervals: Dictionary:
 	get: return _state._pet_coin_drop_intervals
 	set(value): _state._pet_coin_drop_intervals = value
-var _background_logic_time: float:
-	get: return _state._background_logic_time
-	set(value): _state._background_logic_time = value
 var _pointer_hover_time: float:
 	get: return _state._pointer_hover_time
 	set(value): _state._pointer_hover_time = value

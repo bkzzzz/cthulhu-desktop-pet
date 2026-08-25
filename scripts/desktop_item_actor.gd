@@ -7,7 +7,6 @@ signal grabbed_changed(actor: Node2D, grabbed: bool)
 signal recall_requested(actor: Node2D)
 
 const INPUT_PROXY_PADDING := 8.0
-const INPUT_PROXY_REFRESH_SECONDS := 1.0 / 20.0
 const INTERACTION_HINT_MIN_WIDTH := 154.0
 const INTERACTION_HINT_MAX_WIDTH := 292.0
 const INTERACTION_HINT_HORIZONTAL_PADDING := 12.0
@@ -36,7 +35,6 @@ var _interaction_area: Control
 var _interaction_hint: PanelContainer
 var _interaction_hint_action_label: Label
 var _interaction_rect := Rect2()
-var _input_proxy_elapsed := 0.0
 var _last_proxy_position := Vector2i(-100000, -100000)
 var _last_proxy_size := Vector2i.ZERO
 var _last_proxy_visible := false
@@ -47,6 +45,7 @@ func _ready() -> void:
 	_create_input_proxy()
 	_refresh_input_proxy(true)
 	_refresh_interaction_hint()
+	set_process(_dragging)
 
 
 func _exit_tree() -> void:
@@ -72,6 +71,7 @@ func setup(new_item_id: String, start_position: Vector2, window_size: Vector2i) 
 		_sprite.modulate = Color.WHITE
 	_refresh_input_proxy(true)
 	_refresh_interaction_hint()
+	set_process(false)
 
 
 func set_language(language_code: String) -> void:
@@ -114,17 +114,12 @@ func is_point_over_opaque_pixel(window_position: Vector2) -> bool:
 	return _interaction_rect.has_point(window_position)
 
 
-func _process(delta: float) -> void:
-	var safe_delta := maxf(0.0, delta)
+func _process(_delta: float) -> void:
 	if _dragging:
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_update_drag_position()
 		else:
 			_finish_drag()
-	_input_proxy_elapsed += safe_delta
-	if _dragging or _input_proxy_elapsed >= INPUT_PROXY_REFRESH_SECONDS:
-		_input_proxy_elapsed = 0.0
-		_refresh_input_proxy()
 
 
 func _input(event: InputEvent) -> void:
@@ -396,6 +391,7 @@ func _begin_drag() -> void:
 	if _dragging:
 		return
 	_dragging = true
+	set_process(true)
 	_recall_pointer_held = false
 	_grab_offset = position - _get_pointer_position()
 	_refresh_interaction_hint()
@@ -413,6 +409,7 @@ func _finish_drag() -> void:
 	if not _dragging:
 		return
 	_dragging = false
+	set_process(false)
 	_refresh_interaction_hint()
 	grabbed_changed.emit(self, false)
 	_refresh_input_proxy(true)

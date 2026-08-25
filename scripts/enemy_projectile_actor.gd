@@ -142,7 +142,11 @@ func _process(delta: float) -> void:
 	var collision := _find_swept_collision(previous_position, next_position)
 	if not collision.is_empty():
 		position = previous_position.lerp(next_position, float(collision.get("fraction", 1.0)))
-		_resolve_impact(collision.get("target") as Node2D)
+		var target_value: Variant = collision.get("target")
+		var collision_target: Node2D
+		if is_instance_valid(target_value) and target_value is Node2D:
+			collision_target = target_value as Node2D
+		_resolve_impact(collision_target)
 		return
 	if _elapsed >= _maximum_lifetime or _is_outside_padded_viewport():
 		_resolved = true

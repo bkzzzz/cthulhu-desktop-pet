@@ -15,6 +15,7 @@ signal drawer_opened
 const PetCatalog = preload("res://scripts/pet_catalog.gd")
 const RecoveryProgressRing = preload("res://scripts/recovery_progress_ring.gd")
 const BoostAura = preload("res://scripts/boost_aura.gd")
+const DrawerSymbolFlowScript = preload("res://scripts/drawer_symbol_flow.gd")
 const LanguageSettings = preload("res://scripts/domain/language_settings.gd")
 const CurrencyDisplay = preload("res://scripts/domain/currency_display.gd")
 const DisplayLayout = preload("res://scripts/domain/display_layout.gd")
@@ -66,7 +67,6 @@ const UPGRADE_ROW_SIZE := Vector2(468.0, 116.0)
 const UPGRADE_PROFILE_BOX_SIZE := Vector2(68.0, 68.0)
 const UPGRADE_ICON_SIZE := Vector2(62.0, 62.0)
 const UPGRADE_ROW_GAP := 6
-const UPGRADE_LOCKED_ROWS := 12
 const UPGRADE_SCROLL_TOP_PADDING := 18
 const UPGRADE_SCROLL_BOTTOM_PADDING := 20
 const UPGRADE_SCROLL_MIN_HEIGHT := 64.0
@@ -86,9 +86,6 @@ const SYMBOL_BURST_COOLDOWN_SECONDS := 0.12
 const SYMBOL_EFFECT_SIZE := Vector2(6.0, 9.0)
 const SYMBOL_SOURCE_SPREAD := Vector2(168.0, 196.0)
 const DRAWER_SYMBOL_COUNT := 22
-const DRAWER_SYMBOL_SIZE := Vector2(28.0, 40.0)
-const DRAWER_SYMBOL_SPEED_MIN := 18.0
-const DRAWER_SYMBOL_SPEED_MAX := 42.0
 const DRAWER_SYMBOL_UPDATE_INTERVAL := 1.0 / 30.0
 const UPGRADE_EFFECT_SIZE := Vector2(150.0, 142.0)
 const UPGRADE_DETAIL_HOVER_DELAY := 0.45
@@ -116,7 +113,14 @@ var _bookmark_container: VBoxContainer
 var _drawer_background: TextureRect
 var _drawer_panel: PanelContainer
 var _drawer_symbol_layer: Control
-var _drawer_symbols: Array[TextureRect] = []
+var _drawer_background_pending := false
+var _drawer_bookmarks_pending := false
+var _drawer_content: VBoxContainer
+var _drawer_content_shell_pending := false
+var _drawer_faith_assets_pending := false
+var _drawer_faith_pending := false
+var _drawer_upgrades_pending := false
+var _drawer_symbols_pending := false
 var _era_label: Label
 var _upgrade_detail_panel: PanelContainer
 var _upgrade_detail_window: Window
@@ -139,6 +143,7 @@ var _adder_glow: Sprite2D
 var _adder_button: TextureButton
 var _adder_stage: Control
 var _upgrade_scroller: ScrollContainer
+var _upgrade_column: VBoxContainer
 var _quit_button: Button
 var _drawer_open := false
 var _drawer_target_x := 0
@@ -177,55 +182,88 @@ var _upgrade_affordables := {}
 var _upgrade_recovery_rings := {}
 var _upgrade_icons := {}
 var _upgrade_boost_auras := {}
+var _pending_upgrade_pet_ids: Array[String] = []
 var _ui_theme: Theme
 var _ui_font: Font
 var _upgrade_row_texture: Texture2D
-var _menu_hit_images := {}
+var _faith_glow_texture: Texture2D
+var _faith_adder_texture: Texture2D
+var _texture_click_masks := {}
 var _bookmark_labels := {}
 var _language := LanguageSettings.DEFAULT_LANGUAGE
 var _playtime_seconds := 0.0
+var _era_display_text := ""
 var _rng := RandomNumberGenerator.new()
 var _symbol_effect_textures: Array[Texture2D] = []
 var _adder_symbol_burst_cooldown := 0.0
 var _drawer_symbol_update_time := 0.0
 var _display_layout_poll_time := 0.0
+var _menu_geometry_cache_valid := false
+var _cached_menu_window_size := Vector2i.ZERO
+var _cached_menu_window_position := Vector2i.ZERO
+var _drawer_geometry_cache_valid := false
+var _cached_drawer_usable_rect := Rect2i()
+var _cached_drawer_passthrough_polygon := PackedVector2Array()
+# Revisions are intentionally observable by the headless regression suite. They
+# count real geometry mutations, not layout polls, so repeated stable polls can
+# be guarded without depending on a native Windows backend.
+var _menu_geometry_revision := 0
+var _drawer_geometry_revision := 0
+var _idle_process_skip_count := 0
 
 
 func setup() -> void:
 	_rng.randomize()
-	_load_symbol_effect_textures()
 	_create_toggle_button()
-	_create_drawer_window()
 	_position_retry_frames = POSITION_RETRY_FRAMES
 	call_deferred("_place_menu_window")
 	call_deferred("_refresh_drawer_geometry")
 
 
 func _process(delta: float) -> void:
-	_adder_symbol_burst_cooldown = maxf(0.0, _adder_symbol_burst_cooldown - maxf(0.0, delta))
+	var safe_delta := maxf(0.0, delta)
+	_adder_symbol_burst_cooldown = maxf(0.0, _adder_symbol_burst_cooldown - safe_delta)
 	if _position_retry_frames > 0:
 		_position_retry_frames -= 1
-		_place_menu_window()
 		_refresh_drawer_geometry()
 	if _menu_drag_active and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_finish_menu_drag()
-	_display_layout_poll_time += maxf(0.0, delta)
+	_display_layout_poll_time += safe_delta
 	if _display_layout_poll_time >= DISPLAY_LAYOUT_POLL_SECONDS:
-		_display_layout_poll_time = 0.0
+		_display_layout_poll_time = fmod(_display_layout_poll_time, DISPLAY_LAYOUT_POLL_SECONDS)
 		if not _menu_drag_active:
 			_refresh_drawer_geometry()
 
-	_update_drawer_slide(delta)
+	# A closed, fully settled drawer only needs the low-frequency display-layout
+	# poll above. Avoid the remaining hover, slide, symbol, and detail checks on
+	# every rendered frame while preserving monitor/taskbar change detection.
+	if _is_stably_closed():
+		_idle_process_skip_count += 1
+		return
+
+	_update_drawer_slide(safe_delta)
 	if _drawer_window != null and _drawer_window.visible:
-		_update_upgrade_detail_hover(delta)
-		_drawer_symbol_update_time += maxf(0.0, delta)
+		if _drawer_open:
+			_build_pending_drawer_work(1)
+		_update_upgrade_detail_hover(safe_delta)
+		_drawer_symbol_update_time += safe_delta
 		if _drawer_symbol_update_time >= DRAWER_SYMBOL_UPDATE_INTERVAL:
 			_update_drawer_background_symbols(_drawer_symbol_update_time)
 			_drawer_symbol_update_time = 0.0
 		if _adder_glow != null:
-			_adder_glow.rotation += GLOW_ROTATION_SPEED * delta
+			_adder_glow.rotation += GLOW_ROTATION_SPEED * safe_delta
 	else:
 		_drawer_symbol_update_time = 0.0
+
+
+func _is_stably_closed() -> bool:
+	return (
+		_position_retry_frames <= 0
+		and not _menu_drag_active
+		and not _drawer_open
+		and (_drawer_window == null or not _drawer_window.visible)
+		and (_upgrade_detail_window == null or not _upgrade_detail_window.visible)
+	)
 
 
 func refresh_faith(faith_count: float, growth_rate: float) -> void:
@@ -265,7 +303,11 @@ func refresh_pet_upgrades(entries: Array) -> void:
 		if not entry_pet_id.is_empty():
 			entries_by_id[entry_pet_id] = entry_copy
 	_upgrade_entries = next_entries
-	if _drawer_window != null and not _drawer_window.visible and not _drawer_open:
+	if (
+		_drawer_window == null
+		or _upgrade_column == null
+		or (not _drawer_window.visible and not _drawer_open)
+	):
 		return
 
 	var any_boost_active := false
@@ -389,13 +431,13 @@ func set_pet_name(pet_id: String, display_name: String) -> void:
 
 
 func refresh_era(display_text: String) -> void:
+	_era_display_text = display_text.strip_edges()
 	if _era_label != null:
-		var next_text := display_text.strip_edges()
-		_era_label.text = next_text
+		_era_label.text = _era_display_text
 		# A missing calendar value used to leave a large, empty rounded box between
 		# the balances and the pet cards. Hide the complete control until there is
 		# actual information to present so the drawer remains intentionally spaced.
-		_era_label.visible = not next_text.is_empty()
+		_era_label.visible = not _era_display_text.is_empty()
 
 
 func refresh_playtime(total_seconds: float) -> void:
@@ -481,6 +523,8 @@ func is_upgrade_ui_visible() -> bool:
 
 
 func _create_toggle_button() -> void:
+	if _menu_window != null and is_instance_valid(_menu_window):
+		return
 	_menu_window = Window.new()
 	_menu_window.name = "MenuHandleWindow"
 	_menu_window.title = "菜单栏"
@@ -555,6 +599,8 @@ func _create_toggle_button() -> void:
 
 
 func _create_drawer_window() -> void:
+	if _drawer_window != null and is_instance_valid(_drawer_window):
+		return
 	_drawer_window = Window.new()
 	_drawer_window.name = "SideDrawerWindow"
 	_drawer_window.title = "Cthulu Panel"
@@ -572,6 +618,30 @@ func _create_drawer_window() -> void:
 	_drawer_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_drawer_window.add_child(_drawer_root)
 
+	_drawer_panel = PanelContainer.new()
+	_drawer_panel.name = "SideDrawer"
+	_drawer_panel.position = Vector2(DRAWER_BOOKMARK_WIDTH - 10, 0)
+	_drawer_panel.size = Vector2(DRAWER_PANEL_WIDTH + 10, _drawer_screen_size.y)
+	_drawer_panel.clip_contents = true
+	_drawer_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_drawer_panel.z_index = 3
+	_drawer_panel.add_theme_stylebox_override("panel", _make_panel_style())
+	_drawer_root.add_child(_drawer_panel)
+	_drawer_background_pending = true
+	_drawer_bookmarks_pending = true
+	_drawer_content_shell_pending = true
+	_drawer_faith_assets_pending = true
+	_drawer_faith_pending = true
+	_drawer_upgrades_pending = true
+	_drawer_symbols_pending = true
+
+	set_language(_language)
+	_refresh_drawer_geometry(false)
+
+
+func _create_drawer_background() -> void:
+	if _drawer_background != null or _drawer_root == null:
+		return
 	_drawer_background = TextureRect.new()
 	_drawer_background.name = "DrawerArtBackground"
 	_drawer_background.texture = _make_drawer_background_texture()
@@ -583,6 +653,10 @@ func _create_drawer_window() -> void:
 	_drawer_background.z_index = 2
 	_drawer_root.add_child(_drawer_background)
 
+
+func _create_drawer_bookmarks() -> void:
+	if _bookmark_container != null or _drawer_root == null:
+		return
 	_bookmark_container = VBoxContainer.new()
 	_bookmark_container.name = "DrawerBookmarks"
 	_bookmark_container.position = Vector2(BOOKMARK_SAFE_INSET_X, BOOKMARK_CONTAINER_TOP)
@@ -590,7 +664,6 @@ func _create_drawer_window() -> void:
 	_bookmark_container.z_index = 1
 	_bookmark_container.add_theme_constant_override("separation", BOOKMARK_SEPARATION)
 	_drawer_root.add_child(_bookmark_container)
-
 	_bookmark_container.add_child(_make_bookmark_button("仓库", _on_inventory_bookmark_pressed, "inventory"))
 	_bookmark_container.add_child(_make_bookmark_button("商店", _on_shop_bookmark_pressed, "shop"))
 	_bookmark_container.add_child(_make_bookmark_button("成就", _on_achievements_bookmark_pressed, "achievements"))
@@ -601,17 +674,14 @@ func _create_drawer_window() -> void:
 	bookmark_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_bookmark_container.add_child(bookmark_spacer)
 
-	_drawer_panel = PanelContainer.new()
-	_drawer_panel.name = "SideDrawer"
-	_drawer_panel.position = Vector2(DRAWER_BOOKMARK_WIDTH - 10, 0)
-	_drawer_panel.size = Vector2(DRAWER_PANEL_WIDTH + 10, _drawer_screen_size.y)
-	_drawer_panel.clip_contents = true
-	_drawer_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	_drawer_panel.z_index = 3
-	_drawer_panel.add_theme_stylebox_override("panel", _make_panel_style())
-	_drawer_root.add_child(_drawer_panel)
-	_create_drawer_symbol_layer()
-	_create_upgrade_detail_panel()
+	set_language(_language)
+	_drawer_geometry_cache_valid = false
+	_refresh_drawer_geometry()
+
+
+func _create_drawer_content_shell() -> void:
+	if _drawer_content != null or _drawer_panel == null:
+		return
 
 	var margin := MarginContainer.new()
 	margin.z_index = 2
@@ -622,29 +692,53 @@ func _create_drawer_window() -> void:
 	margin.add_theme_constant_override("margin_bottom", 20)
 	_drawer_panel.add_child(margin)
 
-	var content := VBoxContainer.new()
-	content.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, 1)
-	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_theme_constant_override("separation", 10)
-	margin.add_child(content)
+	_drawer_content = VBoxContainer.new()
+	_drawer_content.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, 1)
+	_drawer_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_drawer_content.add_theme_constant_override("separation", 10)
+	margin.add_child(_drawer_content)
 
-	content.add_child(_make_faith_adder_stage())
-	_create_era_label(content)
+
+func _create_drawer_faith_content() -> void:
+	if _drawer_content == null or _adder_stage != null:
+		return
+	_drawer_content.add_child(_make_faith_adder_stage())
+	_create_era_label(_drawer_content)
+	set_language(_language)
+	refresh_era(_era_display_text)
+	_refresh_adder_stage_geometry()
+
+
+func _load_drawer_faith_assets() -> void:
+	if _faith_glow_texture == null:
+		_faith_glow_texture = load(GLOW_TEXTURE) as Texture2D
+	if _faith_adder_texture == null:
+		_faith_adder_texture = load(ADDER_TEXTURE) as Texture2D
+	CurrencyDisplay.make_icon_texture(_coin_count)
+
+
+func _create_drawer_upgrade_content() -> void:
+	if _drawer_content == null or _upgrade_scroller != null:
+		return
 	var upgrade_offset := Control.new()
 	upgrade_offset.custom_minimum_size = Vector2(1, 4)
-	content.add_child(upgrade_offset)
-	content.add_child(_make_upgrade_scroller())
+	_drawer_content.add_child(upgrade_offset)
+	_drawer_content.add_child(_make_upgrade_scroller())
 
 	var footer := CenterContainer.new()
 	footer.name = "MenuFooter"
 	footer.custom_minimum_size = Vector2(1.0, 42.0)
 	footer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_child(footer)
+	_drawer_content.add_child(footer)
 	_quit_button = _make_quit_button()
 	footer.add_child(_quit_button)
 
 	set_language(_language)
-	_refresh_drawer_geometry(false)
+	refresh_era(_era_display_text)
+	# Geometry was already cached for the empty shell. Invalidate once so the
+	# newly materialized responsive controls adopt the current work-area height.
+	_drawer_geometry_cache_valid = false
+	_refresh_drawer_geometry()
 
 
 func _create_era_label(parent: Node) -> void:
@@ -690,7 +784,12 @@ func _make_drawer_background_texture() -> Texture2D:
 
 
 func _create_drawer_symbol_layer() -> void:
-	_drawer_symbol_layer = Control.new()
+	if _drawer_symbol_layer != null and is_instance_valid(_drawer_symbol_layer):
+		return
+	if _drawer_panel == null:
+		return
+	_load_symbol_effect_textures()
+	_drawer_symbol_layer = DrawerSymbolFlowScript.new()
 	_drawer_symbol_layer.name = "DrawerSymbolFlow"
 	_drawer_symbol_layer.position = Vector2.ZERO
 	_drawer_symbol_layer.size = _drawer_panel.size if _drawer_panel != null else Vector2(DRAWER_PANEL_WIDTH, _drawer_screen_size.y)
@@ -698,65 +797,20 @@ func _create_drawer_symbol_layer() -> void:
 	_drawer_symbol_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_drawer_symbol_layer.z_index = 0
 	_drawer_panel.add_child(_drawer_symbol_layer)
-
-	_drawer_symbols.clear()
-	for index in DRAWER_SYMBOL_COUNT:
-		var symbol := TextureRect.new()
-		symbol.name = "FlowSymbol%d" % index
-		symbol.texture = load(String(SYMBOL_EFFECT_TEXTURES[index % SYMBOL_EFFECT_TEXTURES.size()])) as Texture2D
-		symbol.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		symbol.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		symbol.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		symbol.z_index = 0
-		_drawer_symbol_layer.add_child(symbol)
-		_drawer_symbols.append(symbol)
-		_reset_drawer_symbol(symbol, true)
+	_drawer_symbol_layer.call("setup", _symbol_effect_textures, DRAWER_SYMBOL_COUNT)
 
 
 func _update_drawer_background_symbols(delta: float) -> void:
-	if _drawer_symbol_layer == null or _drawer_symbols.is_empty():
+	if _drawer_symbol_layer == null:
 		return
 	if _drawer_window == null or not _drawer_window.visible:
 		return
-
-	var panel_size := _drawer_symbol_layer.size
-	for symbol in _drawer_symbols:
-		if symbol == null or not is_instance_valid(symbol):
-			continue
-
-		var phase := float(symbol.get_meta("phase", 0.0)) + delta * float(symbol.get_meta("wave_speed", 0.6))
-		var y := symbol.position.y + float(symbol.get_meta("speed", DRAWER_SYMBOL_SPEED_MIN)) * delta
-		var x := float(symbol.get_meta("base_x", symbol.position.x)) + sin(phase) * float(symbol.get_meta("drift", 0.0))
-		symbol.position = Vector2(x, y)
-		symbol.set_meta("phase", phase)
-		if y > panel_size.y + symbol.size.y:
-			_reset_drawer_symbol(symbol, false)
-
-
-func _reset_drawer_symbol(symbol: TextureRect, scatter_y: bool) -> void:
-	if symbol == null:
-		return
-
-	var panel_size := Vector2(DRAWER_PANEL_WIDTH, float(_drawer_screen_size.y))
-	if _drawer_symbol_layer != null and _drawer_symbol_layer.size.x > 0.0 and _drawer_symbol_layer.size.y > 0.0:
-		panel_size = _drawer_symbol_layer.size
-
-	var scale := _rng.randf_range(0.9, 1.65)
-	symbol.size = DRAWER_SYMBOL_SIZE * scale
-	var max_x := maxf(28.0, panel_size.x - symbol.size.x - 28.0)
-	var base_x := _rng.randf_range(28.0, max_x)
-	var y := _rng.randf_range(-panel_size.y, panel_size.y) if scatter_y else -symbol.size.y - _rng.randf_range(4.0, 90.0)
-	symbol.position = Vector2(base_x, y)
-	symbol.modulate = Color(0.78, 1.0, 0.72, _rng.randf_range(0.14, 0.28))
-	symbol.rotation = _rng.randf_range(-0.12, 0.12)
-	symbol.set_meta("base_x", base_x)
-	symbol.set_meta("speed", _rng.randf_range(DRAWER_SYMBOL_SPEED_MIN, DRAWER_SYMBOL_SPEED_MAX))
-	symbol.set_meta("drift", _rng.randf_range(4.0, 18.0))
-	symbol.set_meta("wave_speed", _rng.randf_range(0.35, 0.9))
-	symbol.set_meta("phase", _rng.randf_range(0.0, TAU))
+	_drawer_symbol_layer.call("advance", delta)
 
 
 func _create_upgrade_detail_panel() -> void:
+	if _upgrade_detail_window != null and is_instance_valid(_upgrade_detail_window):
+		return
 	_upgrade_detail_window = Window.new()
 	_upgrade_detail_window.name = "UpgradeDetailWindow"
 	_upgrade_detail_window.title = "宠物详情"
@@ -876,6 +930,9 @@ func _create_upgrade_detail_panel() -> void:
 	_upgrade_detail_stats_label.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.02, 1.0))
 	_upgrade_detail_stats_label.add_theme_constant_override("outline_size", 2)
 	content.add_child(_upgrade_detail_stats_label)
+	# This window is materialized only after the hover delay, potentially long
+	# after the user changed languages. Apply the current locale immediately.
+	set_language(_language)
 
 
 func _make_faith_adder_stage() -> Control:
@@ -889,7 +946,9 @@ func _make_faith_adder_stage() -> Control:
 
 	_adder_glow = Sprite2D.new()
 	_adder_glow.name = "FaithAdderGlow"
-	var glow_texture := load(GLOW_TEXTURE) as Texture2D
+	var glow_texture := _faith_glow_texture
+	if glow_texture == null:
+		glow_texture = load(GLOW_TEXTURE) as Texture2D
 	_adder_glow.texture = glow_texture
 	_adder_glow.centered = true
 	_adder_glow.position = Vector2(DRAWER_CONTENT_WIDTH * 0.5 + 2.0, 68.0 + (GLOW_SIZE.y * 0.5))
@@ -1024,7 +1083,9 @@ func _make_faith_adder_button() -> TextureButton:
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	_adder_button = button
 	button.name = "FaithAdder"
-	button.texture_normal = load(ADDER_TEXTURE) as Texture2D
+	button.texture_normal = _faith_adder_texture
+	if button.texture_normal == null:
+		button.texture_normal = load(ADDER_TEXTURE) as Texture2D
 	button.texture_hover = button.texture_normal
 	button.texture_pressed = button.texture_normal
 	button.ignore_texture_size = true
@@ -1089,6 +1150,7 @@ func _refresh_adder_stage_geometry() -> void:
 
 func _make_upgrade_column() -> Control:
 	var column := VBoxContainer.new()
+	_upgrade_column = column
 	column.name = "UpgradeColumn"
 	column.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, 1)
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1104,12 +1166,74 @@ func _make_upgrade_column() -> Control:
 	_upgrade_recovery_rings.clear()
 	_upgrade_icons.clear()
 	_upgrade_boost_auras.clear()
+	_pending_upgrade_pet_ids.clear()
 	for pet_id_value in PetCatalog.ACTIVE_DESKTOP_PETS:
-		column.add_child(_make_pet_upgrade_row(String(pet_id_value)))
-	for index in UPGRADE_LOCKED_ROWS:
-		column.add_child(_make_locked_upgrade_row(index + PetCatalog.ACTIVE_DESKTOP_PETS.size() + 1))
+		_pending_upgrade_pet_ids.append(String(pet_id_value))
 
 	return column
+
+
+func _build_pending_upgrade_rows(max_rows := 1) -> void:
+	if _upgrade_column == null or _pending_upgrade_pet_ids.is_empty():
+		return
+	var rows_to_build := mini(maxi(1, max_rows), _pending_upgrade_pet_ids.size())
+	for _row_index in rows_to_build:
+		var pet_id: String = _pending_upgrade_pet_ids.pop_front()
+		_upgrade_column.add_child(_make_pet_upgrade_row(pet_id))
+	if _pending_upgrade_pet_ids.is_empty():
+		# State may have changed while the drawer was sliding in. Paint the complete
+		# set once after construction instead of repeatedly repainting every partial
+		# row, which would turn a linear build into quadratic work.
+		refresh_pet_upgrades(_upgrade_entries)
+
+
+func _build_pending_drawer_work(max_steps := 1) -> void:
+	var steps_left := maxi(1, max_steps)
+	while steps_left > 0 and _has_pending_drawer_build_work():
+		steps_left -= 1
+		if _drawer_background_pending:
+			_drawer_background_pending = false
+			_create_drawer_background()
+			continue
+		if _drawer_bookmarks_pending:
+			_drawer_bookmarks_pending = false
+			_create_drawer_bookmarks()
+			continue
+		if _drawer_content_shell_pending:
+			_drawer_content_shell_pending = false
+			_create_drawer_content_shell()
+			continue
+		if _drawer_faith_assets_pending:
+			_drawer_faith_assets_pending = false
+			_load_drawer_faith_assets()
+			continue
+		if _drawer_faith_pending:
+			_drawer_faith_pending = false
+			_create_drawer_faith_content()
+			continue
+		if _drawer_upgrades_pending:
+			_drawer_upgrades_pending = false
+			_create_drawer_upgrade_content()
+			continue
+		if not _pending_upgrade_pet_ids.is_empty():
+			_build_pending_upgrade_rows(1)
+			continue
+		if _drawer_symbols_pending:
+			_drawer_symbols_pending = false
+			_create_drawer_symbol_layer()
+
+
+func _has_pending_drawer_build_work() -> bool:
+	return (
+		_drawer_background_pending
+		or _drawer_bookmarks_pending
+		or _drawer_content_shell_pending
+		or _drawer_faith_assets_pending
+		or _drawer_faith_pending
+		or _drawer_upgrades_pending
+		or not _pending_upgrade_pet_ids.is_empty()
+		or _drawer_symbols_pending
+	)
 
 
 func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
@@ -1192,72 +1316,6 @@ func _make_pet_upgrade_row(pet_id: String) -> TextureButton:
 	button.add_child(level_label)
 	_upgrade_level_labels[pet_id] = level_label
 	_set_upgrade_row_locked_state(pet_id, not _has_upgrade_entry(pet_id))
-
-	return button
-
-
-func _make_locked_upgrade_row(display_index: int) -> TextureButton:
-	var button := TextureButton.new()
-	button.name = "LockedUpgrade%d" % display_index
-	_configure_upgrade_row_button(button, "未解锁", true)
-	_set_upgrade_row_affordable(button, false)
-	button.tooltip_text = _get_locked_pet_text()
-
-	var slot := PanelContainer.new()
-	slot.name = "LockedProfileBox"
-	slot.position = Vector2(17, 28)
-	slot.size = UPGRADE_PROFILE_BOX_SIZE
-	slot.custom_minimum_size = UPGRADE_PROFILE_BOX_SIZE
-	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slot.add_theme_stylebox_override("panel", _make_upgrade_profile_box_style())
-	button.add_child(slot)
-
-	var question := Label.new()
-	question.text = "?"
-	question.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	question.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	question.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	question.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	question.add_theme_font_size_override("font_size", 36)
-	question.add_theme_color_override("font_color", Color(0.76, 0.8, 0.77, 1.0))
-	slot.add_child(question)
-
-	var name_label := Label.new()
-	name_label.text = _get_locked_pet_text()
-	name_label.position = Vector2(106, 20)
-	name_label.size = Vector2(UPGRADE_ROW_SIZE.x - 252.0, 30)
-	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	name_label.add_theme_font_size_override("font_size", 18)
-	name_label.add_theme_color_override("font_color", Color(0.78, 0.82, 0.79, 1.0))
-	button.add_child(name_label)
-
-	var desc_label := Label.new()
-	desc_label.text = _get_locked_pet_description()
-	desc_label.position = Vector2(108, 59)
-	desc_label.size = Vector2(UPGRADE_ROW_SIZE.x - 252.0, 24)
-	desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	desc_label.add_theme_font_size_override("font_size", 14)
-	desc_label.add_theme_color_override("font_color", Color(0.68, 0.72, 0.69, 1.0))
-	button.add_child(desc_label)
-
-	var level_divider := ColorRect.new()
-	level_divider.name = "LockedLevelColumnDivider"
-	level_divider.position = Vector2(UPGRADE_ROW_SIZE.x - 128.0, 28.0)
-	level_divider.size = Vector2(1.0, 58.0)
-	level_divider.color = Color(0.64, 0.66, 0.58, 0.16)
-	level_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	button.add_child(level_divider)
-
-	var level_label := Label.new()
-	level_label.text = _get_locked_pet_level_text()
-	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	level_label.position = Vector2(UPGRADE_ROW_SIZE.x - 118.0, 30)
-	level_label.size = Vector2(96.0, 56.0)
-	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	level_label.add_theme_font_size_override("font_size", 20)
-	level_label.add_theme_color_override("font_color", Color(0.74, 0.78, 0.75, 1.0))
-	button.add_child(level_label)
 
 	return button
 
@@ -1904,6 +1962,8 @@ func _get_pet_display_name(pet_id: String, pet_data: Dictionary) -> String:
 
 func _show_upgrade_detail_panel(pet_id: String, button: Control) -> void:
 	if _upgrade_detail_panel == null:
+		_create_upgrade_detail_panel()
+	if _upgrade_detail_panel == null:
 		return
 	if not _has_upgrade_entry(pet_id):
 		_hide_upgrade_detail_panel()
@@ -2254,85 +2314,111 @@ func _on_faith_value_gui_input(event: InputEvent) -> void:
 			_faith_value_label.accept_event()
 
 
-func _get_button_hit_image(button: TextureButton) -> Image:
-	var key := button.name
-	var cached_image := _menu_hit_images.get(key) as Image
-	if cached_image != null:
-		return cached_image
-
+func _apply_texture_click_mask(button: TextureButton) -> void:
+	if button == null or button.texture_normal == null:
+		return
 	var texture := button.texture_normal
-	if texture == null:
-		return null
+	var cache_key := texture.resource_path
+	if cache_key.is_empty():
+		cache_key = str(texture.get_instance_id())
+	var cached_mask := _texture_click_masks.get(cache_key) as BitMap
+	if cached_mask != null:
+		button.texture_click_mask = cached_mask
+		return
 
 	var image := texture.get_image()
 	if image == null or image.is_empty():
-		return null
-
-	image.convert(Image.FORMAT_RGBA8)
-	_menu_hit_images[key] = image
-	return image
-
-
-func _apply_texture_click_mask(button: TextureButton) -> void:
-	var image := _get_button_hit_image(button)
-	if image == null or image.is_empty():
 		return
-
+	image.convert(Image.FORMAT_RGBA8)
 	var bitmap := BitMap.new()
 	bitmap.create_from_image_alpha(image, 0.08)
+	_texture_click_masks[cache_key] = bitmap
 	button.texture_click_mask = bitmap
 
 
 func _place_menu_window() -> void:
 	if _menu_window == null:
 		return
+	_apply_menu_window_geometry(
+		_get_current_screen_usable_rect(),
+		_get_current_screen_rect()
+	)
 
-	var usable_rect := _get_current_screen_usable_rect()
-	var screen_rect := _get_current_screen_rect()
-	_menu_window.size = MENU_WINDOW_SIZE
+
+func _apply_menu_window_geometry(usable_rect: Rect2i, screen_rect: Rect2i) -> void:
+	if _menu_window == null:
+		return
 	var anchor := (
 		clampf(_menu_handle_anchor, 0.0, 1.0)
 		if _menu_handle_anchor >= 0.0
 		else _get_default_menu_anchor(screen_rect, usable_rect)
 	)
-	_menu_window.position = _get_menu_position_for_anchor(
+	var target_position := _get_menu_position_for_anchor(
 		screen_rect,
 		usable_rect,
 		MENU_WINDOW_SIZE,
 		anchor
 	)
+	var geometry_changed := false
+	if (
+		not _menu_geometry_cache_valid
+		or _cached_menu_window_size != MENU_WINDOW_SIZE
+		or _menu_window.size != MENU_WINDOW_SIZE
+	):
+		if _menu_window.size != MENU_WINDOW_SIZE:
+			_menu_window.size = MENU_WINDOW_SIZE
+			geometry_changed = true
+	if (
+		not _menu_geometry_cache_valid
+		or _cached_menu_window_position != target_position
+		or _menu_window.position != target_position
+	):
+		if _menu_window.position != target_position:
+			_menu_window.position = target_position
+			geometry_changed = true
+	_cached_menu_window_size = MENU_WINDOW_SIZE
+	_cached_menu_window_position = target_position
+	_menu_geometry_cache_valid = true
+	if geometry_changed:
+		_menu_geometry_revision += 1
 	if not _menu_window.visible:
 		_menu_window.visible = true
 
 
 func _refresh_drawer_geometry(keep_current_slide := true) -> void:
 	if _drawer_window == null:
+		_place_menu_window()
 		return
+	_apply_drawer_window_geometry(
+		_get_current_screen_usable_rect(),
+		_get_current_screen_rect(),
+		keep_current_slide
+	)
 
-	var screen_rect := _get_current_screen_usable_rect()
-	var screen_right := screen_rect.position.x + screen_rect.size.x
+
+func _apply_drawer_window_geometry(
+	usable_rect: Rect2i,
+	screen_rect: Rect2i,
+	keep_current_slide := true
+) -> void:
+	if _drawer_window == null:
+		return
+	var screen_right := usable_rect.position.x + usable_rect.size.x
 	var open_x := screen_right - DRAWER_WIDTH
-	open_x = maxi(screen_rect.position.x, open_x)
+	open_x = maxi(usable_rect.position.x, open_x)
 	var drawer_width := screen_right - open_x
 	drawer_width = maxi(1, drawer_width)
-
-	_drawer_screen_position = Vector2i(open_x, screen_rect.position.y)
-	_drawer_closed_x = screen_right
-	_drawer_screen_size = Vector2i(drawer_width, screen_rect.size.y)
-	_drawer_window.size = _drawer_screen_size
-	_refresh_adder_stage_geometry()
-	var window_right := float(_drawer_screen_size.x)
-	var window_bottom := float(_drawer_screen_size.y)
+	var next_screen_position := Vector2i(open_x, usable_rect.position.y)
+	var next_screen_size := Vector2i(drawer_width, usable_rect.size.y)
+	var window_right := float(next_screen_size.x)
+	var window_bottom := float(next_screen_size.y)
 	var panel_left := minf(float(DRAWER_BOOKMARK_WIDTH - 10), window_right)
 	var bookmark_left := minf(float(BOOKMARK_SAFE_INSET_X), panel_left)
 	var bookmark_layout := _get_bookmark_layout(window_bottom)
 	var bookmark_top := bookmark_layout.x
 	var bookmark_scale := bookmark_layout.y
 	var bookmark_bottom := minf(bookmark_top + (BOOKMARK_CONTAINER_HEIGHT * bookmark_scale), window_bottom)
-	if _bookmark_container != null:
-		_bookmark_container.position = Vector2(BOOKMARK_SAFE_INSET_X, bookmark_top)
-		_bookmark_container.scale = Vector2.ONE * bookmark_scale
-	_drawer_window.mouse_passthrough_polygon = PackedVector2Array([
+	var next_passthrough_polygon := PackedVector2Array([
 		Vector2(panel_left, 0.0),
 		Vector2(window_right, 0.0),
 		Vector2(window_right, window_bottom),
@@ -2342,25 +2428,71 @@ func _refresh_drawer_geometry(keep_current_slide := true) -> void:
 		Vector2(bookmark_left, bookmark_top),
 		Vector2(panel_left, bookmark_top)
 	])
-	if _drawer_background != null:
-		_drawer_background.position = Vector2(DRAWER_BOOKMARK_WIDTH - 10, 0)
-		_drawer_background.size = Vector2(DRAWER_PANEL_WIDTH + 10, _drawer_screen_size.y)
-	if _drawer_panel != null:
-		_drawer_panel.size = Vector2(DRAWER_PANEL_WIDTH + 10, _drawer_screen_size.y)
-	if _drawer_symbol_layer != null:
-		_drawer_symbol_layer.size = Vector2(DRAWER_PANEL_WIDTH + 10, _drawer_screen_size.y)
-	if _upgrade_scroller != null:
-		_upgrade_scroller.custom_minimum_size = Vector2(DRAWER_CONTENT_WIDTH, _get_upgrade_scroll_height())
-	if _drawer_root != null:
-		_drawer_root.position = Vector2.ZERO
+	var layout_changed := (
+		not _drawer_geometry_cache_valid
+		or _cached_drawer_usable_rect != usable_rect
+		or _cached_drawer_passthrough_polygon != next_passthrough_polygon
+		or _drawer_window.size != next_screen_size
+		or _drawer_window.mouse_passthrough_polygon != next_passthrough_polygon
+	)
+	var geometry_changed := false
+	_drawer_screen_position = next_screen_position
+	_drawer_closed_x = screen_right
+	_drawer_screen_size = next_screen_size
+	if layout_changed:
+		if _drawer_window.size != next_screen_size:
+			_drawer_window.size = next_screen_size
+			geometry_changed = true
+		if _drawer_window.mouse_passthrough_polygon != next_passthrough_polygon:
+			_drawer_window.mouse_passthrough_polygon = next_passthrough_polygon
+			geometry_changed = true
+		_refresh_adder_stage_geometry()
+		if _bookmark_container != null:
+			var next_bookmark_position := Vector2(BOOKMARK_SAFE_INSET_X, bookmark_top)
+			var next_bookmark_scale := Vector2.ONE * bookmark_scale
+			if _bookmark_container.position != next_bookmark_position:
+				_bookmark_container.position = next_bookmark_position
+				geometry_changed = true
+			if not _bookmark_container.scale.is_equal_approx(next_bookmark_scale):
+				_bookmark_container.scale = next_bookmark_scale
+				geometry_changed = true
+		var panel_size := Vector2(DRAWER_PANEL_WIDTH + 10, next_screen_size.y)
+		if _drawer_background != null:
+			var background_position := Vector2(DRAWER_BOOKMARK_WIDTH - 10, 0)
+			if _drawer_background.position != background_position:
+				_drawer_background.position = background_position
+				geometry_changed = true
+			if _drawer_background.size != panel_size:
+				_drawer_background.size = panel_size
+				geometry_changed = true
+		if _drawer_panel != null and _drawer_panel.size != panel_size:
+			_drawer_panel.size = panel_size
+			geometry_changed = true
+		if _drawer_symbol_layer != null and _drawer_symbol_layer.size != panel_size:
+			_drawer_symbol_layer.size = panel_size
+			geometry_changed = true
+		if _upgrade_scroller != null:
+			var next_scroller_size := Vector2(DRAWER_CONTENT_WIDTH, _get_upgrade_scroll_height())
+			if _upgrade_scroller.custom_minimum_size != next_scroller_size:
+				_upgrade_scroller.custom_minimum_size = next_scroller_size
+				geometry_changed = true
+		if _drawer_root != null and _drawer_root.position != Vector2.ZERO:
+			_drawer_root.position = Vector2.ZERO
+			geometry_changed = true
+	_cached_drawer_usable_rect = usable_rect
+	_cached_drawer_passthrough_polygon = next_passthrough_polygon
+	_drawer_geometry_cache_valid = true
 
-	_place_menu_window()
+	_apply_menu_window_geometry(usable_rect, screen_rect)
 	_drawer_target_x = _drawer_screen_position.x if _drawer_open else _drawer_closed_x
-	if keep_current_slide:
-		return
-
-	var x := _drawer_screen_position.x if _drawer_open else _drawer_closed_x
-	_drawer_window.position = Vector2i(x, _drawer_screen_position.y)
+	if not keep_current_slide:
+		var x := _drawer_screen_position.x if _drawer_open else _drawer_closed_x
+		var target_position := Vector2i(x, _drawer_screen_position.y)
+		if _drawer_window.position != target_position:
+			_drawer_window.position = target_position
+			geometry_changed = true
+	if geometry_changed:
+		_drawer_geometry_revision += 1
 
 
 static func _get_bookmark_layout(window_height: float) -> Vector2:
@@ -2400,6 +2532,8 @@ func _toggle_drawer() -> void:
 	var opening := not _drawer_open
 	if not opening:
 		_hide_upgrade_detail_panel()
+	elif _drawer_window == null:
+		_create_drawer_window()
 	_refresh_drawer_geometry()
 	_drawer_open = opening
 	_drawer_target_x = _drawer_screen_position.x if _drawer_open else _drawer_closed_x

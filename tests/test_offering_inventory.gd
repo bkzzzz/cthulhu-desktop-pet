@@ -17,6 +17,7 @@ static func run() -> Array[String]:
 	_test_shop_card_text_safety(failures)
 	_test_shop_purchase_to_cursor(failures)
 	_test_pet_specific_timed_buff(failures)
+	_test_stale_offering_targets_are_settled(failures)
 	_test_removed_altar_api(failures)
 	return failures
 
@@ -356,6 +357,7 @@ static func _test_pet_specific_timed_buff(failures: Array[String]) -> void:
 		failures.append("feeding one pet must not boost any other pet")
 	var drawer := SideDrawer.new()
 	drawer.call("_create_drawer_window")
+	drawer.call("_build_pending_drawer_work", 64)
 	drawer.set("_drawer_open", true)
 	var boost_entries: Array[Dictionary] = main.call("_get_pet_upgrade_entries")
 	drawer.refresh_pet_upgrades(boost_entries)
@@ -384,6 +386,33 @@ static func _test_pet_specific_timed_buff(failures: Array[String]) -> void:
 	if (pet1_aura != null and pet1_aura.visible) or (faith_aura != null and faith_aura.visible):
 		failures.append("boost auras must turn off as soon as their timed offering expires")
 	drawer.free()
+	main.free()
+
+
+static func _test_stale_offering_targets_are_settled(failures: Array[String]) -> void:
+	# Evolution, battle defeat, or external teardown may release the assigned pet
+	# and offering sprite between world ticks. The paid food must be settled from
+	# its cached pet id without casting either freed Object.
+	var main := Main.new()
+	main.set("_persistence_enabled", false)
+	var target := Node2D.new()
+	var sprite := Sprite2D.new()
+	var feeds: Dictionary = main.get("_pending_offering_feeds")
+	feeds["stale_target"] = {
+		"target": target,
+		"sprite": sprite,
+		"pet_id": "pet1",
+		"offering": OfferingCatalog.normalize_offering({"id": "red_fruit"}),
+		"drop_position": Vector2(320.0, 240.0),
+		"expires_at": float(main.call("_get_now_seconds")) + 10.0,
+	}
+	target.free()
+	sprite.free()
+	main.call("_update_pending_offerings")
+	if not feeds.is_empty():
+		failures.append("a freed offering target must be removed on the next world tick")
+	if not is_equal_approx(float(main.call("_get_pet_offering_multiplier", "pet1")), 2.0):
+		failures.append("a paid offering must retain its assigned pet id when the actor is replaced")
 	main.free()
 
 

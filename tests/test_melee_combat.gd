@@ -9,6 +9,7 @@ static func run() -> Array[String]:
 	_test_battle_facing_is_target_stable(failures)
 	_test_melee_chases_while_ranged_holds(failures)
 	_test_battle_pet_safe_horizontal_bounds(failures)
+	_test_pet_target_cache_avoids_repeated_scans(failures)
 	_test_freed_target_lock_recovers(failures)
 	_test_enemy_entry_can_take_damage(failures)
 	_test_melee_enemy_finishes_entry_before_engaging(failures)
@@ -160,6 +161,50 @@ static func _test_battle_pet_safe_horizontal_bounds(failures: Array[String]) -> 
 	main.free()
 
 
+static func _test_pet_target_cache_avoids_repeated_scans(failures: Array[String]) -> void:
+	var main := Main.new()
+	main.set("_battle_active", true)
+	var controller := main.get("_battle_controller") as Node
+	var pet := Node2D.new()
+	pet.position = Vector2(700.0, 704.0)
+	main.add_child(pet)
+	var first_enemy := Node2D.new()
+	first_enemy.position = Vector2(420.0, 704.0)
+	main.add_child(first_enemy)
+	(main.get("_battle_enemies") as Array).append(first_enemy)
+	controller.call("_reset_battle_pet_target_full_scan_count")
+	if main.call("_get_battle_target_for_pet", pet) != first_enemy:
+		failures.append("pet target caching must acquire the nearest enemy on its first lookup")
+	for lookup_index in 64:
+		if main.call("_get_battle_target_for_pet", pet) != first_enemy:
+			failures.append("a stable enemy roster must preserve the cached pet target")
+			break
+	if int(controller.call("_get_battle_pet_target_full_scan_count")) != 1:
+		failures.append("65 stable pet target lookups must perform exactly one full enemy scan")
+	for frame_index in 60:
+		main.set("_simulation_now_seconds", float(frame_index + 1) / 60.0)
+		main.call("_get_battle_target_for_pet", pet)
+	var steady_second_scans := int(controller.call("_get_battle_pet_target_full_scan_count"))
+	if steady_second_scans > 10:
+		failures.append("60 Hz stable targeting must be throttled to at most ten full scans per second")
+
+	var nearer_enemy := Node2D.new()
+	nearer_enemy.position = Vector2(680.0, 704.0)
+	main.add_child(nearer_enemy)
+	(main.get("_battle_enemies") as Array).append(nearer_enemy)
+	if main.call("_get_battle_target_for_pet", pet) != nearer_enemy:
+		failures.append("adding a nearer enemy must bypass target throttling and retarget immediately")
+	if int(controller.call("_get_battle_pet_target_full_scan_count")) != steady_second_scans + 1:
+		failures.append("an enemy roster addition must cause one immediate replacement scan")
+
+	nearer_enemy.free()
+	if main.call("_get_battle_target_for_pet", pet) != first_enemy:
+		failures.append("an invalid cached enemy must be replaced immediately without waiting for the throttle")
+	if int(controller.call("_get_battle_pet_target_full_scan_count")) != steady_second_scans + 2:
+		failures.append("an invalid cached target must cause one immediate recovery scan")
+	main.free()
+
+
 static func _test_freed_target_lock_recovers(failures: Array[String]) -> void:
 	var main := Main.new()
 	main.set("_battle_active", true)
@@ -181,6 +226,11 @@ static func _test_freed_target_lock_recovers(failures: Array[String]) -> void:
 	var replacement := main.call("_get_battle_target_for_pet", pet) as Node2D
 	if replacement != next_enemy:
 		failures.append("a freed enemy target lock must be discarded and retargeted without aborting battle updates")
+	next_enemy.set("_dead", true)
+	if main.call("_get_battle_target_for_pet", pet) != null:
+		failures.append("a defeated cached enemy must be discarded immediately even before roster cleanup")
+	if (main.get("_battle_pet_enemy_targets") as Dictionary).has(actor_key):
+		failures.append("defeated enemy target locks must be removed from the shared battle cache")
 	main.free()
 
 
